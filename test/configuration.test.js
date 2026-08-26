@@ -29,6 +29,10 @@ Module._load = function (request, _parent, _isMain) {
 
 const { affectsDshmuxConfiguration, dshmuxConfiguration } = require("../out/configuration.js");
 
+test.after(() => {
+  Module._load = originalLoad;
+});
+
 test.beforeEach(() => {
   values.dshmux = {};
   values.deepseekHarness = {};
