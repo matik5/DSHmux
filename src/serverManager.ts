@@ -175,7 +175,11 @@ export function resolveDshPath(
   platform: NodeJS.Platform = process.platform
 ): { path: string | null; tried: string[] } {
   const isWin = platform === "win32";
-  const prefix = npmGlobalPrefix();
+  // An injected target platform is used by cross-platform tests. Do not mix
+  // the host machine's npm prefix (for example /opt/homebrew) into a simulated
+  // Windows candidate list; production uses process.platform and still probes
+  // the real global prefix.
+  const prefix = platform === process.platform ? npmGlobalPrefix() : "";
   const globalDir = isWin ? prefix : prefix ? path.join(prefix, "bin") : "";
 
   const candidates = [
