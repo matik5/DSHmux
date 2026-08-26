@@ -25,7 +25,6 @@ interface LauncherInit {
   state: ServerState;
   message?: string;
   version?: string;
-  workspaceName?: string;
   /** This extension's own version (shown under the sidebar title). */
   extVersion?: string;
   /** Latest dsh version known from the registry (upgrade hint, G-03). */
@@ -58,9 +57,6 @@ function launcherHtml(init: LauncherInit): string {
     init.state === "ready" && init.nextVersion
       ? t("upgrade.availableNext", { next: init.nextVersion })
       : "";
-  const workspaceText = init.workspaceName
-    ? t("launcher.workspace", { name: init.workspaceName })
-    : t("launcher.noWorkspace");
 
   return `<!DOCTYPE html>
 <html lang="${langCode()}">
@@ -126,12 +122,17 @@ button.upgrade {
   font-size: 12px;
 }
 button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,.1)); }
-/* Workspace + "Open in editor" live on the header row (right side) instead of
-   a separate footer row, so the launcher takes less vertical room. */
-.header-meta { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; }
-.header-meta .ws { font-size: 11.5px; color: var(--vscode-descriptionForeground); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.open-editor { background: none; border: none; padding: 0 4px; margin: 0; width: auto; font-size: 11.5px; color: var(--vscode-textLink-foreground, var(--vscode-charts-blue, #3794ff)); cursor: pointer; text-align: left; flex: 0 0 auto; white-space: nowrap; }
-.open-editor:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground, var(--vscode-charts-blue, #3794ff)); }
+/* "⋯" actions menu (Open in editor / Open Settings) sits on the header row's
+   right edge; the dropdown anchors below the button. */
+.header-meta { margin-left: auto; display: flex; align-items: center; flex: 0 0 auto; }
+.more { position: relative; display: inline-flex; }
+.more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; margin: 0; background: none; border: none; border-radius: 4px; color: var(--vscode-descriptionForeground); cursor: pointer; }
+.more-btn:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, rgba(128,128,128,.15))); color: var(--vscode-foreground); }
+.more-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.more-menu { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; min-width: 160px; padding: 4px; background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background)); border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, #454545)); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.more-item { display: block; width: 100%; padding: 6px 10px; background: none; border: none; border-radius: 4px; font-size: 12.5px; color: var(--vscode-foreground); text-align: left; cursor: pointer; white-space: nowrap; }
+.more-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,.15)); }
+.more-item:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .sessions { display: flex; flex-direction: column; gap: 8px; }
 .sessions-title { font-size: 11px; font-weight: 600; color: var(--vscode-descriptionForeground); text-transform: uppercase; letter-spacing: .5px; }
 .sessions-list { display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; min-width: 0; }
@@ -163,8 +164,15 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
       <button class="mini secondary" id="stop">${t("button.stop")}</button>
     </div>
     <div class="header-meta">
-      <span class="ws" id="workspace">${workspaceText}</span>
-      <button class="open-editor" id="openEditor" title="${t("launcher.openInEditor")}">${t("launcher.openInEditor")}</button>
+      <div class="more" id="moreWrap">
+        <button class="more-btn" id="moreBtn" aria-haspopup="true" aria-expanded="false" title="${t("launcher.more")}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+        </button>
+        <div class="more-menu" id="moreMenu" role="menu" style="display:none">
+          <button class="more-item" id="openEditor" role="menuitem">${t("launcher.openInEditor")}</button>
+          <button class="more-item" id="openSettings" role="menuitem">${t("launcher.openSettings")}</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -199,19 +207,35 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   var actions = document.getElementById("actions");
   var statusActions = document.getElementById("statusActions");
   var stop = document.getElementById("stop");
-  var workspace = document.getElementById("workspace");
   var upgradeLatest = document.getElementById("upgradeLatest");
   var upgradeNext = document.getElementById("upgradeNext");
   var newSession = document.getElementById("newSession");
   var sessionsList = document.getElementById("sessionsList");
   var openEditor = document.getElementById("openEditor");
+  var openSettings = document.getElementById("openSettings");
+  var moreBtn = document.getElementById("moreBtn");
+  var moreMenu = document.getElementById("moreMenu");
   var archExpanded = false; // survives the 5s poll re-render (archive section)
+  function closeMoreMenu() {
+    moreMenu.style.display = "none";
+    moreBtn.setAttribute("aria-expanded", "false");
+  }
   start.onclick = function(){ vscode.postMessage({ type: "start" }); };
   stop.onclick = function(){ vscode.postMessage({ type: "stop" }); };
   upgradeLatest.onclick = function(){ vscode.postMessage({ type: "upgrade", channel: "latest" }); };
   upgradeNext.onclick = function(){ vscode.postMessage({ type: "upgrade", channel: "next" }); };
   newSession.onclick = function(){ vscode.postMessage({ type: "new-session" }); };
-  openEditor.onclick = function(){ vscode.postMessage({ type: "open-in-editor" }); };
+  moreBtn.onclick = function(ev) {
+    ev.stopPropagation();
+    var open = moreMenu.style.display === "block";
+    moreMenu.style.display = open ? "none" : "block";
+    moreBtn.setAttribute("aria-expanded", open ? "false" : "true");
+  };
+  openEditor.onclick = function(){ closeMoreMenu(); vscode.postMessage({ type: "open-in-editor" }); };
+  openSettings.onclick = function(){ closeMoreMenu(); vscode.postMessage({ type: "open-settings" }); };
+  document.addEventListener("click", function(ev) {
+    if (moreMenu.style.display === "block" && !moreMenu.contains(ev.target) && ev.target !== moreBtn) closeMoreMenu();
+  });
   function renderSessions(items, archivedItems) {
     sessionsList.textContent = "";
     if (!items || items.length === 0) {
@@ -376,12 +400,6 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   window.addEventListener("message", function (e) {
     var m = e.data;
     if (!m || typeof m !== "object") return;
-    if (m.type === "workspace") {
-      workspace.textContent = m.name
-        ? ${JSON.stringify(t("launcher.workspace", { name: "{name}" }))}.replace("{name}", m.name)
-        : ${JSON.stringify(t("launcher.noWorkspace"))};
-      return;
-    }
     if (m.type === "upgrade-info") {
       setUpgrade(m.latest, m.next);
       return;
@@ -437,10 +455,6 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
       this.postStatus(info);
       this.syncPolling();
     });
-    // Keep the workspace label live: opening/closing a folder updates it.
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeWorkspaceFolders(() => this.postWorkspace())
-    );
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -467,7 +481,6 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
           url: this.manager.serverUrl,
           version: this.manager.dshVersion,
         });
-        this.postWorkspace();
       } else if (m.type === "start") {
         void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
           /* state machine drives the launcher */
@@ -488,6 +501,8 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
         this.sessionHandlers.archiveSession(m.sessionId);
       } else if (m.type === "open-in-editor") {
         this.onOpenInEditor();
+      } else if (m.type === "open-settings") {
+        void vscode.commands.executeCommand("workbench.action.openSettings", "@ext:matik5.dshmux");
       } else if (m.type === "refresh-sessions") {
         this.refreshSessions();
       }
@@ -508,14 +523,12 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
       extVersion,
       latestVersion: upd && isUpdateAvailable(currentVersion, upd.latest) ? upd.latest : undefined,
       nextVersion: upd && isUpdateAvailable(currentVersion, upd.next) ? upd.next : undefined,
-      workspaceName: vscode.workspace.workspaceFolders?.[0]?.name,
     });
     this.postStatus({
       state: this.manager.state,
       url: this.manager.serverUrl,
       version: this.manager.dshVersion,
     });
-    this.postWorkspace();
 
     // UX optimization (2026-08-18): opening the launcher icon means "I want to
     // use DSH" — auto-start the server when it is not running. start() is
@@ -592,11 +605,6 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
   /** Force an immediate refresh (after rename/new/close, not the next tick). */
   refreshSessions(): void {
     void this.pollSessions();
-  }
-
-  private postWorkspace(): void {
-    const name = vscode.workspace.workspaceFolders?.[0]?.name;
-    this.view?.webview.postMessage({ type: "workspace", name: name ?? null });
   }
 
   private postStatus(info: ServerInfo): void {

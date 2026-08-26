@@ -12,7 +12,6 @@ import { SessionPanelManager } from "./sessionPanels.js";
 import { DshLauncherView } from "./launcherView.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
-import { createDshStatusBar } from "./statusBar.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates, showUpgradeOptions, type UpgradeChannel } from "./versionCheckService.js";
 
@@ -128,7 +127,6 @@ export function activate(context: vscode.ExtensionContext): void {
     // Secondary surface: open the editor-tab panel (kept for now).
     () => panels.open()
   );
-  createDshStatusBar(context, manager);
 
   // Session handlers: new/open session loads it into the side-panel chat view
   // (primary, one at a time); rename syncs any editor-tab title; archive closes
