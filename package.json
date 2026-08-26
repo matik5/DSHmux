@@ -1,13 +1,13 @@
 {
-  "name": "deepseek-harness-web-for-vscode",
-  "displayName": "DeepSeek Harness Web for VS Code",
-  "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity — one-click start, editor-tab panel, shared instance with the browser, clipboard and theme sync.",
+  "name": "dshmux",
+  "displayName": "DSHmux",
+  "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity — side-panel chat, editor-tab view, shared browser state, sounds, clipboard, and theme sync.",
   "version": "0.3.3",
-  "publisher": "floatinghotpot",
+  "publisher": "matik5",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/floatinghotpot/deepseek-harness-web-for-vscode.git"
+    "url": "https://github.com/matik5/DSHmux.git"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -33,30 +33,30 @@
   "contributes": {
     "commands": [
       {
-        "command": "deepseek-harness-for-vscode.start",
+        "command": "dshmux.start",
         "title": "%command.start.title%",
-        "category": "DeepSeek Harness"
+        "category": "DSHmux"
       },
       {
-        "command": "deepseek-harness-for-vscode.stop",
+        "command": "dshmux.stop",
         "title": "%command.stop.title%",
-        "category": "DeepSeek Harness"
+        "category": "DSHmux"
       },
       {
-        "command": "deepseek-harness-for-vscode.openBrowser",
+        "command": "dshmux.openBrowser",
         "title": "%command.openBrowser.title%",
-        "category": "DeepSeek Harness"
+        "category": "DSHmux"
       },
       {
-        "command": "deepseek-harness-for-vscode.openPanel",
+        "command": "dshmux.openPanel",
         "title": "%command.openPanel.title%",
-        "category": "DeepSeek Harness"
+        "category": "DSHmux"
       }
     ],
     "configuration": {
-      "title": "DeepSeek Harness for VS Code",
+      "title": "DSHmux",
       "properties": {
-        "deepseekHarness.themeSync": {
+        "dshmux.themeSync": {
           "type": "string",
           "enum": [
             "follow",
@@ -64,24 +64,36 @@
           ],
           "default": "follow",
           "description": "%setting.themeSync.description%"
+        },
+        "dshmux.completionSound": {
+          "type": "boolean",
+          "default": true,
+          "description": "%setting.completionSound.description%"
         }
       }
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "deepseek-harness",
-          "title": "DeepSeek Harness",
+          "id": "dshmux",
+          "title": "DSHmux",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "deepseek-harness": [
+      "dshmux": [
         {
           "type": "webview",
-          "id": "deepseek-harness.view",
-          "name": "DeepSeek Harness"
+          "id": "dshmux.view",
+          "name": "DSHmux"
+        },
+        {
+          "type": "webview",
+          "id": "dshmux.chat",
+          "name": "%view.chat.name%",
+          "icon": "media/icon.svg",
+          "description": "%view.chat.description%"
         }
       ]
     }
@@ -107,6 +119,7 @@
   ],
   "icon": "media/icon.png",
   "keywords": [
+    "dshmux",
     "deepseek-harness",
     "deepseek",
     "ai-agent",

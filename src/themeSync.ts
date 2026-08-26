@@ -1,8 +1,9 @@
 // Theme sync (R7/T12): mirror the VS Code color theme into the DSH host
 // settings via the api (settings.update ns "ui-theme"), so the embedded UI
-// never renders light-on-dark. Honored only while the `deepseekHarness
-// .themeSync` setting is "follow" (default).
+// never renders light-on-dark. Honored only while `dshmux.themeSync` is
+// "follow" (default); the pre-rename key remains a read-only fallback.
 import * as vscode from "vscode";
+import { dshmuxConfiguration } from "./configuration.js";
 
 const SETTINGS_NS = "ui-theme";
 
@@ -15,8 +16,7 @@ function preferenceFor(kind: vscode.ColorThemeKind): "dark" | "light" {
 async function syncNow(getServerBase: () => string | undefined): Promise<void> {
   const base = getServerBase();
   if (!base) return;
-  const cfg = vscode.workspace.getConfiguration("deepseekHarness");
-  if (cfg.get<string>("themeSync") !== "follow") return;
+  if (dshmuxConfiguration("themeSync", "follow") !== "follow") return;
   const preference = preferenceFor(vscode.window.activeColorTheme.kind);
   try {
     await fetch(base + "/api/settings.update", {

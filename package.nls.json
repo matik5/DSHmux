@@ -3,5 +3,8 @@
   "command.stop.title": "Stop",
   "command.openBrowser.title": "Open in Browser",
   "setting.themeSync.description": "Follow the VS Code color theme into the embedded DSH UI.",
-  "command.openPanel.title": "Open Panel"
+  "setting.completionSound.description": "Play sounds for DSH session events: task finished, task started, and when the harness asks for your input.",
+  "command.openPanel.title": "Open Panel",
+  "view.chat.name": "DSHmux Chat",
+  "view.chat.description": "DSHmux chat (side panel)"
 }

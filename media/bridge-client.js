@@ -156,6 +156,182 @@
   }
   window.WebSocket = BridgeWebSocket;
 
+  // ------------------------------------------------- session sounds (Web Audio)
+  // DSH streams two frame kinds over the bridged WebSocket downlink, both
+  // observed in the ws-frame handler below (see observeFrame):
+  //   * host/session-status ({ type, sessionId, running }) on /api/events.host —
+  //     a running true->false edge means the task is DONE; turn/end is the
+  //     mux-stream fallback when the webview missed the preceding true frame.
+  //   * session/event       ({ type, sessionId, event }) on /api/events.mux —
+  //     event.type "turn/start" means a task was picked up and started; a
+  //     "tool/call" whose data.name is "ask_user_question", or the authoritative
+  //     question/requested frame, means the harness is asking for an answer.
+  // Each plays a distinct short sound (Web Audio API, no audio file), all gated
+  // by the single dshmux.completionSound master toggle.
+  var completionSoundEnabled = bridge.completionSound !== false; // default on
+  var runningBySession = {}; // sessionId -> last seen running bit
+  var lastSoundAt = {}; // "kind:sessionId" -> timestamp (dedupe fallback frames)
+  var audioCtx = null;
+  var pendingSoundKind = null;
+
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    return audioCtx;
+  }
+
+  // Chromium autoplay policy: an AudioContext created before any user gesture
+  // starts "suspended". Prime it on the first gesture so later completions can
+  // sound even when the user is not actively clicking (e.g. switched windows).
+  function primeAudio() {
+    var ctx = ensureAudioCtx();
+    if (!ctx) return;
+    function flushPending() {
+      if (ctx.state === "running" && pendingSoundKind) {
+        var kind = pendingSoundKind;
+        pendingSoundKind = null;
+        playSound(kind);
+      }
+    }
+    if (ctx.state !== "running") {
+      try {
+        var resumed = ctx.resume();
+        if (resumed && typeof resumed.then === "function") {
+          resumed.then(flushPending).catch(function () {});
+        } else {
+          flushPending();
+        }
+      } catch (_e) {}
+    } else {
+      flushPending();
+    }
+  }
+  // Capture phase matters: the embedded app may stop propagation on composer
+  // input events, but Chromium still requires a real user gesture to unlock
+  // Web Audio. Capture lets DSHmux prime the context before app handlers run.
+  window.addEventListener("pointerdown", primeAudio, { passive: true, capture: true });
+  window.addEventListener("keydown", primeAudio, { capture: true });
+  window.addEventListener("touchstart", primeAudio, { passive: true, capture: true });
+
+  // Distinct short sounds, all sine, all gated by the completionSound toggle.
+  // "done"  — task finished: two-tone ding-dong A5->D6 (most prominent).
+  // "ask"   — harness asks for your answer: rising two-tone C5->G5.
+  // "start" — a task is picked up / starts: one soft low "thock" (shortest).
+  var SOUNDS = {
+    done: [
+      { freq: 880.0, at: 0.0, gain: 0.28, decay: 0.32 },
+      { freq: 1174.66, at: 0.14, gain: 0.28, decay: 0.32 },
+    ],
+    ask: [
+      { freq: 523.25, at: 0.0, gain: 0.26, decay: 0.16 },
+      { freq: 784.0, at: 0.11, gain: 0.26, decay: 0.2 },
+    ],
+    start: [
+      { freq: 220.0, at: 0.0, gain: 0.2, decay: 0.09 },
+    ],
+  };
+
+  function scheduleSound(ctx, notes) {
+    var now = ctx.currentTime;
+    for (var i = 0; i < notes.length; i++) {
+      var n = notes[i];
+      var t0 = now + n.at;
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(n.freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(n.gain, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.02 + n.decay);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.02 + n.decay + 0.04);
+    }
+  }
+
+  function playSound(kind) {
+    var notes = SOUNDS[kind];
+    if (!notes) return;
+    var ctx = ensureAudioCtx();
+    if (!ctx) return;
+    function playWhenRunning() {
+      if (ctx.state !== "running") {
+        pendingSoundKind = kind;
+        return;
+      }
+      if (pendingSoundKind === kind) pendingSoundKind = null;
+      scheduleSound(ctx, notes);
+    }
+    if (ctx.state !== "running") {
+      pendingSoundKind = kind;
+      try {
+        var resumed = ctx.resume();
+        if (resumed && typeof resumed.then === "function") {
+          resumed.then(playWhenRunning).catch(function () {});
+        } else {
+          playWhenRunning();
+        }
+      } catch (_e) {}
+      return;
+    }
+    playWhenRunning();
+  }
+
+  function playSoundOnce(kind, sessionId) {
+    if (!completionSoundEnabled) return;
+    var key = kind + ":" + String(sessionId == null ? "" : sessionId);
+    var now = Date.now();
+    if (lastSoundAt[key] && now - lastSoundAt[key] < 2000) return;
+    lastSoundAt[key] = now;
+    playSound(kind);
+  }
+
+  // Observe one bridged WebSocket frame for sound-worthy transitions:
+  //   * host/session-status running true->false  -> "done"
+  //   * session/event turn/start                 -> "start"
+  //   * session/event tool/call ask_user_question-> "ask"
+  function observeFrame(data) {
+    var parsed;
+    try {
+      parsed = JSON.parse(data);
+    } catch (_e) {
+      return; // not a JSON frame (or malformed) — ignore
+    }
+    var payload = parsed && parsed.payload;
+    if (!payload) return;
+
+    if (payload.type === "host/session-status") {
+      var sid = payload.sessionId;
+      if (sid === void 0 || sid === null) return;
+      var running = payload.running === true;
+      var prev = runningBySession[sid];
+      runningBySession[sid] = running;
+      if (prev === true && running === false) playSoundOnce("done", sid);
+      return;
+    }
+
+    if (payload.type === "question/requested") {
+      playSoundOnce("ask", payload.sessionId);
+      return;
+    }
+
+    if (payload.type === "session/event") {
+      var ev = payload.event;
+      if (!ev || !ev.type) return;
+      if (ev.type === "turn/start") {
+        playSoundOnce("start", payload.sessionId);
+      } else if (ev.type === "turn/end") {
+        playSoundOnce("done", payload.sessionId);
+      } else if (ev.type === "tool/call" && ev.data && ev.data.name === "ask_user_question") {
+        playSoundOnce("ask", payload.sessionId);
+      }
+    }
+  }
+
   // ------------------------------------------------------------- clipboard
   try {
     var clipboardShim = {
@@ -215,6 +391,7 @@
         var wsFrame = findSocket(msg.id);
         if (!wsFrame) break;
         wsFrame._fire("message", { data: msg.data });
+        observeFrame(msg.data); // completion-sound detector (running true->false edge)
         break;
       }
       case "ws-close": {
@@ -243,6 +420,10 @@
             /* listener isolation */
           }
         });
+        break;
+      }
+      case "completion-sound": {
+        completionSoundEnabled = !!msg.enabled;
         break;
       }
       default:

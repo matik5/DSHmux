@@ -1,4 +1,4 @@
-// DeepSeek Harness editor panel (T8, revised 2026-08-17: sidebar -> editor
+// DSHmux editor panel (T8, revised 2026-08-17: sidebar -> editor
 // tab, display style aligned with Claude Code) + server-status overlay (T9).
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -8,13 +8,19 @@ import { assembleDocument } from "./documentAssembly.js";
 import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
+import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
 
 const DIST_DIR_NAME = "dsh-dist";
-const PANEL_TITLE = "DeepSeek Harness";
+const PANEL_TITLE = "DSHmux";
 
 function isDarkTheme(): boolean {
   const k = vscode.window.activeColorTheme.kind;
   return k === vscode.ColorThemeKind.Dark || k === vscode.ColorThemeKind.HighContrast;
+}
+
+/** dshmux.completionSound (default on), with legacy-setting fallback. */
+function completionSoundEnabled(): boolean {
+  return dshmuxConfiguration("completionSound", true);
 }
 
 /** Minimal shell shown before the server is ready (never a blank panel). */
@@ -54,7 +60,7 @@ border:none;border-radius:3px;padding:6px 16px;font-family:var(--vscode-font-fam
 #dsh-start:hover{background:var(--vscode-button-hoverBackground)}
 </style>
 <div id="dsh-overlay" hidden>
-  <div id="dsh-msg">DeepSeek Harness</div>
+  <div id="dsh-msg">DSHmux</div>
   <button id="dsh-start" style="display:none">${t("button.start")}</button>
 </div>
 <script>
@@ -80,7 +86,7 @@ border:none;border-radius:3px;padding:6px 16px;font-family:var(--vscode-font-fam
 
 /** One editor-tab WebviewPanel hosting the DSH UI over the transport bridge. */
 export class DshPanel {
-  public static readonly viewType = "deepseek-harness.panel";
+  public static readonly viewType = "dshmux.panel";
 
   private panel?: vscode.WebviewPanel;
   private bridge?: BridgeHost;
@@ -106,6 +112,15 @@ export class DshPanel {
         const dark =
           e.kind === vscode.ColorThemeKind.Dark || e.kind === vscode.ColorThemeKind.HighContrast;
         this.panel?.webview.postMessage({ type: "theme-preference", dark });
+      })
+    );
+    // Live completion-sound toggle: push the new value to the webview so the
+    // bridge-client detector picks it up without a page reload.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (affectsDshmuxConfiguration(e, "completionSound")) {
+          this.panel?.webview.postMessage({ type: "completion-sound", enabled: completionSoundEnabled() });
+        }
       })
     );
   }
@@ -176,7 +191,7 @@ export class DshPanel {
 
   /** Set the editor-tab title to reflect the session (review suggestion 3). */
   updateTitle(title: string): void {
-    if (this.panel) this.panel.title = title ? `DSH: ${title}` : PANEL_TITLE;
+    if (this.panel) this.panel.title = title ? `DSHmux: ${title}` : PANEL_TITLE;
   }
 
   /** Register a callback invoked when the editor tab is disposed (user close). */
@@ -213,6 +228,7 @@ export class DshPanel {
         bridgeClientJs: bridgeJs,
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
+        completionSound: completionSoundEnabled(),
         sessionPreset: this.pendingPreset,
         chromeHtml: statusChromeHtml(),
         log: (m) => console.log("[dsh] " + m),
