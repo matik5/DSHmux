@@ -1,7 +1,14 @@
 name: ci
+
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # POSIX first: macOS + Ubuntu run concurrently; Windows only starts after
