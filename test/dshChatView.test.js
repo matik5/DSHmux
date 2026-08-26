@@ -41,6 +41,7 @@ Module._load = function (request, _parent, _isMain) {
 const assembleCalls = [];
 let nextAssemblyError;
 const daPath = require.resolve("../out/documentAssembly.js");
+const originalDocumentAssemblyCacheEntry = require.cache[daPath];
 require.cache[daPath] = {
   id: daPath,
   filename: daPath,
@@ -59,6 +60,15 @@ require.cache[daPath] = {
 };
 
 const { DshChatView } = require("../out/dshChatView.js");
+
+test.after(() => {
+  Module._load = originalLoad;
+  if (originalDocumentAssemblyCacheEntry) {
+    require.cache[daPath] = originalDocumentAssemblyCacheEntry;
+  } else {
+    delete require.cache[daPath];
+  }
+});
 
 // --- Fakes for the constructor dependencies. ---
 function makeContext() {

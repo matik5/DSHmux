@@ -159,7 +159,7 @@ test("matchMedia shim follows __DSH_BRIDGE__.dark and theme-preference messages"
 // host/session-status running true->false edge and plays a Web Audio chime.
 // We stub window.AudioContext to count oscillator creation (one chime = 2 notes).
 function makeAudioStub(initialState = "running") {
-  const calls = { oscillators: 0, resumes: 0 };
+  const calls = { contexts: 0, oscillators: 0, resumes: 0 };
   const param = () => ({ setValueAtTime() {}, exponentialRampToValueAtTime() {} });
   class StubOscillator {
     constructor() {
@@ -175,7 +175,12 @@ function makeAudioStub(initialState = "running") {
     connect() { return this; }
   }
   class StubCtx {
-    constructor() { this.currentTime = 0; this.state = initialState; this.destination = {}; }
+    constructor() {
+      calls.contexts++;
+      this.currentTime = 0;
+      this.state = initialState;
+      this.destination = {};
+    }
     createOscillator() { return new StubOscillator(); }
     createGain() { return new StubGain(); }
     resume() {
@@ -371,4 +376,30 @@ test("audio priming listens in capture phase so DSH handlers cannot swallow the 
   assert.equal(h.listenerOptions.pointerdown[0].capture, true);
   assert.equal(h.listenerOptions.keydown[0].capture, true);
   assert.equal(h.listenerOptions.touchstart[0].capture, true);
+});
+
+test("audio priming does not allocate an AudioContext while sounds are disabled", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: false });
+  const { StubCtx, calls } = makeAudioStub("suspended");
+  h.window.AudioContext = StubCtx;
+
+  h.listeners.pointerdown.forEach((fn) => fn({}));
+
+  assert.equal(calls.contexts, 0);
+  assert.equal(calls.resumes, 0);
+});
+
+test("disabling sounds cancels a pending sound while AudioContext resumes", async () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub("suspended");
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/events.host");
+  const id = h.posted[0].id;
+
+  fireStatus(h, id, "s1", true);
+  fireStatus(h, id, "s1", false);
+  h.listeners.message.forEach((fn) => fn({ data: { type: "completion-sound", enabled: false } }));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(calls.oscillators, 0);
 });

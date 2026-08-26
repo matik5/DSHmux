@@ -187,6 +187,10 @@
   // starts "suspended". Prime it on the first gesture so later completions can
   // sound even when the user is not actively clicking (e.g. switched windows).
   function primeAudio() {
+    if (!completionSoundEnabled) {
+      pendingSoundKind = null;
+      return;
+    }
     var ctx = ensureAudioCtx();
     if (!ctx) return;
     function flushPending() {
@@ -259,6 +263,10 @@
     var ctx = ensureAudioCtx();
     if (!ctx) return;
     function playWhenRunning() {
+      if (!completionSoundEnabled) {
+        if (pendingSoundKind === kind) pendingSoundKind = null;
+        return;
+      }
       if (ctx.state !== "running") {
         pendingSoundKind = kind;
         return;
@@ -424,6 +432,7 @@
       }
       case "completion-sound": {
         completionSoundEnabled = !!msg.enabled;
+        if (!completionSoundEnabled) pendingSoundKind = null;
         break;
       }
       default:
