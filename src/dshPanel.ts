@@ -23,6 +23,11 @@ function completionSoundEnabled(): boolean {
   return dshmuxConfiguration("completionSound", true);
 }
 
+/** dshmux.frameFontScale (default 0.9), with legacy-setting fallback. */
+function frameFontScaleValue(): number {
+  return dshmuxConfiguration("frameFontScale", 0.9);
+}
+
 /** Minimal shell shown before the server is ready (never a blank panel). */
 function placeholderHtml(): string {
   return `<!DOCTYPE html>
@@ -120,6 +125,11 @@ export class DshPanel {
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (affectsDshmuxConfiguration(e, "completionSound")) {
           this.panel?.webview.postMessage({ type: "completion-sound", enabled: completionSoundEnabled() });
+        }
+        if (affectsDshmuxConfiguration(e, "frameFontScale")) {
+          // The scale is baked into the assembled document, so re-assemble.
+          // No-op while the server is not running (refresh guards on it).
+          void this.refresh();
         }
       })
     );
@@ -229,6 +239,7 @@ export class DshPanel {
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
         completionSound: completionSoundEnabled(),
+        frameFontScale: frameFontScaleValue(),
         sessionPreset: this.pendingPreset,
         chromeHtml: statusChromeHtml(),
         log: (m) => console.log("[dsh] " + m),

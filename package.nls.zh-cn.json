@@ -4,6 +4,7 @@
   "command.openBrowser.title": "在浏览器打开",
   "setting.themeSync.description": "将 VS Code 主题同步到内嵌的 DSH 界面。",
   "setting.completionSound.description": "为 DSH 会话事件播放提示音：任务完成、任务开始、以及需要您输入时。",
+  "setting.frameFontScale.description": "内嵌 DSH 界面内容的缩放（1 = 默认大小）。数值越小，DSH 界面越紧凑。",
   "command.openPanel.title": "打开面板",
   "view.chat.name": "DSHmux 对话",
   "view.chat.description": "DSHmux 对话（侧边栏）"

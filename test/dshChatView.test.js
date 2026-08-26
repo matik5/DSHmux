@@ -145,7 +145,7 @@ test("loadSession re-assembles with the chosen session baked into the preset", a
     JSON.stringify({ sessionId: "sess-42" }),
     "the re-assembly must bake the chosen session into the <head> preset"
   );
-  assert.equal(assembleCalls[0].frameFontScale, 0.8, "side-panel DSH frame must default to 80% root font size");
+  assert.equal(assembleCalls[0].frameFontScale, 0.9, "side-panel DSH frame must default to 90% root font size (dshmux.frameFontScale default)");
 
   const chrome = assembleCalls[0].chromeHtml;
   assert.match(chrome, /data-mode="session"/, "session-loading overlay must have dimming styles");

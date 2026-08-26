@@ -69,6 +69,13 @@
           "type": "boolean",
           "default": true,
           "description": "%setting.completionSound.description%"
+        },
+        "dshmux.frameFontScale": {
+          "type": "number",
+          "default": 0.9,
+          "minimum": 0.5,
+          "maximum": 1.5,
+          "description": "%setting.frameFontScale.description%"
         }
       }
     },
