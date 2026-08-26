@@ -13,7 +13,7 @@
 
 ## Screenshot / 截图
 
-![DSHmux 在 Antigravity 中内嵌 DeepSeek Harness](media/antigravity.jpg)
+![DSHmux 在 VS Code 中内嵌 DeepSeek Harness](media/vscode-screenshot.png)
 
 ## 功能
 
