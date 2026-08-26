@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Renamed the project, extension identity, views, commands, and settings to **DSHmux** (`matik5.dshmux`; repository `matik5/DSHmux`). Legacy `deepseekHarness.*` setting values remain readable for compatibility.
+- Renamed the primary side view to **DSHmux Chat** and reveal it automatically after VS Code or the extension host restarts.
+- Added an immediate dimmed loading overlay and progress bar while switching the side-panel chat to another DSH session.
+- Fixed Web Audio cues in suspended Chromium webviews, added `turn/end` and `question/requested` protocol fallbacks, and prevented duplicate fallback sounds.
+- Reduced the side-panel DSH frame's default root font size to 80%; the editor-tab view keeps the upstream size.
+
 **English** | [中文](CHANGELOG.zh.md)
 
 All notable changes to this project are documented in this file.
