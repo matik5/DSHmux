@@ -160,7 +160,7 @@ export async function showUpgradeOptions(
     return;
   }
 
-  const terminal = vscode.window.createTerminal("DeepSeek Harness upgrade");
+  const terminal = vscode.window.createTerminal("DSHmux upgrade");
   terminal.show();
   terminal.sendText(picked.command, false); // prefill only — user presses Enter
   vscode.window.showInformationMessage(t("upgrade.prefilled", { command: picked.command }));

@@ -4,8 +4,8 @@ import * as vscode from "vscode";
 import { DshServerManager, type ServerInfo, type ServerState } from "./serverManager.js";
 import { t } from "./i18n.js";
 
-const CMD_START = "deepseek-harness-for-vscode.start";
-const CMD_OPEN_PANEL = "deepseek-harness-for-vscode.openPanel";
+const CMD_START = "dshmux.start";
+const CMD_OPEN_PANEL = "dshmux.openPanel";
 
 export function createDshStatusBar(
   context: vscode.ExtensionContext,

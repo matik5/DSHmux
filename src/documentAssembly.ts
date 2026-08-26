@@ -25,6 +25,13 @@ export interface AssembleOptions {
   cspSource: string;
   /** VS Code dark-mode hint, injected into __DSH_BRIDGE__ for the matchMedia shim. */
   themeDark?: boolean;
+  /** dshmux.completionSound: play a chime when a session's task ends.
+   *  Injected into __DSH_BRIDGE__ so the bridge-client completion detector has
+   *  the initial value at boot (runtime changes arrive via a "completion-sound"
+   *  postMessage). */
+  completionSound?: boolean;
+  /** Root font scale for narrow embedded surfaces (1 = upstream default). */
+  frameFontScale?: number;
   /** Optional localStorage preset for `dsh.sessions.current` (req R2/T7d):
    *  written before the DSH module script runs so the frontend selects the
    *  IDE workspace instead of the "most recently active" one. */
@@ -121,7 +128,7 @@ let distDownloadInFlight: Promise<void> | undefined;
  * fresh download; an unchanged rev reuses the cached tree.
  */
 export async function assembleDocument(opts: AssembleOptions): Promise<Assembled> {
-  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, cspSource, themeDark, chromeHtml, log } = opts;
+  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, cspSource, themeDark, completionSound, frameFontScale, chromeHtml, log } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const logf = log ?? (() => {});
 
@@ -159,7 +166,10 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
   html = rewriteBootPluginPreloads(html, serverBase);
 
   const bootScript =
-    `<script>window.__DSH_BRIDGE__ = ${JSON.stringify({ serverBase, ...(themeDark !== undefined ? { dark: themeDark } : {}) })}<\/script>` +
+    `<script>window.__DSH_BRIDGE__ = ${JSON.stringify({ serverBase, ...(themeDark !== undefined ? { dark: themeDark } : {}), ...(completionSound !== undefined ? { completionSound } : {}) })}<\/script>` +
+    (frameFontScale !== undefined
+      ? `<style id="dshmux-frame-font-scale">html { font-size: ${frameFontScale * 100}% !important; }<\/style>`
+      : "") +
     (opts.sessionPreset
       ? `<script>try { localStorage.setItem("dsh.sessions.current", ${JSON.stringify(opts.sessionPreset)}); } catch (e) { console.error("[dsh] session preset failed", e); }<\/script>`
       : "") +

@@ -210,3 +210,18 @@ test("assembleDocument omits the preset script when none is provided", async (t)
   });
   assert.ok(!html.includes('dsh.sessions.current'));
 });
+
+test("assembleDocument injects an explicit frame font scale", async (t) => {
+  const server = await serveDist(t);
+  const dist = tmpdir(t);
+  const out = await assembleDocument({
+    serverBase: server.url,
+    distRootPath: dist,
+    asWebviewUri,
+    bridgeClientJs: "/* bridge */",
+    cspSource: "wv:",
+    frameFontScale: 0.8,
+  });
+  assert.match(out.html, /id="dshmux-frame-font-scale"/);
+  assert.match(out.html, /font-size: 80% !important/);
+});

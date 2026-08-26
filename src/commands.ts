@@ -12,24 +12,27 @@ export function workspaceRoot(): string {
 export function registerCommands(
   context: vscode.ExtensionContext,
   manager: DshServerManager,
-  revealPanel: () => void
+  /** Primary surface: reveal/focus the side-panel chat view (2026-08-23). */
+  revealChat: () => void,
+  /** Secondary surface: open the editor-tab panel (kept, no longer default). */
+  openEditorPanel: () => void
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("deepseek-harness-for-vscode.start", async () => {
+    vscode.commands.registerCommand("dshmux.start", async () => {
       try {
         const url = await manager.start({ cwd: workspaceRoot() });
-        revealPanel();
-        vscode.window.showInformationMessage(`DeepSeek Harness ready at ${url}`);
+        revealChat();
+        vscode.window.showInformationMessage(`DSHmux ready at ${url}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(t("command.startFailed", { message: msg }));
       }
     }),
-    vscode.commands.registerCommand("deepseek-harness-for-vscode.stop", async () => {
+    vscode.commands.registerCommand("dshmux.stop", async () => {
       manager.stop();
-      vscode.window.showInformationMessage("DeepSeek Harness stopped.");
+      vscode.window.showInformationMessage("DSHmux stopped.");
     }),
-    vscode.commands.registerCommand("deepseek-harness-for-vscode.openBrowser", async () => {
+    vscode.commands.registerCommand("dshmux.openBrowser", async () => {
       const url = manager.serverUrl;
       if (!url) {
         vscode.window.showWarningMessage(t("command.notRunning"));
@@ -37,8 +40,8 @@ export function registerCommands(
       }
       await vscode.env.openExternal(vscode.Uri.parse(url));
     }),
-    vscode.commands.registerCommand("deepseek-harness-for-vscode.openPanel", () => {
-      revealPanel();
+    vscode.commands.registerCommand("dshmux.openPanel", () => {
+      openEditorPanel();
     })
   );
 }
