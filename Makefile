@@ -1,4 +1,4 @@
-# DeepSeek Harness for VS Code — task automation
+# DSHmux — task automation
 # Tokens are read from the environment only (already exported in ~/.zshrc);
 # this file stores no secrets. Every recipe that uses a token starts with @
 # so the command line (and the token value) is never echoed to the terminal.
@@ -54,7 +54,7 @@ publish-ovsx-only: ## (internal) Publish prebuilt vsix to Open VSX — no packag
 
 namespace: ## Create the Open VSX namespace (needs OVSX_TOKEN)
 	@test -n "$$OVSX_TOKEN" || { echo "Error: OVSX_TOKEN is not set"; exit 1; }
-	@npx --yes ovsx create-namespace floatinghotpot -p "$$OVSX_TOKEN"
+	@npx --yes ovsx create-namespace matik5 -p "$$OVSX_TOKEN"
 
 tag: ## Create git tag v<version> (does not push)
 	git tag v$(VERSION)

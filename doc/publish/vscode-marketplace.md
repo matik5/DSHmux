@@ -9,7 +9,7 @@
 ### 1.1 创建 Publisher 与 Azure DevOps 组织
 1. 访问 [VS Code Marketplace Publisher 管理页](https://aka.ms/vscode-create-publisher)；
 2. 使用微软账号登录，并创建/选择一个关联的 **Azure DevOps Organization**；
-3. 创建 Publisher ID（本项目为 `floatinghotpot`）。
+3. 创建 Publisher ID（本项目为 `matik5`）。
 
 ### 1.2 申请 Personal Access Token (PAT)
 1. 登录关联的 Azure DevOps 组织（`https://dev.azure.com/<Your-Org>`）；
@@ -23,7 +23,7 @@
 ### 1.3 本地登录认领
 在本地终端执行登录以缓存凭据（凭据保存在 `~/.vsce`）：
 ```sh
-npx --no-install vsce login floatinghotpot
+npx --no-install vsce login matik5
 # 在交互提示中粘贴生成的 PAT
 ```
 
@@ -49,7 +49,7 @@ npm run compile
 npx --no-install vsce package
 
 # 2. 发布指定 VSIX 文件（使用 --packagePath 避免自动 bump/tag）
-npx --no-install vsce publish --packagePath deepseek-harness-web-for-vscode-<version>.vsix
+npx --no-install vsce publish --packagePath dshmux-<version>.vsix
 ```
 
 ---
@@ -61,7 +61,7 @@ npx --no-install vsce publish --packagePath deepseek-harness-web-for-vscode-<ver
   * 在 [Visual Studio Marketplace 管理后台](https://marketplace.visualstudio.com/manage) 找到对应扩展，选择 **Unpublish**；
   * 或通过 CLI 下架：
     ```sh
-    npx --no-install vsce unpublish floatinghotpot.deepseek-harness-web-for-vscode
+    npx --no-install vsce unpublish matik5.dshmux
     ```
 
 ---
@@ -78,4 +78,4 @@ npx --no-install vsce publish --packagePath deepseek-harness-web-for-vscode-<ver
 
 ### 4.2 Publisher 命名与扩展名冲突
 - **注意**: VS Code Marketplace 的扩展 ID 具有全局唯一性约束。
-- 本扩展官方 ID 已统一为 `floatinghotpot.deepseek-harness-web-for-vscode`。
+- 本扩展 ID 为 `matik5.dshmux`。

@@ -1,7 +1,7 @@
 # 发布指南（Publishing Guide）
 
-**适用项目**: `floatinghotpot/deepseek-harness-web-for-vscode`  
-**扩展 ID**: `floatinghotpot.deepseek-harness-web-for-vscode`
+**适用项目**: `matik5/DSHmux`
+**扩展 ID**: `matik5.dshmux`
 
 ---
 
@@ -9,8 +9,8 @@
 
 | 渠道 | Publisher / Namespace | 目标平台 | 说明 |
 |---|---|---|---|
-| **VS Code Marketplace** | `floatinghotpot` | 官方 VS Code / Cursor | 微软官方扩展商店 |
-| **Open VSX** | `floatinghotpot` | Google Antigravity / VSCodium / Gitpod | Eclipse 开源扩展注册表 |
+| **VS Code Marketplace** | `matik5` | 官方 VS Code / Cursor | 微软官方扩展商店 |
+| **Open VSX** | `matik5` | Google Antigravity / VSCodium / Gitpod | Eclipse 开源扩展注册表 |
 
 ---
 
@@ -19,7 +19,7 @@
 推荐使用已封装的 `Makefile` 自动化指令（令牌均从环境变量读取，执行命令带 `@` 零回显）：
 
 ```sh
-# 1. 编译并打包 VSIX（产物：deepseek-harness-web-for-vscode-<version>.vsix）
+# 1. 编译并打包 VSIX（产物：dshmux-<version>.vsix）
 make package
 
 # 2. 单独发布至 VS Code Marketplace（需配置 VSCE_PAT 环境变量或已 vsce login）

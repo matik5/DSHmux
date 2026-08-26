@@ -1,5 +1,13 @@
 # 更新日志
 
+## 未发布
+
+- 项目、扩展 ID、视图、命令和设置统一更名为 **DSHmux**（`matik5.dshmux`；仓库 `matik5/DSHmux`）。为兼容旧配置，仍会读取已有的 `deepseekHarness.*` 设置值。
+- 主侧边视图更名为 **DSHmux 对话**，并在 VS Code 或扩展宿主重启后自动显示。
+- 在侧边栏对话切换到其他 DSH 会话时，立即显示变暗的加载遮罩和进度条。
+- 修复 Chromium webview 音频上下文挂起时提示音不播放的问题，补充 `turn/end` 与 `question/requested` 协议事件，并避免回退事件重复播放。
+- 侧边栏 DSH frame 的默认根字号调整为 80%；编辑器标签页保留上游字号。
+
 [English](CHANGELOG.md) | **中文**
 
 本文件记录项目的所有重要变更。

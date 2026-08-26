@@ -25,9 +25,9 @@
 2. 点击 **Generate New Token**，复制生成的 Token（仅显示一次）。
 
 ### 1.4 创建 Namespace（必须通过 CLI）
-在本地终端执行以下命令创建 Namespace（`floatinghotpot`）：
+在本地终端执行以下命令创建 Namespace（`matik5`）：
 ```sh
-npx --yes ovsx create-namespace floatinghotpot -p <YOUR_OVSX_TOKEN>
+npx --yes ovsx create-namespace matik5 -p <YOUR_OVSX_TOKEN>
 ```
 *注：也可以使用已封装的 `make namespace`（需先导出 `OVSX_TOKEN` 环境变量）。*
 
@@ -48,7 +48,7 @@ npm run compile
 npx --no-install vsce package
 
 # 2. 发布至 Open VSX
-npx --yes ovsx publish deepseek-harness-web-for-vscode-<version>.vsix -p "$OVSX_TOKEN"
+npx --yes ovsx publish dshmux-<version>.vsix -p "$OVSX_TOKEN"
 ```
 
 ---
@@ -70,4 +70,4 @@ Open VSX 在每次包上传时会自动执行后台静态扫描：
 
 ### 4.2 "Namespace does not exist"
 - **根因**: 未执行 CLI 创建命名空间操作。
-- **对策**: 运行 `npx --yes ovsx create-namespace floatinghotpot -p <TOKEN>` 完成一次性创建。
+- **对策**: 运行 `npx --yes ovsx create-namespace matik5 -p <TOKEN>` 完成一次性创建。
