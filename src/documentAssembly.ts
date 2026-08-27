@@ -32,7 +32,11 @@ export interface AssembleOptions {
   completionSound?: boolean;
   /** Content zoom for the embedded DSH frame (1 = upstream size). The DSH app
    *  is px-based (no rem), so a root font-size scale would be a no-op; zoom
-   *  scales fonts, spacing, and layout uniformly. */
+   *  scales fonts, spacing, and layout uniformly. No height compensation is
+   *  needed: with `zoom: Z`, a `height: 100%` box already renders at the full
+   *  viewport (zoom expands the layout box to 100/Z, which scales back to 100).
+   *  Adding `height: 100/Z%` would make #root render at 100/Z of the viewport,
+   *  overflow the document, and break the app's sticky composer. */
   frameFontScale?: number;
   /** Optional localStorage preset for `dsh.sessions.current` (req R2/T7d):
    *  written before the DSH module script runs so the frontend selects the
@@ -170,7 +174,7 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
   const bootScript =
     `<script>window.__DSH_BRIDGE__ = ${JSON.stringify({ serverBase, ...(themeDark !== undefined ? { dark: themeDark } : {}), ...(completionSound !== undefined ? { completionSound } : {}) })}<\/script>` +
     (frameFontScale !== undefined
-      ? `<style id="dshmux-frame-font-scale">#root { zoom: ${frameFontScale}; height: ${parseFloat((100 / frameFontScale).toFixed(4))}% !important; }<\/style>`
+      ? `<style id="dshmux-frame-font-scale">#root { zoom: ${frameFontScale}; }<\/style>`
       : "") +
     (opts.sessionPreset
       ? `<script>try { localStorage.setItem("dsh.sessions.current", ${JSON.stringify(opts.sessionPreset)}); } catch (e) { console.error("[dsh] session preset failed", e); }<\/script>`

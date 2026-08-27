@@ -222,6 +222,15 @@ export class DshServerManager extends EventEmitter {
   private startResolve?: (url: string) => void;
   private startReject?: (err: Error) => void;
 
+  /**
+   * The provider is evaluated for every new start, so a changed VS Code
+   * setting takes effect after Stop DSH / Start DSH without reloading the
+   * extension host. Explicit StartOptions.dshBin still has highest priority.
+   */
+  constructor(private readonly dshBinProvider?: () => string | undefined) {
+    super();
+  }
+
   get state(): ServerState {
     return this._state;
   }
@@ -261,8 +270,12 @@ export class DshServerManager extends EventEmitter {
       if (this.url) return Promise.resolve(this.url);
       return Promise.reject(new Error("dsh is already starting"));
     }
-    const resolved = resolveDshPath();
-    const bin = opts.dshBin ?? resolved.path ?? "dsh";
+    const configuredBin = this.dshBinProvider?.()?.trim();
+    const preferredBin = opts.dshBin ?? configuredBin;
+    const resolved = preferredBin
+      ? { path: preferredBin, tried: [preferredBin] }
+      : resolveDshPath();
+    const bin = resolved.path ?? "dsh";
     const cwd = opts.cwd ?? os.homedir();
     const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
 

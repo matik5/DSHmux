@@ -57,6 +57,15 @@ test("extension contributions use the DSHmux identity consistently", () => {
   assert.equal(nls["view.chat.name"], "DSHmux Chat");
 });
 
+test("custom DSH executable is exposed as a machine-local setting", () => {
+  const setting = pkg.contributes?.configuration?.properties?.["dshmux.dshPath"];
+  assert.equal(setting?.type, "string");
+  assert.equal(setting?.default, "");
+  assert.equal(setting?.scope, "machine");
+  assert.equal(setting?.description, "%setting.dshPath.description%");
+  assert.ok(nls["setting.dshPath.description"], "DSH path setting description missing");
+});
+
 test("activation reveals the DSHmux chat after registering its provider", () => {
   const registration = extensionSource.indexOf(
     "registerWebviewViewProvider(DshChatView.viewType, chatView)"

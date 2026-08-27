@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
+- Fixed zoomed embedded content overflowing the viewport and breaking the sticky chat composer.
 - Renamed the project, extension identity, views, commands, and settings to **DSHmux** (`matik5.dshmux`; repository `matik5/DSHmux`). Legacy `deepseekHarness.*` setting values remain readable for compatibility.
 - Renamed the primary side view to **DSHmux Chat** and reveal it automatically after VS Code or the extension host restarts.
 - Added an immediate dimmed loading overlay and progress bar while switching the side-panel chat to another DSH session.

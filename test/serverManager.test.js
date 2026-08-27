@@ -123,6 +123,19 @@ test("start() reaches ready via stdout URL and stop() exits cleanly", async (t) 
   assert.equal(manager.isRunning, false);
 });
 
+test("start() uses the configured binary provider", async (t) => {
+  const dir = tmpdir(t);
+  const bin = fakeDsh(dir);
+  const manager = new DshServerManager(() => `  ${bin}  `);
+
+  await manager.start({ cwd: dir });
+  assert.equal(manager.dshBinPath, bin);
+
+  const exited = new Promise((resolve) => manager.once("exit", resolve));
+  manager.stop();
+  await exited;
+});
+
 test("probeNoOpenSupport reads the live web --help (rc.8 web-app shape)", (t) => {
   // web-app rc.7 shape: --help does not advertise --no-open → skip the flag.
   const oldBin = fakeDsh(tmpdir(t));

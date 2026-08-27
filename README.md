@@ -58,6 +58,7 @@ To make DSH use your project as its default workspace, open that folder in the w
 
 | Setting | Default | Description |
 |---|---|---|
+| `dshmux.dshPath` | empty | Absolute path to the DSH executable; empty uses automatic discovery. For a source checkout, point to its built `apps/cli/lib/bin.js`. Restart DSH after changing it. |
 | `dshmux.themeSync` | `follow` | Follow the VS Code color theme into the embedded DSH UI; `off` leaves DSH's own appearance untouched. |
 | `dshmux.completionSound` | `true` | Play sounds for task start, completion, and user-input requests. |
 

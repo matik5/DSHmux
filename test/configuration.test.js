@@ -27,7 +27,11 @@ Module._load = function (request, _parent, _isMain) {
   return originalLoad.apply(this, arguments);
 };
 
-const { affectsDshmuxConfiguration, dshmuxConfiguration } = require("../out/configuration.js");
+const {
+  affectsDshmuxConfiguration,
+  configuredDshBin,
+  dshmuxConfiguration,
+} = require("../out/configuration.js");
 
 test.after(() => {
   Module._load = originalLoad;
@@ -47,6 +51,12 @@ test("an explicit DSHmux value wins over the legacy value", () => {
   values.dshmux.completionSound = true;
   values.deepseekHarness.completionSound = false;
   assert.equal(dshmuxConfiguration("completionSound", false), true);
+});
+
+test("configured DSH binary trims the setting and enables discovery when blank", () => {
+  assert.equal(configuredDshBin(), undefined);
+  values.dshmux.dshPath = "  /custom/bin/dsh  ";
+  assert.equal(configuredDshBin(), "/custom/bin/dsh");
 });
 
 test("configuration change matching accepts current and legacy keys", () => {

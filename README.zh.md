@@ -58,6 +58,7 @@
 
 | 设置项 | 默认 | 说明 |
 |---|---|---|
+| `dshmux.dshPath` | 空 | DSH 可执行文件的绝对路径；留空时自动查找。若使用源码检出，请指向构建后的 `apps/cli/lib/bin.js`。修改后需重启 DSH。 |
 | `dshmux.themeSync` | `follow` | 将 VS Code 颜色主题同步到内嵌 DSH 界面；`off` 尊重 DSH 自身外观设置。 |
 | `dshmux.completionSound` | `true` | 为任务开始、完成及用户输入请求播放提示音。 |
 
