@@ -157,15 +157,19 @@
   window.WebSocket = BridgeWebSocket;
 
   // ------------------------------------------------- session sounds (Web Audio)
-  // DSH streams two frame kinds over the bridged WebSocket downlink, both
+  // DSH streams three frame kinds over the bridged WebSocket downlink, all
   // observed in the ws-frame handler below (see observeFrame):
   //   * host/session-status ({ type, sessionId, running }) on /api/events.host —
   //     a running true->false edge means the task is DONE; turn/end is the
   //     mux-stream fallback when the webview missed the preceding true frame.
   //   * session/event       ({ type, sessionId, event }) on /api/events.mux —
   //     event.type "turn/start" means a task was picked up and started; a
-  //     "tool/call" whose data.name is "ask_user_question", or the authoritative
-  //     question/requested frame, means the harness is asking for an answer.
+  //     "tool/call" whose data.name is "ask_user_question" means the harness
+  //     is asking for an answer.
+  //   * question/requested  ({ type, sessionId, ... }) and approval/requested
+  //     ({ type, sessionId, approvalId, toolName, ... }) on /api/events.mux —
+  //     the authoritative "harness is asking for your response" frames: a
+  //     question, or an elevation/permission prompt awaiting approval.
   // Each plays a distinct short sound (Web Audio API, no audio file), all gated
   // by the single dshmux.completionSound master toggle.
   var completionSoundEnabled = bridge.completionSound !== false; // default on
@@ -302,6 +306,7 @@
   //   * host/session-status running true->false  -> "done"
   //   * session/event turn/start                 -> "start"
   //   * session/event tool/call ask_user_question-> "ask"
+  //   * question/requested or approval/requested -> "ask" (elevation prompt)
   function observeFrame(data) {
     var parsed;
     try {
@@ -323,6 +328,14 @@
     }
 
     if (payload.type === "question/requested") {
+      playSoundOnce("ask", payload.sessionId);
+      return;
+    }
+
+    // Elevation / permission prompt: the harness is asking for a user response
+    // (approve/deny), so it shares the "ask" sound. Replayed frames (stable
+    // rpcId) are already deduped by playSoundOnce's per-session window.
+    if (payload.type === "approval/requested") {
       playSoundOnce("ask", payload.sessionId);
       return;
     }

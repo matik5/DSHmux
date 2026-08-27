@@ -223,6 +223,16 @@ function fireQuestion(h, id, sessionId) {
   h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
 }
 
+function fireApproval(h, id, sessionId) {
+  const frame = JSON.stringify({
+    type: "server-request",
+    rpcId: "approval-rpc",
+    method: "events.mux",
+    payload: { type: "approval/requested", sessionId, approvalId: "a1", toolName: "bash", reason: "sandbox" },
+  });
+  h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
+}
+
 test("completion: running true->false edge plays the chime", () => {
   const h = loadBridge({ serverBase: "http://x", completionSound: true });
   const { StubCtx, calls } = makeAudioStub();
@@ -328,6 +338,18 @@ test("ask: the authoritative question/requested frame plays once", () => {
     data: { callId: "c1", name: "ask_user_question", arguments: "{}", turn: 1, step: 1 },
   });
   assert.equal(calls.oscillators, 2, "tool fallback must not duplicate question/requested");
+});
+
+test("ask: the elevation approval/requested frame plays the 'ask' sound once", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/events.mux");
+  const id = h.posted[0].id;
+  fireApproval(h, id, "s1");
+  assert.equal(calls.oscillators, 2); // rising two-tone "needs your response"
+  fireApproval(h, id, "s1"); // replayed frame (stable rpcId) -> deduped
+  assert.equal(calls.oscillators, 2, "replayed approval frame must not duplicate the sound");
 });
 
 test("ask: a non-ask tool/call plays no sound", () => {
