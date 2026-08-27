@@ -271,7 +271,9 @@ export class DshServerManager extends EventEmitter {
       return Promise.reject(new Error("dsh is already starting"));
     }
     const configuredBin = this.dshBinProvider?.()?.trim();
-    const preferredBin = opts.dshBin ?? configuredBin;
+    // Trim both sources so an explicit StartOptions.dshBin with stray whitespace
+    // cannot spawn a bad binary, while "explicit opts wins" precedence is kept.
+    const preferredBin = (opts.dshBin ?? configuredBin)?.trim();
     const resolved = preferredBin
       ? { path: preferredBin, tried: [preferredBin] }
       : resolveDshPath();

@@ -77,6 +77,8 @@ body {
    workspace/open-in-editor meta all share one line (wraps when narrow), so
    the launcher takes minimal vertical room and the chat view gets more. */
 .header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+/* Brand mark: the logo keeps a fixed brand color (not theme chrome), so it
+   intentionally does not follow the VS Code theme. */
 .logo {
   width: 28px; height: 28px; border-radius: 7px; flex: none;
   background: #4D6BFE; color: #ffffff;
@@ -129,7 +131,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
 .more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; margin: 0; background: none; border: none; border-radius: 4px; color: var(--vscode-descriptionForeground); cursor: pointer; }
 .more-btn:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, rgba(128,128,128,.15))); color: var(--vscode-foreground); }
 .more-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
-.more-menu { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; min-width: 160px; padding: 4px; background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background)); border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, #454545)); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.more-menu { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; min-width: 160px; padding: 4px; background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background)); border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border, #454545)); border-radius: 6px; }
 .more-item { display: block; width: 100%; padding: 6px 10px; background: none; border: none; border-radius: 4px; font-size: 12.5px; color: var(--vscode-foreground); text-align: left; cursor: pointer; white-space: nowrap; }
 .more-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,.15)); }
 .more-item:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
@@ -165,7 +167,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
     </div>
     <div class="header-meta">
       <div class="more" id="moreWrap">
-        <button class="more-btn" id="moreBtn" aria-haspopup="true" aria-expanded="false" title="${t("launcher.more")}">
+        <button class="more-btn" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="${t("launcher.more")}" title="${t("launcher.more")}">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
         </button>
         <div class="more-menu" id="moreMenu" role="menu" style="display:none">
