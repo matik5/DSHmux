@@ -12,9 +12,9 @@ import { SessionPanelManager } from "./sessionPanels.js";
 import { DshLauncherView } from "./launcherView.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
-import { createDshStatusBar } from "./statusBar.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates, showUpgradeOptions, type UpgradeChannel } from "./versionCheckService.js";
+import { configuredDshBin } from "./configuration.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // extension host restarted (the manager instance below is brand-new and
   // starts "stopped" even though the old dsh child may still be alive).
   console.log(`[dsh] activate: wasRunning=${context.workspaceState.get<boolean>(WAS_RUNNING_KEY)} workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "(none)"}`);
-  manager = new DshServerManager();
+  manager = new DshServerManager(configuredDshBin);
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
 
@@ -128,7 +128,6 @@ export function activate(context: vscode.ExtensionContext): void {
     // Secondary surface: open the editor-tab panel (kept for now).
     () => panels.open()
   );
-  createDshStatusBar(context, manager);
 
   // Session handlers: new/open session loads it into the side-panel chat view
   // (primary, one at a time); rename syncs any editor-tab title; archive closes

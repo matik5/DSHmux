@@ -33,6 +33,12 @@ export function dshmuxConfiguration<T>(key: string, defaultValue: T): T {
     .get<T>(key, defaultValue);
 }
 
+/** Configured DSH executable, or undefined when automatic discovery is enabled. */
+export function configuredDshBin(): string | undefined {
+  const value = dshmuxConfiguration("dshPath", "").trim();
+  return value || undefined;
+}
+
 /** Match both the current key and its pre-DSHmux compatibility key. */
 export function affectsDshmuxConfiguration(
   event: vscode.ConfigurationChangeEvent,

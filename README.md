@@ -52,14 +52,16 @@
 2. Chat in the side panel, select or create sessions from the launcher, and use **Open in editor** for a larger view.
 3. Use **Stop DSH**, **Open in Browser**, or an update notice when needed.
 
-To make DSH use your project as its default workspace, open that folder in the window first (the launcher header shows the active workspace).
+To make DSH use your project as its default workspace, open that folder in the window first.
 
 ## Configuration
 
 | Setting | Default | Description |
 |---|---|---|
+| `dshmux.dshPath` | empty | Absolute path to the DSH executable; empty uses automatic discovery. For a source checkout, point to its built `apps/cli/lib/bin.js`. Restart DSH after changing it. |
 | `dshmux.themeSync` | `follow` | Follow the VS Code color theme into the embedded DSH UI; `off` leaves DSH's own appearance untouched. |
 | `dshmux.completionSound` | `true` | Play sounds for task start, completion, and user-input requests. |
+| `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |
 
 ## Development
 

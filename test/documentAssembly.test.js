@@ -223,5 +223,9 @@ test("assembleDocument injects an explicit frame font scale", async (t) => {
     frameFontScale: 0.8,
   });
   assert.match(out.html, /id="dshmux-frame-font-scale"/);
-  assert.match(out.html, /font-size: 80% !important/);
+  // zoom (not a root font-size) because the DSH app is px-based. No height
+  // compensation: with `zoom: Z`, `height: 100%` already renders at the full
+  // viewport; a `height: 100/Z%` would overflow the document and break the
+  // app's sticky composer.
+  assert.match(out.html, /#root \{ zoom: 0\.8; \}/);
 });

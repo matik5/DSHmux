@@ -32,6 +32,11 @@ function completionSoundEnabled(): boolean {
   return dshmuxConfiguration("completionSound", true);
 }
 
+/** dshmux.frameFontScale (default 0.9), with legacy-setting fallback. */
+function frameFontScaleValue(): number {
+  return dshmuxConfiguration("frameFontScale", 0.9);
+}
+
 /** Minimal shell shown before the server is ready (never a blank view). */
 function placeholderHtml(): string {
   return `<!DOCTYPE html>
@@ -229,6 +234,11 @@ export class DshChatView implements vscode.WebviewViewProvider {
         if (affectsDshmuxConfiguration(e, "completionSound")) {
           this.view?.webview.postMessage({ type: "completion-sound", enabled: completionSoundEnabled() });
         }
+        if (affectsDshmuxConfiguration(e, "frameFontScale")) {
+          // The scale is baked into the assembled document, so re-assemble.
+          // No-op while the server is not running (refresh guards on it).
+          void this.refresh();
+        }
       })
     );
   }
@@ -318,7 +328,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
         completionSound: completionSoundEnabled(),
-        frameFontScale: 0.8,
+        frameFontScale: frameFontScaleValue(),
         // Bake the current session in so both a cold load (server just became
         // ready) and a live session switch boot into the right session.
         sessionPreset: this.currentSessionId
