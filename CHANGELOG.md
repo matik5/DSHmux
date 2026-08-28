@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
 - Fixed Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.
 - Added a `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
 - Fixed zoomed embedded content overflowing the viewport and breaking the sticky chat composer.
