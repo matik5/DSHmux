@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { parseUrlLine, resolveDshPath, probeNoOpenSupport, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, resolveDshPath, resolveStartBin, probeNoOpenSupport, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -134,6 +134,27 @@ test("start() uses the configured binary provider", async (t) => {
   const exited = new Promise((resolve) => manager.once("exit", resolve));
   manager.stop();
   await exited;
+});
+
+test("resolveStartBin ignores a configured dshPath missing on this host (falls back to discovery)", () => {
+  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-emptyhome-"));
+  try {
+    const stale = path.join(emptyHome, "no-such-dsh"); // does not exist
+    // A missing configured path is ignored -> auto-discovery (never the stale path).
+    const res = resolveStartBin({}, stale, emptyHome, "linux");
+    assert.notEqual(res.path, stale, "a missing configured dshPath must not be used");
+    assert.ok(!res.tried.includes(stale), "host discovery must not retry the stale local path");
+
+    const configured = path.join(emptyHome, "custom-dsh");
+    fs.writeFileSync(configured, "#!/bin/sh\n");
+    assert.equal(resolveStartBin({}, configured, emptyHome, "linux").path, configured);
+
+    // An explicit dshBin stays authoritative even when missing (use it or fail).
+    const explicit = resolveStartBin({ dshBin: stale }, undefined, emptyHome, "linux");
+    assert.equal(explicit.path, stale);
+  } finally {
+    fs.rmSync(emptyHome, { recursive: true, force: true });
+  }
 });
 
 test("probeNoOpenSupport reads the live web --help (rc.8 web-app shape)", (t) => {

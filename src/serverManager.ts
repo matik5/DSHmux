@@ -204,6 +204,27 @@ export function resolveDshPath(
 }
 
 /**
+ * Choose which binary to spawn for a start. An explicit `opts.dshBin` is
+ * authoritative (used as-is, even if missing). The configured `dshPath` is
+ * best-effort: if it does not exist on this host — e.g. a local path carried
+ * onto a remote via synced or workspace settings — it is ignored and
+ * auto-discovery runs instead, so a stale setting can never break startup.
+ */
+export function resolveStartBin(
+  opts: { dshBin?: string },
+  configuredBin: string | undefined,
+  home: string = os.homedir(),
+  platform: NodeJS.Platform = process.platform
+): { path: string | null; tried: string[] } {
+  const explicitBin = opts.dshBin?.trim();
+  const configuredValid = configuredBin !== undefined && fs.existsSync(configuredBin);
+  const preferredBin = explicitBin ?? (configuredValid ? configuredBin : undefined);
+  return preferredBin
+    ? { path: preferredBin, tried: [preferredBin] }
+    : resolveDshPath(home, platform);
+}
+
+/**
  * Owns one `dsh web` child process. Emits:
  *  - "state" ({state, url?, message?}) on every transition
  *  - "stderr" (string) forwarded diagnostics
@@ -271,12 +292,7 @@ export class DshServerManager extends EventEmitter {
       return Promise.reject(new Error("dsh is already starting"));
     }
     const configuredBin = this.dshBinProvider?.()?.trim();
-    // Trim both sources so an explicit StartOptions.dshBin with stray whitespace
-    // cannot spawn a bad binary, while "explicit opts wins" precedence is kept.
-    const preferredBin = (opts.dshBin ?? configuredBin)?.trim();
-    const resolved = preferredBin
-      ? { path: preferredBin, tried: [preferredBin] }
-      : resolveDshPath();
+    const resolved = resolveStartBin(opts, configuredBin);
     const bin = resolved.path ?? "dsh";
     const cwd = opts.cwd ?? os.homedir();
     const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
@@ -288,6 +304,12 @@ export class DshServerManager extends EventEmitter {
     // Sleep/wake diagnostics: log every start() entry with the current state
     // so we can tell a fresh instance's start from a same-instance restart.
     console.log(`[dsh] start() called: bin=${bin} prevState=${this._state} cwd=${cwd}`);
+    if (configuredBin && !opts.dshBin && resolved.path !== configuredBin) {
+      this.emit(
+        "log",
+        `configured dshPath is unavailable on this host; using host discovery instead (${configuredBin})`
+      );
+    }
     this.emit("log", `spawning ${bin} (version=${version ?? "?"}, cwd=${cwd}, tried=[${resolved.tried.join(", ")}])`);
 
     this.stdoutBuffer = "";

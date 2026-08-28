@@ -2,7 +2,7 @@
   "name": "dshmux",
   "displayName": "DSHmux",
   "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity — side-panel chat, editor-tab view, shared browser state, sounds, clipboard, and theme sync.",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "publisher": "matik5",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,17 @@
     "Other"
   ],
   "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "dshmux.dshPath"
+      ]
+    }
+  },
   "files": [
     "out/**",
     "media/**",
@@ -59,7 +70,7 @@
         "dshmux.dshPath": {
           "type": "string",
           "default": "",
-          "scope": "machine",
+          "scope": "machine-overridable",
           "description": "%setting.dshPath.description%"
         },
         "dshmux.themeSync": {
@@ -112,6 +123,7 @@
     }
   },
   "scripts": {
+    "build": "tsc -p ./",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",

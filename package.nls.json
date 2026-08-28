@@ -2,7 +2,7 @@
   "command.start.title": "Start",
   "command.stop.title": "Stop",
   "command.openBrowser.title": "Open in Browser",
-  "setting.dshPath.description": "Absolute path to the DSH executable. Leave empty to discover DSH automatically. For a source checkout, point to the built apps/cli/lib/bin.js file. Takes effect the next time DSH starts.",
+  "setting.dshPath.description": "Absolute path to the DSH executable on the machine where the extension runs. In a Remote window, set this under Remote Settings. A path unavailable on that host is ignored and DSH is discovered there automatically. For a source checkout, point to the built apps/cli/lib/bin.js file. Takes effect the next time DSH starts.",
   "setting.themeSync.description": "Follow the VS Code color theme into the embedded DSH UI.",
   "setting.completionSound.description": "Play sounds for DSH session events: task finished, task started, and when the harness asks for your input.",
   "setting.frameFontScale.description": "Zoom for the embedded DSH UI content (1 = default size). Lower values make the DSH interface more compact.",
