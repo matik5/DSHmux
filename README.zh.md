@@ -19,26 +19,27 @@
 
 - **在编辑器里完成一切**：在 **VS Code 或 Antigravity** 中边写代码边用 DeepSeek Harness，无需在 IDE 与浏览器标签页之间来回切换就能看到 Agent 工作。
 - **Agent 生态中的一员**：VS Code / Antigravity 可安装多个 coding agent 扩展，各自由不同 LLM 驱动（如 Claude Code、ChatGPT…）；本扩展就是其中之一——**DeepSeek Harness Agent**，与其它 Agent 在同一 IDE 里并存，可让多个 Agent 同时跑同一任务、**交叉评审，规避单一 LLM 的短板**。
-- **一键启动 / 停止**：扩展托管 `dsh web` 子进程（端口自动分配）。入口：活动栏 DSH 图标（侧边栏启动器）、状态栏按钮、命令面板。
+- **一键启动 / 停止**：扩展托管 `dsh web` 子进程（端口自动分配）。入口：活动栏 DSH 图标（侧边栏启动器）或命令面板。
 - **侧边栏对话**：完整 DSH 前端位于紧凑启动器与会话列表下方，是默认对话界面。
 - **可选编辑器视图**：需要更大空间时，点击 **在编辑器中打开**。
 - **与浏览器共享实例**：默认使用你的 `~/.dsh`，会话与设置和浏览器 UI 互通。
 - **当前文件夹即工作区**：DSH 默认项目目录 = 你打开的文件夹。
 - **工作区对齐**：DSH workspace 跟随 IDE 工作区，内嵌 UI 默认选择当前文件夹而非最近活跃目录。
+- **远程窗口**：支持 Remote SSH、WSL 与 dev container——DSHmux 运行在工作区所在主机，并将 DSH 回环端口映射进 webview，使内嵌 UI 能访问远程 DSH 进程。
 - **会话管理器**：侧边栏列出活跃会话（标题 + 相对时间），支持重命名、归档，并在单一主对话视图中切换会话。
 - **点图标自动启动**：点击活动栏图标，dsh 未运行时自动启动。
 - **dsh 版本检查 + 一键升级**：启动器显示 "有新版本：x.y.z →"（有新版时，文案随界面语言本地化）；点击后按你的安装方式（npx / npm 全局 / nvm）给出对应升级命令，预填进终端（24 小时检查门、离线静默）。
 - **剪贴板可用**：内嵌 UI 的复制/粘贴走传输桥（VS Code webview 会屏蔽 iframe 内的剪贴板；桥通过 `vscode.env.clipboard` 转发）。
 - **事件提示音**：任务开始、完成及需要用户输入时播放不同提示音（`dshmux.completionSound`，默认 `true`）。
-- **紧凑侧边栏字号**：侧边栏 DSH frame 的根字号为 80%；编辑器标签页保留上游字号。
+- **紧凑侧边栏字号**：侧边栏 frame 默认缩放 90%（`dshmux.frameFontScale`，范围 0.5–1.5）；编辑器标签页保留上游字号。
 - **主题跟随 VS Code**：内嵌 UI 跟随编辑器颜色主题（深/浅），切换即时生效（`dshmux.themeSync`，默认 `follow`）。
 - **跨平台**：macOS / Linux / Windows 三平台，由 CI 端到端验证（单测 + 真实 `dsh` 冒烟）。
-- **多语言界面**：扩展壳层（启动器、覆盖层、状态栏、命令提示）跟随 VS Code 显示语言，共 9 种：English、中文、日本語、한국어、Русский、Español、Português、Français、Deutsch。
+- **多语言界面**：扩展壳层（启动器、覆盖层、命令提示）跟随 VS Code 显示语言，共 9 种：English、中文、日本語、한국어、Русский、Español、Português、Français、Deutsch。
 - **安全优先**：服务仅绑定回环；扩展以纯 Node 请求代发，不弱化 DSH 的 `/api` 信任围栏。（注：内嵌页面及其插件视为受信——剪贴板读写桥接到系统剪贴板，无浏览器授权弹窗，与扩展本身的信任等级一致。）
 
 ## 环境要求
 
-- 已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：`npm i -g @deepseek-ai/dsh`
+- 已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：`npm i -g @deepseek-ai/dsh`（Remote SSH/WSL/容器窗口中，请安装在远程主机上）
 - VS Code ≥ 1.90（通过 Open VSX 亦可用于 Antigravity）
 
 ## 安装
