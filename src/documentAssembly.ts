@@ -68,8 +68,9 @@ const SERVER_STATIC_RE = /(src|href)="\/(manifest\.webmanifest|favicon\.svg)"/g;
 // and @deepseek-ai/dsh-client-runtime before window.__DSH_BOOT__. They are
 // classic scripts (cross-origin OK, spike F2/F14) but must be absolute like
 // the JSON entries, or the webview resolves them against vscode-webview://
-// and the module-system queue never receives the client-modules registration
-// ("Failed to load plugins / HTML did not preload .../client.js").
+// and the module-system queue never receives the client-modules registration.
+// The owning webview also maps this loopback port to the extension host; that
+// is required when DSH runs under Remote SSH/WSL/a dev container.
 const PLUGIN_PRELOAD_RE = /(src|href)="(\/plugins\/[^"]+)"/g;
 
 /** Extract the boot manifest rev from index.html ("" when absent). */

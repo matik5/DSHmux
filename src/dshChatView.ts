@@ -19,6 +19,7 @@ import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
 import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
+import { dshWebviewPortMappings } from "./webviewPortMapping.js";
 
 const DIST_DIR_NAME = "dsh-dist";
 
@@ -248,6 +249,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.file(this.distRootPath())],
+      portMapping: dshWebviewPortMappings(this.manager.serverUrl),
     };
     this.bridge = new BridgeHost(webviewView.webview, () => this.manager.serverUrl ?? "");
 
@@ -320,6 +322,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
         "utf8"
       );
       const webview = this.view.webview;
+      // Plugin bundles remain absolute HTTP URLs because they are classic
+      // scripts. In a remote window, map their loopback port to the remote
+      // extension host before loading the assembled document.
+      webview.options = {
+        ...webview.options,
+        portMapping: dshWebviewPortMappings(url),
+      };
       const { html } = await assembleDocument({
         serverBase: url,
         distRootPath: this.distRootPath(),

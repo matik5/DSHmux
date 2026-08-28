@@ -160,6 +160,17 @@ test("loadSession re-assembles with the chosen session baked into the preset", a
   }
 });
 
+test("maps DSH localhost HTTP to the extension host for remote plugin scripts", async () => {
+  const view = new DshChatView(makeContext(), makeManager());
+  const wv = makeWebviewView();
+  view.resolveWebviewView(wv);
+  await flush();
+
+  assert.deepEqual(wv.webview.options.portMapping, [
+    { webviewPort: 1, extensionHostPort: 1 },
+  ]);
+});
+
 test("loadSession of the already-shown session is a no-op (no re-assembly)", async () => {
   const view = new DshChatView(makeContext(), makeManager());
   const wv = makeWebviewView();

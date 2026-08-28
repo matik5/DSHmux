@@ -57,13 +57,18 @@ test("extension contributions use the DSHmux identity consistently", () => {
   assert.equal(nls["view.chat.name"], "DSHmux Chat");
 });
 
-test("custom DSH executable is exposed as a machine-local setting", () => {
+test("custom DSH executable is host-overridable and safe in remote workspaces", () => {
   const setting = pkg.contributes?.configuration?.properties?.["dshmux.dshPath"];
   assert.equal(setting?.type, "string");
   assert.equal(setting?.default, "");
-  assert.equal(setting?.scope, "machine");
+  assert.equal(setting?.scope, "machine-overridable");
   assert.equal(setting?.description, "%setting.dshPath.description%");
   assert.ok(nls["setting.dshPath.description"], "DSH path setting description missing");
+  assert.deepEqual(pkg.extensionKind, ["workspace"], "DSH must run on the workspace/remote host");
+  assert.ok(
+    pkg.capabilities?.untrustedWorkspaces?.restrictedConfigurations?.includes("dshmux.dshPath"),
+    "workspace overrides that execute a binary must require workspace trust"
+  );
 });
 
 test("activation reveals the DSHmux chat after registering its provider", () => {

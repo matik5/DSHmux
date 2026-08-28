@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- 修复 Remote SSH、WSL 和开发容器窗口中的内嵌插件加载：现在会将 webview 中的 DSH 回环 HTTP 端口映射到远程扩展宿主。
+- 修复 Remote SSH、WSL 和开发容器中的启动问题：DSHmux 现在在工作区主机上运行；若配置的 `dshPath` 在该主机上不可用，则忽略该路径并在该主机上查找 DSH。`dshPath` 可在远程设置或工作区设置中覆盖。
 - 新增 `dshmux.dshPath` 设置，可运行自定义 DSH 可执行文件，包括补丁源码检出中构建出的 CLI。
 - 修复内嵌内容缩放后溢出视口并导致粘性对话输入框失效的问题。
 - 项目、扩展 ID、视图、命令和设置统一更名为 **DSHmux**（`matik5.dshmux`；仓库 `matik5/DSHmux`）。为兼容旧配置，仍会读取已有的 `deepseekHarness.*` 设置值。

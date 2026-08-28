@@ -9,6 +9,7 @@ import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
 import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
+import { dshWebviewPortMappings } from "./webviewPortMapping.js";
 
 const DIST_DIR_NAME = "dsh-dist";
 const PANEL_TITLE = "DSHmux";
@@ -159,6 +160,7 @@ export class DshPanel {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.file(this.distRootPath())],
+        portMapping: dshWebviewPortMappings(this.manager.serverUrl),
       }
     );
     // Tab icon: WebviewPanel.iconPath is a settable property (unlike options).
@@ -231,6 +233,10 @@ export class DshPanel {
         "utf8"
       );
       const webview = this.panel.webview;
+      webview.options = {
+        ...webview.options,
+        portMapping: dshWebviewPortMappings(url),
+      };
       const { html } = await assembleDocument({
         serverBase: url,
         distRootPath: this.distRootPath(),
