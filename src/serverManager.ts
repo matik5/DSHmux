@@ -101,9 +101,13 @@ function firstExisting(patterns: string[]): string | undefined {
 }
 
 /** npm global prefix (no `bin` suffix — added per platform by callers). */
-function npmGlobalPrefix(): string {
+function npmGlobalPrefix(platform: NodeJS.Platform = process.platform): string {
   try {
-    const res = spawnSync("npm", ["prefix", "-g"], { encoding: "utf8" });
+    // npm is npm.cmd on Windows and therefore needs cmd.exe.
+    const res = spawnSync("npm", ["prefix", "-g"], {
+      encoding: "utf8",
+      shell: platform === "win32",
+    });
     if (res.status === 0 && res.stdout) return res.stdout.trim();
   } catch {
     /* ignore */
@@ -111,11 +115,196 @@ function npmGlobalPrefix(): string {
   return "";
 }
 
+export interface DshSpawnSpec {
+  command: string;
+  args: string[];
+  shell: boolean;
+  /** Directory containing Node, prepended to PATH for DSH and its children. */
+  runtimePath?: string;
+}
+
+const nodeExecutableCache = new Map<string, string>();
+
+function pathEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): { key: string; value: string } {
+  if (platform !== "win32") return { key: "PATH", value: env.PATH ?? "" };
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "path") ?? "Path";
+  return { key, value: env[key] ?? "" };
+}
+
+/**
+ * Resolve a real Node executable without assuming that a desktop IDE inherited
+ * the user's shell PATH. VS Code launched from Finder commonly exposes only
+ * /usr/bin:/bin on macOS even though Node lives under Homebrew or a version
+ * manager. Using Code.exe/Electron directly is unsafe unless it is explicitly
+ * switched into Node mode, and its bundled Node ABI may not match native
+ * modules installed in a custom DSH checkout.
+ */
+export function resolveNodeExecutable(
+  platform: NodeJS.Platform = process.platform,
+  execPath: string = process.execPath,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const isWin = platform === "win32";
+  const pathApi = isWin ? path.win32 : path.posix;
+  const nodeName = isWin ? "node.exe" : "node";
+  const execName = pathApi.basename(execPath).toLowerCase();
+  if (execName === "node" || execName === "node.exe") return execPath;
+
+  const { value: currentPath } = pathEnvironment(env, platform);
+  const cacheKey = [
+    platform,
+    execPath,
+    home,
+    currentPath,
+    env.SHELL,
+    env.NVM_SYMLINK,
+    env.NVM_HOME,
+    env.VOLTA_HOME,
+    env.LOCALAPPDATA,
+    env.ProgramFiles,
+    env["ProgramFiles(x86)"],
+  ].join("\0");
+  const cached = nodeExecutableCache.get(cacheKey);
+  if (cached) return cached;
+
+  const delimiter = isWin ? ";" : ":";
+  const fromPath = currentPath
+    .split(delimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean)
+    .map((entry) => pathApi.join(entry, nodeName));
+  const candidates = isWin
+    ? [
+        ...fromPath,
+        ...(env.NVM_SYMLINK ? [path.win32.join(env.NVM_SYMLINK, nodeName)] : []),
+        ...(env.VOLTA_HOME ? [path.win32.join(env.VOLTA_HOME, "bin", nodeName)] : []),
+        ...(env.ProgramFiles ? [path.win32.join(env.ProgramFiles, "nodejs", nodeName)] : []),
+        ...(env["ProgramFiles(x86)"]
+          ? [path.win32.join(env["ProgramFiles(x86)"]!, "nodejs", nodeName)]
+          : []),
+        ...(env.LOCALAPPDATA
+          ? [
+              path.win32.join(env.LOCALAPPDATA, "Programs", "nodejs", nodeName),
+              path.win32.join(env.LOCALAPPDATA, "Volta", "bin", nodeName),
+            ]
+          : []),
+        path.win32.join(home, "scoop", "apps", "nodejs", "current", nodeName),
+        ...(env.NVM_HOME ? [path.win32.join(env.NVM_HOME, nodeName)] : []),
+        "C:\\Program Files\\nodejs\\node.exe",
+      ]
+    : [
+        ...fromPath,
+        ...(env.VOLTA_HOME ? [path.posix.join(env.VOLTA_HOME, "bin", nodeName)] : []),
+        path.posix.join(home, ".volta", "bin", nodeName),
+        path.posix.join(home, ".local", "bin", nodeName),
+        path.posix.join(home, ".asdf", "shims", nodeName),
+        path.posix.join(home, ".local", "share", "mise", "shims", nodeName),
+        path.posix.join(home, ".nvm", "versions", "node", "*", "bin", nodeName),
+        path.posix.join(home, ".local", "share", "fnm", "node-versions", "*", "installation", "bin", nodeName),
+        path.posix.join(home, ".fnm", "node-versions", "*", "installation", "bin", nodeName),
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+      ];
+  const found = firstExisting(candidates);
+  if (found) {
+    nodeExecutableCache.set(cacheKey, found);
+    return found;
+  }
+
+  // Version managers are often initialized only by the login shell. Keep this
+  // as a bounded, cached fallback and accept only an existing absolute path.
+  if (!isWin && platform === process.platform) {
+    const shell = env.SHELL;
+    if (shell && path.posix.isAbsolute(shell) && fs.existsSync(shell)) {
+      try {
+        const result = spawnSync(shell, ["-lic", "command -v node"], {
+          encoding: "utf8",
+          env,
+          timeout: 5_000,
+        });
+        const shellNode = (result.stdout ?? "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .reverse()
+          .find((line) => path.posix.isAbsolute(line) && fs.existsSync(line));
+        if (shellNode) {
+          nodeExecutableCache.set(cacheKey, shellNode);
+          return shellNode;
+        }
+      } catch {
+        /* use the PATH command below and surface ENOENT if unavailable */
+      }
+    }
+  }
+
+  nodeExecutableCache.set(cacheKey, nodeName);
+  return nodeName;
+}
+
+/** Ensure DSH subprocesses can find the same Node/npm toolchain as its entry. */
+export function spawnEnvironment(
+  spec: DshSpawnSpec,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): NodeJS.ProcessEnv {
+  if (!spec.runtimePath) return env;
+  const current = pathEnvironment(env, platform);
+  const delimiter = platform === "win32" ? ";" : ":";
+  const normalize = (value: string): string =>
+    platform === "win32" ? value.replace(/[\\/]+$/, "").toLowerCase() : value.replace(/\/+$/, "");
+  const entries = current.value.split(delimiter).filter(Boolean);
+  if (!entries.some((entry) => normalize(entry) === normalize(spec.runtimePath!))) {
+    entries.unshift(spec.runtimePath);
+  }
+  const result = { ...env, [current.key]: entries.join(delimiter) };
+  if (platform === "win32") {
+    for (const key of Object.keys(result)) {
+      if (key !== current.key && key.toLowerCase() === "path") delete result[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * How to launch a resolved dsh binary. A source checkout's
+ * `apps/cli/lib/bin.js` must run under Node explicitly: it is not executable
+ * on native Windows, may lack an executable bit on a WSL-mounted drive, and
+ * `process.execPath` inside desktop VS Code can be Code.exe/Electron rather
+ * than Node. Resolve the user's actual Node installation without relying only
+ * on the desktop extension host's often-minimal PATH.
+ */
+export function spawnSpec(
+  bin: string,
+  platform: NodeJS.Platform = process.platform,
+  execPath: string = process.execPath,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env
+): DshSpawnSpec {
+  const isWin = platform === "win32";
+  const pathApi = isWin ? path.win32 : path.posix;
+  const node = resolveNodeExecutable(platform, execPath, home, env);
+  const runtimePath = pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined;
+  if (/\.(?:c|m)?js$/i.test(bin)) {
+    return { command: node, args: [bin], shell: false, runtimePath };
+  }
+  return { command: bin, args: [], shell: isWin, runtimePath };
+}
+
 /** `dsh --version` via the resolved binary, or null when it fails. */
 export function resolveDshVersion(bin: string): string | null {
-  const isWin = process.platform === "win32";
+  const spec = spawnSpec(bin);
   try {
-    const res = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5000, shell: isWin });
+    const res = spawnSync(spec.command, [...spec.args, "--version"], {
+      encoding: "utf8",
+      env: spawnEnvironment(spec),
+      timeout: 5000,
+      shell: spec.shell,
+    });
     if (res.status === 0 && res.stdout) return res.stdout.trim().split("\n")[0];
   } catch {
     /* ignore */
@@ -140,7 +329,13 @@ export function probeNoOpenSupport(bin: string): boolean | null {
   if (noOpenProbeCache.has(bin)) return noOpenProbeCache.get(bin)!;
   let result: boolean | null = null;
   try {
-    const res = spawnSync(bin, ["web", "--help"], { encoding: "utf8", timeout: 5000, shell: process.platform === "win32" });
+    const spec = spawnSpec(bin);
+    const res = spawnSync(spec.command, [...spec.args, "web", "--help"], {
+      encoding: "utf8",
+      env: spawnEnvironment(spec),
+      timeout: 5000,
+      shell: spec.shell,
+    });
     // status === 0 means the probe ran (empty help output is still a valid
     // "no --no-open" answer); only a failed/never-started probe yields null.
     if (res.status === 0) result = /--no-open/.test(res.stdout ?? "");
@@ -151,9 +346,13 @@ export function probeNoOpenSupport(bin: string): boolean | null {
   return result;
 }
 
-/** Binary suffixes to probe, per platform (Windows npm shims are .cmd). */
+/** Binary suffixes to probe, per platform (Windows npm shims are .cmd).
+ *  On Windows the .cmd shim is probed FIRST: npm installs both an
+ *  extensionless Unix shim and a .cmd shim, and only the .cmd one is
+ *  executable by cmd.exe (the extensionless file makes the spawn exit
+ *  with code 1 before dsh ever starts). */
 function exeSuffixes(platform: NodeJS.Platform): string[] {
-  return platform === "win32" ? ["", ".cmd"] : [""];
+  return platform === "win32" ? [".cmd", ""] : [""];
 }
 
 /** Expand one base path into the platform's binary candidates (dsh / dsh.cmd). */
@@ -179,12 +378,18 @@ export function resolveDshPath(
   // the host machine's npm prefix (for example /opt/homebrew) into a simulated
   // Windows candidate list; production uses process.platform and still probes
   // the real global prefix.
-  const prefix = platform === process.platform ? npmGlobalPrefix() : "";
+  const prefix = platform === process.platform ? npmGlobalPrefix(platform) : "";
   const globalDir = isWin ? prefix : prefix ? path.join(prefix, "bin") : "";
+  const roamingNpmDir = isWin
+    ? platform === process.platform && process.env.APPDATA
+      ? path.join(process.env.APPDATA, "npm")
+      : path.join(home, "AppData", "Roaming", "npm")
+    : "";
 
   const candidates = [
     ...exeCandidates(process.env.DSH_BIN ?? "", platform),
     ...(globalDir ? exeCandidates(path.join(globalDir, "dsh"), platform) : []),
+    ...(roamingNpmDir ? exeCandidates(path.join(roamingNpmDir, "dsh"), platform) : []),
     ...(!isWin ? exeCandidates(path.join("/opt/homebrew/bin", "dsh"), platform) : []),
     ...(!isWin ? exeCandidates(path.join("/usr/local/bin", "dsh"), platform) : []),
     ...exeCandidates(path.join(home, ".npm-global/bin", "dsh"), platform),
@@ -239,6 +444,7 @@ export class DshServerManager extends EventEmitter {
   private killTimer?: NodeJS.Timeout;
   private readyTimer?: NodeJS.Timeout;
   private stdoutBuffer = "";
+  private stderrBuffer = "";
   private startSettled = false;
   private startResolve?: (url: string) => void;
   private startReject?: (err: Error) => void;
@@ -313,6 +519,7 @@ export class DshServerManager extends EventEmitter {
     this.emit("log", `spawning ${bin} (version=${version ?? "?"}, cwd=${cwd}, tried=[${resolved.tried.join(", ")}])`);
 
     this.stdoutBuffer = "";
+    this.stderrBuffer = "";
     this.url = undefined;
     this.startSettled = false;
     this.setState("starting");
@@ -331,12 +538,15 @@ export class DshServerManager extends EventEmitter {
     if (passNoOpen) args.push("--no-open");
     args.push(...(opts.extraArgs ?? []));
 
-    const child = spawn(bin, args, {
+    const spec = spawnSpec(bin);
+    const childEnv = spawnEnvironment(spec, env);
+    const child = spawn(spec.command, [...spec.args, ...args], {
       cwd,
-      env,
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
       // Windows npm shims are .cmd/.bat — Node needs a shell to run them.
-      shell: process.platform === "win32",
+      // .js entry files run under node.exe directly (no shell needed).
+      shell: spec.shell,
     });
     this.child = child;
 
@@ -350,17 +560,24 @@ export class DshServerManager extends EventEmitter {
         if (url) this.settleReady(url);
       });
       child.stderr?.on("data", (chunk: Buffer) => {
-        this.emit("stderr", chunk.toString());
+        const text = chunk.toString();
+        // Keep a bounded tail so a Windows/source-checkout launch failure is
+        // visible in the sidebar instead of only in Extension Host logs.
+        this.stderrBuffer = (this.stderrBuffer + text).slice(-2_000);
+        this.emit("stderr", text);
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         // Sleep/wake diagnostics: an "error" event without exit is a signal
         // hiccup (e.g. EINTR after SIGSTOP/CONT during laptop sleep).
         console.log(`[dsh] child error pid=${child.pid} code=${err.code} msg=${err.message}`);
+        const nodeCommand = process.platform === "win32" ? "node.exe" : "node";
         const msg =
-          err.code === "ENOENT"
-            ? `dsh not found. Tried: ${["PATH", ...resolved.tried].join(", ")}. ` +
-              `Install with: npm i -g @deepseek-ai/dsh`
-            : err.message;
+          err.code === "ENOENT" && spec.args[0] === bin
+            ? `Node.js was not found while launching ${bin}. Install Node.js or add ${nodeCommand} to PATH.`
+            : err.code === "ENOENT"
+              ? `dsh not found. Tried: ${["PATH", ...resolved.tried].join(", ")}. ` +
+                `Install with: npm i -g @deepseek-ai/dsh`
+              : err.message;
         this.settleError(new Error(msg));
       });
       child.on("exit", (code, signal) => {
@@ -372,7 +589,10 @@ export class DshServerManager extends EventEmitter {
         if (prev === "ready") {
           this.setState("error", { message: `dsh exited unexpectedly (code=${code}, signal=${signal})` });
         } else if (prev === "starting") {
-          this.settleError(new Error(`dsh exited before ready (code=${code}, signal=${signal})`));
+          const detail = this.stderrBuffer.trim().replace(/\s+/g, " ");
+          this.settleError(new Error(
+            `dsh exited before ready (code=${code}, signal=${signal})${detail ? `: ${detail}` : ""}`
+          ));
         } else if (prev === "stopping") {
           this.setState("stopped");
         }

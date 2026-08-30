@@ -59,7 +59,7 @@
 
 | 设置项 | 默认 | 说明 |
 |---|---|---|
-| `dshmux.dshPath` | 空 | 当前 VS Code 窗口的工作区扩展所在主机上的 DSH 绝对路径。在 Remote SSH/WSL/容器窗口中，请通过**远程设置**配置。不可用的路径会被忽略，并在该主机上自动查找 DSH。若使用源码检出，请指向构建后的 `apps/cli/lib/bin.js`。修改后需重启 DSH。 |
+| `dshmux.dshPath` | 空 | 当前 VS Code 窗口的工作区扩展所在主机上的 DSH 绝对路径。在 Remote SSH/WSL/容器窗口中，请通过**远程设置**配置。不可用的路径会被忽略，并在该主机上自动查找 DSH。若使用源码检出，请指向构建后的 `apps/cli/lib/bin.js`，并确保该主机已安装 Node.js。修改后需重启 DSH。 |
 | `dshmux.themeSync` | `follow` | 将 VS Code 颜色主题同步到内嵌 DSH 界面；`off` 尊重 DSH 自身外观设置。 |
 | `dshmux.completionSound` | `true` | 为任务开始、完成及用户输入请求播放提示音。 |
 | `dshmux.frameFontScale` | `0.9` | 内嵌 DSH 界面内容的缩放（1 = 默认大小）；数值越小，界面越紧凑。范围 0.5–1.5。 |

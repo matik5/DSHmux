@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { parseUrlLine, resolveDshPath, resolveStartBin, probeNoOpenSupport, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -35,6 +35,33 @@ function fakeDsh(dir, opts = {}) {
   const file = path.join(dir, "dsh");
   fs.writeFileSync(file, `#!/usr/bin/env node\n${body}`);
   fs.chmodSync(file, 0o755);
+  return file;
+}
+
+/**
+ * Write the same fake as a source-checkout-style JavaScript entry. Unlike
+ * fakeDsh(), this file has no executable bit or .cmd wrapper, so start() must
+ * invoke it through Node. Keep a space in the path to exercise argument
+ * quoting on Windows as well.
+ */
+function fakeDshJs(dir, opts = {}) {
+  const sourceDir = path.join(dir, "patched harness");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const file = path.join(sourceDir, "bin.js");
+  const helpOut = opts.helpNoOpen
+    ? 'process.stdout.write("  --no-open  do not open the Web UI\\n");\n'
+    : "";
+  const record = opts.recordArgs
+    ? `require("node:fs").writeFileSync(${JSON.stringify(opts.recordArgs)}, JSON.stringify(process.argv.slice(2)));\n`
+    : "";
+  const body = [
+    'if (process.argv.includes("--version")) { process.stdout.write("0.1.1-test\\n"); process.exit(0); }',
+    `if (process.argv.includes("--help")) { ${helpOut}process.exit(0); }`,
+    opts.failMessage
+      ? `process.stderr.write(${JSON.stringify(`${opts.failMessage}\n`)}); process.exit(42);`
+      : `${record}process.stdout.write("dsh web: http://127.0.0.1:34567\\n");\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);`,
+  ].join("\n");
+  fs.writeFileSync(file, `${body}\n`);
   return file;
 }
 
@@ -89,14 +116,93 @@ test("resolveDshPath handles Windows layout (npm-cache _npx, dsh.cmd)", (t) => {
   assert.ok(res.tried.every((p) => !p.includes("opt/homebrew")));
 });
 
-test("resolveDshPath finds either dsh or dsh.cmd on Windows when both exist", (t) => {
+test("resolveDshPath finds the standard Windows roaming npm dsh.cmd", (t) => {
+  const home = tmpdir(t);
+  const npmDir = path.join(home, "AppData", "Roaming", "npm");
+  fs.mkdirSync(npmDir, { recursive: true });
+  const cmd = path.join(npmDir, "dsh.cmd");
+  fs.writeFileSync(cmd, "");
+  assert.equal(resolveDshPath(home, "win32").path, cmd);
+});
+
+test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t) => {
   const home = tmpdir(t);
   const npxDir = path.join(home, "AppData", "Local", "npm-cache", "_npx", "h2", "node_modules", ".bin");
   fs.mkdirSync(npxDir, { recursive: true });
   fs.writeFileSync(path.join(npxDir, "dsh"), "");
   fs.writeFileSync(path.join(npxDir, "dsh.cmd"), "");
   const res = resolveDshPath(home, "win32");
-  assert.ok(res.path === path.join(npxDir, "dsh") || res.path === path.join(npxDir, "dsh.cmd"));
+  // The extensionless Unix shim is not executable by cmd.exe (spawn exits
+  // code 1), so the .cmd shim must win when both exist.
+  assert.equal(res.path, path.join(npxDir, "dsh.cmd"));
+});
+
+test("spawnSpec runs JS entry files under Node, never VS Code/Electron", () => {
+  const jsBin = "C:\\src\\deepseek-harness\\apps\\cli\\lib\\bin.js";
+  const spec = spawnSpec(jsBin, "win32", "C:\\Program Files\\Microsoft VS Code\\Code.exe");
+  assert.equal(spec.command, "node.exe");
+  assert.deepEqual(spec.args, [jsBin]);
+  assert.equal(spec.shell, false);
+  // Reuse a genuine Node executable instead of doing another PATH lookup.
+  assert.equal(
+    spawnSpec(jsBin, "win32", "C:\\Program Files\\nodejs\\node.exe").command,
+    "C:\\Program Files\\nodejs\\node.exe"
+  );
+  // WSL/remote POSIX hosts also need Node when the entry lives on a mount
+  // without an executable bit.
+  assert.equal(
+    path.basename(spawnSpec("/mnt/c/src/apps/cli/lib/bin.mjs", "linux", "/usr/share/code/code").command),
+    "node"
+  );
+});
+
+test("Node resolution survives a desktop IDE's minimal macOS PATH", (t) => {
+  const home = tmpdir(t);
+  const node = path.join(home, ".local", "bin", "node");
+  fs.mkdirSync(path.dirname(node), { recursive: true });
+  fs.writeFileSync(node, "");
+  fs.chmodSync(node, 0o755);
+  const minimalEnv = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/missing-shell" };
+  const resolved = resolveNodeExecutable(
+    "darwin",
+    "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+    home,
+    minimalEnv
+  );
+  assert.equal(resolved, node);
+
+  const spec = spawnSpec("/src/apps/cli/lib/bin.js", "darwin", "/Applications/Code", home, minimalEnv);
+  const childEnv = spawnEnvironment(spec, minimalEnv, "darwin");
+  assert.equal(spec.command, node);
+  assert.equal(childEnv.PATH, `${path.dirname(node)}:/usr/bin:/bin:/usr/sbin:/sbin`);
+});
+
+test("spawnEnvironment preserves the Windows Path key and prepends Node", () => {
+  const spec = {
+    command: "C:\\Program Files\\nodejs\\node.exe",
+    args: ["C:\\src\\bin.js"],
+    shell: false,
+    runtimePath: "C:\\Program Files\\nodejs",
+  };
+  const env = spawnEnvironment(spec, { Path: "C:\\Windows\\System32" }, "win32");
+  assert.equal(env.Path, "C:\\Program Files\\nodejs;C:\\Windows\\System32");
+  assert.equal(env.PATH, undefined);
+});
+
+test("spawnSpec keeps plain binaries as-is (shell only on Windows)", () => {
+  const win = spawnSpec("C:\\Users\\u\\AppData\\Roaming\\npm\\dsh.cmd", "win32");
+  assert.equal(win.command, "C:\\Users\\u\\AppData\\Roaming\\npm\\dsh.cmd");
+  assert.deepEqual(win.args, []);
+  assert.equal(win.shell, true);
+  const posix = spawnSpec("/usr/local/bin/dsh", "linux");
+  assert.equal(posix.command, "/usr/local/bin/dsh");
+  assert.deepEqual(posix.args, []);
+  assert.equal(posix.shell, false);
+  // A .js path is always launched through Node, independent of executable bits.
+  const posixJs = spawnSpec("/src/apps/cli/lib/bin.js", "linux");
+  assert.equal(posixJs.command, process.execPath);
+  assert.deepEqual(posixJs.args, ["/src/apps/cli/lib/bin.js"]);
+  assert.equal(posixJs.shell, false);
 });
 
 test("start() reaches ready via stdout URL and stop() exits cleanly", async (t) => {
@@ -134,6 +240,36 @@ test("start() uses the configured binary provider", async (t) => {
   const exited = new Promise((resolve) => manager.once("exit", resolve));
   manager.stop();
   await exited;
+});
+
+test("start() executes a configured source-checkout bin.js through Node", async (t) => {
+  const dir = tmpdir(t);
+  const argsFile = path.join(dir, "js-args.json");
+  const bin = fakeDshJs(dir, { helpNoOpen: true, recordArgs: argsFile });
+  const manager = new DshServerManager(() => `  ${bin}  `);
+
+  const url = await manager.start({ cwd: dir });
+  assert.equal(url, "http://127.0.0.1:34567");
+  assert.equal(manager.dshBinPath, bin);
+  assert.equal(manager.dshVersion, "0.1.1-test");
+  const spawned = JSON.parse(fs.readFileSync(argsFile, "utf8"));
+  assert.deepEqual(spawned, ["web", "--port", "0", "--no-open"]);
+
+  const exited = new Promise((resolve) => manager.once("exit", resolve));
+  manager.stop();
+  await exited;
+});
+
+test("start() includes source-checkout stderr when it exits before ready", async (t) => {
+  const dir = tmpdir(t);
+  const bin = fakeDshJs(dir, { failMessage: "custom harness dependency is missing" });
+  const manager = new DshServerManager(() => bin);
+
+  await assert.rejects(
+    manager.start({ cwd: dir }),
+    /dsh exited before ready.*custom harness dependency is missing/
+  );
+  assert.equal(manager.state, "error");
 });
 
 test("resolveStartBin ignores a configured dshPath missing on this host (falls back to discovery)", () => {

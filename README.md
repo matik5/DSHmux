@@ -59,7 +59,7 @@ To make DSH use your project as its default workspace, open that folder in the w
 
 | Setting | Default | Description |
 |---|---|---|
-| `dshmux.dshPath` | empty | Absolute path to DSH on the host where this VS Code window's workspace extension runs. In Remote SSH/WSL/container windows, set it under **Remote Settings**. An unavailable path is ignored and DSH is discovered on that host. For a source checkout, point to its built `apps/cli/lib/bin.js`. Restart DSH after changing it. |
+| `dshmux.dshPath` | empty | Absolute path to DSH on the host where this VS Code window's workspace extension runs. In Remote SSH/WSL/container windows, set it under **Remote Settings**. An unavailable path is ignored and DSH is discovered on that host. For a source checkout, point to its built `apps/cli/lib/bin.js`; Node.js must be installed on that host. Restart DSH after changing it. |
 | `dshmux.themeSync` | `follow` | Follow the VS Code color theme into the embedded DSH UI; `off` leaves DSH's own appearance untouched. |
 | `dshmux.completionSound` | `true` | Play sounds for task start, completion, and user-input requests. |
 | `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |
