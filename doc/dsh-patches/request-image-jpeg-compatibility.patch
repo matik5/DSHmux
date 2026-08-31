@@ -1,0 +1,526 @@
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.i18n.yaml
+index e2e60901afa33b85e131d63dd35af95d2e1a79ae..1cb580bbee16ae940940cc22df470ea0822725e3 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.i18n.yaml
++++ b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md
+-2026-08-24-alpha-routed-image-quality-ladders.md: cdf5e7bd908782781e66a4f6494428f0f174e258
+-2026-08-24-alpha-routed-image-quality-ladders.zh.md: fbe8215b0ca1c606cd66d60fe1109d2f9aa1cbad
++2026-08-24-alpha-routed-image-quality-ladders.md: 1ecf6b7a6add0a552eddcf8fbc3507dcd626728a
++2026-08-24-alpha-routed-image-quality-ladders.zh.md: b80efc121db1be8069f7865d76b78f0f32e1f601
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md
+index cdf5e7bd908782781e66a4f6494428f0f174e258..1ecf6b7a6add0a552eddcf8fbc3507dcd626728a 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md
++++ b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md
+@@ -1,4 +1,4 @@
+-# Agent Note: Alpha-routed image quality ladders replace colour-count codec routing
++# Agent Note: Alpha-routed durable image quality ladders replace colour-count codec routing
+ 
+ Status: implemented
+ 
+@@ -10,11 +10,11 @@ Image normalization and request-image encoding in `@deepseek-ai/dsh-attachment-l
+ 
+ ## Decision
+ 
+-Both encoders route by one decoded fact only: sources with an alpha channel encode as lossy WebP at effort 0, opaque sources as JPEG (libjpeg-turbo), each down a shared quality ladder of 85, 75, 60 (`IMAGE_ENCODING_QUALITIES` / `WEBP_ENCODING_EFFORT` / `encodingLadder` in `encoding.ts`). The colour-count classifier and the palette PNG branch are deleted, not repaired, so the misclassification bug class cannot recur and no image pays the classification decode. `normalizedImageMaxBytes` and the route `maxBytes` become ladder targets rather than caps: the ladder still stops at the first quality that fits, but when every quality exceeds the target the smallest output is kept and the downscale retry loop is gone. Provider byte limits (DeepSeek 32MiB per image, inline budgets) remain enforced where the bytes are transmitted. Master dimensions move from a long-edge rule to a total-pixel budget: `normalizedImageMaxPixels` (default 2048x2048) scales the raster proportionally and `normalizedImageMaxDimension` (default 8192, matching the admission per-side cap) clamps the long edge afterwards, so extreme aspect ratios such as tall page screenshots keep their short-edge resolution (a 2000x20000 source keeps about 647px of width instead of 204px) while square sources normalize exactly as before. The request transform version moves to `request-image-v5`, so existing cached variants regenerate by identity; content-addressed masters stay valid without migration. The request cache read no longer rejects entries above the byte target, since a ladder-exhausted output is the deterministic result for its variant id.
++Durable normalization routes by one decoded fact only: sources with an alpha channel encode as lossy WebP at effort 0, while opaque sources encode as JPEG (libjpeg-turbo), each down a quality ladder of 85, 75, 60 (`IMAGE_ENCODING_QUALITIES` / `WEBP_ENCODING_EFFORT` / `encodingLadder` in `encoding.ts`). The colour-count classifier and the palette PNG branch are deleted, not repaired, so the misclassification bug class cannot recur and no image pays the classification decode. `normalizedImageMaxBytes` and route request byte budgets are ladder targets rather than caps: a ladder stops at the first quality that fits, and keeps its smallest output when every quality exceeds the target. Provider byte limits remain enforced where bytes are transmitted. Master dimensions use a total-pixel budget: `normalizedImageMaxPixels` (default 2048x2048) scales proportionally and `normalizedImageMaxDimension` (default 8192) then clamps the long edge, so extreme aspect ratios retain short-edge resolution. Model-request projection uses the separate [JPEG compatibility decision](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md): in-budget PNG and JPEG pass through, while WebP and every transformed request image use the JPEG ladder. Its `request-image-v6` identity invalidates earlier request variants without migrating content-addressed durable attachments.
+ 
+ Pareto measurements over the issue #2885 reproduction set (PR #2989 appendices) back the choice: on photographic content JPEG is one to two orders of magnitude faster than every alternative, and WebP at effort 0 matches palette PNG's size on graphics content while never being misrouted; uniform-noise worst cases fit the default 4MiB/1MiB targets at quality 85 for opaque sources, and only an adversarial random-alpha plane exhausts the WebP ladder (about 6.3MiB, five times under the provider cap).
+ 
+-This decision partially supersedes the [unified image request pipeline note](../feature/2026-08-20-unified-image-request-pipeline.md), whose normalization and request-encoding sections now describe this routing; its durable-version split, Files lifecycle, and offload projection stand unchanged.
++This decision partially supersedes the durable-normalization encoding facts in the [unified image request pipeline note](../feature/2026-08-20-unified-image-request-pipeline.md); the later [JPEG compatibility decision](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md) supersedes this note's request-codec routing. The version split, Files lifecycle, and offload projection stand unchanged.
+ 
+ ## Alternatives considered
+ 
+@@ -29,5 +29,5 @@ This decision partially supersedes the [unified image request pipeline note](../
+ - Opaque low-colour graphics (charts, text screenshots) now store as JPEG: two to three times larger than palette PNG in the hundreds-of-kilobytes range, with JPEG ringing on hard edges; the model-visible request version was already dominated by pixel-budget downscaling, so legibility impact is marginal. Reintroducing a graphics codec would add a WebP step to the opaque ladder, not restore classification.
+ - GIF sources decode with an alpha plane under gifload, so still-frame GIFs normalize onto the WebP ladder.
+ - `IMAGE_TOO_LARGE` no longer arises from encoding; it remains the admission error for oversized sources.
+-- A ladder-exhausted attachment can exceed its byte target on disk and on the wire until a provider cap rejects it; measured reachable only with adversarial random-alpha input. Re-submitting such an over-target master as a new upload fails the pass-through byte check and re-encodes it down the lossy ladder again, so normalization is not idempotent for this adversarial-only class and each round adds generation loss.
+-- Test evidence: `packages/attachment/attachment-local/tests` pins the routing, ladder-exhaustion, and readable-text behavior against real encoders, including the issue #2885 misrouting characteristics (high-frequency photographic content leaving the slow path).
++- A ladder-exhausted durable attachment can exceed its local byte target; request projection re-encodes it as JPEG before provider transport. Re-submitting such an over-target master as a new upload fails the pass-through byte check and re-encodes it down the lossy normalization ladder again, so normalization is not idempotent for this adversarial-only class and each round adds generation loss.
++- Test evidence: `packages/attachment/attachment-local/tests` pins durable routing, ladder exhaustion, JPEG request projection, and readable-text behavior against real encoders, including the issue #2885 misrouting characteristics.
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.zh.md b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.zh.md
+index fbe8215b0ca1c606cd66d60fe1109d2f9aa1cbad..b80efc121db1be8069f7865d76b78f0f32e1f601 100644
+--- a/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.zh.md
++++ b/.agents/notes/implemented/bug-fix/2026-08-24-alpha-routed-image-quality-ladders.zh.md
+@@ -1,4 +1,4 @@
+-# Agent Note: 按 alpha 路由的图片质量阶梯取代按色数分类的编码路由
++# Agent Note: 按 alpha 路由的持久图片质量阶梯取代按色数分类的编码路由
+ 
+ Status: implemented
+ 
+@@ -10,11 +10,11 @@ Status: implemented
+ 
+ ## 决定
+ 
+-两个编码器只按一个解码事实路由：带 alpha 通道的源图编码为 effort 0 的有损 WebP，不透明源图编码为 JPEG（libjpeg-turbo），共用质量阶梯 85、75、60（`encoding.ts` 的 `IMAGE_ENCODING_QUALITIES` / `WEBP_ENCODING_EFFORT` / `encodingLadder`）。色数分类器和 palette PNG 分支被删除而不是修复，误判这一 bug 类别因此不可能复发，也不再有图片付出分类解码成本。`normalizedImageMaxBytes` 和路由 `maxBytes` 的语义从上限改为阶梯目标：阶梯仍在第一个装得下的质量档停下，但全部档位都超过目标时保留最小产物，缩图重试循环被删除。提供方字节硬限制（DeepSeek 单图 32MiB、inline 预算）仍在传输字节的位置执行。master 尺寸规则从长边上限改为总像素预算：`normalizedImageMaxPixels`（默认 2048×2048）按比例缩放，`normalizedImageMaxDimension`（默认 8192，与准入单边上限一致）随后夹住长边，因此长页面截图这类极端长宽比保留短边分辨率（2000×20000 的源图短边保留约 647px 而不是 204px），正方形源图的规范化结果与之前完全一致。请求变换版本升到 `request-image-v5`，已有变体缓存按身份自然重建；内容寻址的 master 无需迁移，继续有效。请求缓存读取不再拒绝超过字节目标的条目，因为阶梯耗尽的产物就是该 variant id 的确定性结果。
++持久规范化只按一个解码事实路由：带 alpha 通道的源图编码为 effort 0 的有损 WebP，不透明源图编码为 JPEG（libjpeg-turbo），各自使用 85、75、60 质量阶梯（`encoding.ts` 的 `IMAGE_ENCODING_QUALITIES` / `WEBP_ENCODING_EFFORT` / `encodingLadder`）。色数分类器和 palette PNG 分支被删除而不是修复，误判这一 bug 类别因此不可能复发，也不再有图片付出分类解码成本。`normalizedImageMaxBytes` 与路由请求字节预算是阶梯目标而非硬上限：阶梯在第一个装得下的质量档停下，全部档位都超过目标时保留最小产物。提供方字节硬限制仍在传输字节的位置执行。master 尺寸使用总像素预算：`normalizedImageMaxPixels`（默认 2048×2048）按比例缩放，`normalizedImageMaxDimension`（默认 8192）随后夹住长边，因此极端长宽比保留短边分辨率。模型请求投影采用独立的 [JPEG 兼容决定](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md)：预算内 PNG 与 JPEG 原样直通，WebP 与每张经过变换的请求图片都使用 JPEG 阶梯。其 `request-image-v6` 身份会使旧请求变体失效，而无需迁移内容寻址的持久附件。
+ 
+ 对 issue #2885 复现集的 Pareto 实测（PR #2989 附录）支撑这个选择：摄影类内容上 JPEG 比其余所有编码器快 1 至 2 个数量级，effort 0 的 WebP 在图形类内容上体积与 palette PNG 相当且不会被误判；均匀噪声最坏输入在不透明链的 q85 一档即落入默认 4MiB/1MiB 目标，只有对抗性的随机 alpha 平面会耗尽 WebP 阶梯（约 6.3MiB，距提供方上限还有 5 倍）。
+ 
+-本决定部分取代[统一图片请求管线记录](../feature/2026-08-20-unified-image-request-pipeline.zh.md)：其规范化与请求编码章节现在以本路由为准；其耐久版本拆分、Files 生命周期与卸载投影不变。
++本决定部分取代[统一图片请求管线记录](../feature/2026-08-20-unified-image-request-pipeline.zh.md)中的持久规范化编码事实；之后的 [JPEG 兼容决定](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md)取代本记录的请求编码路由。版本拆分、Files 生命周期与卸载投影不变。
+ 
+ ## 考虑过的替代方案
+ 
+@@ -29,5 +29,5 @@ Status: implemented
+ - 不透明的低色数图形（图表、文字截图）现在存为 JPEG：在几百 KB 量级上比 palette PNG 大 2 至 3 倍，锐利边缘有 JPEG 振铃；模型可见的请求版本本就被像素预算缩尺寸主导，可读性影响很小。将来若需要图形类专用编码，正确做法是给不透明阶梯加一档 WebP，而不是恢复分类。
+ - GIF 源图经 gifload 解码后带 alpha 平面，因此静帧 GIF 规范化走 WebP 阶梯。
+ - `IMAGE_TOO_LARGE` 不再产生于编码环节；它仍是超大源图的准入错误。
+-- 阶梯耗尽的附件可能以超过字节目标的大小落盘和上行，直到提供方上限拒绝；实测只有对抗性随机 alpha 输入可达。把这样的超目标 master 再次作为新上传提交时，直通的字节检查不通过，会再走一遍有损阶梯，因此规范化对这一仅对抗性可达的类别不幂等，每轮都会累积代际损失。
+-- 测试证据：`packages/attachment/attachment-local/tests` 用真实编码器钉住路由、阶梯耗尽和文字可读性行为，包括 issue #2885 误判特征（高频摄影内容离开慢路径）。
++- 阶梯耗尽的持久附件可能超过本地字节目标；请求投影会在提供方传输前把它重新编码为 JPEG。把这样的超目标 master 再次作为新上传提交时，直通的字节检查不通过，会再走一遍有损规范化阶梯，因此规范化对这一仅对抗性可达的类别不幂等，每轮都会累积代际损失。
++- 测试证据：`packages/attachment/attachment-local/tests` 用真实编码器钉住持久路由、阶梯耗尽、JPEG 请求投影和文字可读性行为，包括 issue #2885 误判特征。
+diff --git a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.i18n.yaml b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.i18n.yaml
+index 55331d4816225883f0ec90a7dfd273496a4b48e6..364ff7d7bd3fe157f383e2ca643ca191b3a38e3a 100644
+--- a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.i18n.yaml
++++ b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.md
+-2026-08-20-unified-image-request-pipeline.md: 1c7a8040232bab0d73f578a9170e235c2f175c07
+-2026-08-20-unified-image-request-pipeline.zh.md: af6497f5a06018b87d166842615f6b1e12b1aed4
++2026-08-20-unified-image-request-pipeline.md: 93672980e64b35b7c461f520d4a6e91c050ec767
++2026-08-20-unified-image-request-pipeline.zh.md: 6129b88163a26ad2aba3b5371a76b953881763c5
+diff --git a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.md b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.md
+index 1c7a8040232bab0d73f578a9170e235c2f175c07..93672980e64b35b7c461f520d4a6e91c050ec767 100644
+--- a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.md
++++ b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.md
+@@ -22,7 +22,7 @@ Batch admission prepares and verifies every normalized attachment once before pu
+ 
+ ### Deterministic request versions
+ 
+-`AttachmentStore.readImageRequest` derives a request version under route-owned total-pixel and encoded-byte budgets. Scaling is `min(1, sqrt(maxPixels / (width * height)))`, with no enlargement, followed by inward integer rounding so the encoded raster never exceeds the total-pixel cap. DeepSeek V4 Flash Vision Exp uses 640,000 total pixels and a 1MiB raw encoded-byte target by default. Its catalog uses one `imagePixelBudget` field: a positive integer selects an exact total-pixel budget, `low` selects 512 by 512 total pixels, and omission selects the route default. A 2048 by 1024 normalized attachment projects to 1130 by 565 under the hard cap. Request encoding uses the same alpha routing and 85/75/60 quality ladder as normalization, executed lazily; a target no quality meets keeps the smallest ladder output (see the [alpha-routed quality ladders note](../bug-fix/2026-08-24-alpha-routed-image-quality-ladders.md)). The same derivation is used by normal agent turns, direct `ctx.llm.stream` calls, compaction, and other auxiliary streams.
++`AttachmentStore.readImageRequest` derives a request version under route-owned total-pixel and encoded-byte budgets. Scaling is `min(1, sqrt(maxPixels / (width * height)))`, with no enlargement, followed by inward integer rounding so the encoded raster never exceeds the total-pixel cap. DeepSeek V4 Flash Vision Exp uses 640,000 total pixels and a 1MiB raw encoded-byte target by default. Its catalog uses one `imagePixelBudget` field: a positive integer selects an exact total-pixel budget, `low` selects 512 by 512 total pixels, and omission selects the route default. A 2048 by 1024 normalized attachment projects to 1130 by 565 under the hard cap. An in-budget PNG or JPEG passes through unchanged; WebP and any image requiring resizing or recompression use the 85/75/60 JPEG quality ladder, and transparent pixels are composited over white, as owned by the [JPEG request-image compatibility note](../bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md). A target no quality meets keeps the smallest JPEG output. Normal agent turns, direct `ctx.llm.stream` calls, compaction, and auxiliary streams use the same derivation.
+ 
+ The `variantId` and cache path cover the normalized attachment id, transform version, route pixel and byte budgets, and fixed encoder parameters. A new cache entry is fully decoded before publication. Cache hits use a header probe to check format, 8-bit sRGB/sRGBA facts, dimensions, and alpha without decoding the complete raster again; a mismatch regenerates the entry. DeepSeek Files and pi-ai inline base64 therefore use the same deterministic bytes for the same policy. Inline accounting uses the derived byte length after base64 expansion, not the normalized attachment byte count. Equal in-process `variantId` calls share one transform and cache write. Each caller can cancel its own wait; the shared transform is aborted only after every waiter has cancelled. Callers preserve order by applying `Promise.all` to singular `readImageRequest` calls. The local implementation runs normalization and request transforms through one FIFO limiter; `imageCompressionConcurrency` is configurable from 1 through 8 and defaults to 2. Batch publication remains sequential after every normalized attachment has been prepared.
+ 
+@@ -62,7 +62,7 @@ Historical attachment objects that later disappear or fail integrity verificatio
+ 
+ ## Verification
+ 
+-Package tests generate 16-bit RGB and RGBA PNG fixtures, prove 8-bit conversion and clean 8-bit passthrough, retain alpha under byte pressure, stop lazy encoding after the first fitting candidate, keep the smallest ladder output above an unreachable byte target, cover square and wide 640,000-pixel projections, singleflight equal variants and uploads without shared-cancellation leaks, bound transform concurrency, preserve cache and upload identity, skip attachment reads for conservatively offloaded history, prepare batches once, reject inconsistent Files responses, refresh near-expiry ids without retrieve, recover once from single-id, multiple-id, and ambiguous stale responses, fall back to bounded all-inline requests after file resolution failure, paginate before quota deletion, normalize provider diagnostics, project text-only history, and share normal/compaction request bytes. Keyless assembled snapshots cover the real tool schemas and image request path. A credentialed test uses the built-in `deepseek-official` route and its configured endpoint, never a custom provider entry.
++Package tests generate 16-bit RGB and RGBA PNG fixtures, prove 8-bit durable conversion and clean 8-bit passthrough, retain durable alpha under byte pressure, project WebP and resized request images to JPEG, stop lazy encoding after the first fitting candidate, keep the smallest ladder output above an unreachable byte target, cover square and wide 640,000-pixel projections, singleflight equal variants and uploads without shared-cancellation leaks, bound transform concurrency, preserve cache and upload identity, skip attachment reads for conservatively offloaded history, prepare batches once, reject inconsistent Files responses, refresh near-expiry ids without retrieve, recover once from single-id, multiple-id, and ambiguous stale responses, fall back to bounded all-inline requests after file resolution failure, paginate before quota deletion, normalize provider diagnostics, project text-only history, and share normal/compaction request bytes. Keyless assembled snapshots cover the real tool schemas and image request path. A credentialed test uses the built-in `deepseek-official` route and its configured endpoint, never a custom provider entry.
+ 
+ ## Consequences
+ 
+diff --git a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.zh.md b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.zh.md
+index af6497f5a06018b87d166842615f6b1e12b1aed4..6129b88163a26ad2aba3b5371a76b953881763c5 100644
+--- a/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.zh.md
++++ b/.agents/notes/implemented/feature/2026-08-20-unified-image-request-pipeline.zh.md
+@@ -22,7 +22,7 @@ Status: implemented
+ 
+ ### 确定性请求版本
+ 
+-`AttachmentStore.readImageRequest` 按路由拥有的总像素和编码字节预算派生请求版本。缩放公式为 `min(1, sqrt(maxPixels / (width * height)))`，不会放大小图，随后向预算内取整，确保编码光栅不超过总像素上限。DeepSeek V4 Flash Vision Exp 默认使用总像素 640,000 和原始编码字节目标 1MiB。其 catalog 只使用一个 `imagePixelBudget` 字段：正整数选择确切总像素预算，`low` 选择总像素 512×512，省略时使用路由默认值。2048×1024 规范化附件在这个硬上限下会投影为 1130×565。请求编码与规范化共用同一套 alpha 路由和 85/75/60 质量阶梯，按需执行；没有任何档位达到目标时保留最小产物（见[按 alpha 路由的质量阶梯记录](../bug-fix/2026-08-24-alpha-routed-image-quality-ladders.zh.md)）。普通 agent 轮次、直接 `ctx.llm.stream` 调用、压缩和其他辅助流都使用同一派生过程。
++`AttachmentStore.readImageRequest` 按路由拥有的总像素和编码字节预算派生请求版本。缩放公式为 `min(1, sqrt(maxPixels / (width * height)))`，不会放大小图，随后向预算内取整，确保编码光栅不超过总像素上限。DeepSeek V4 Flash Vision Exp 默认使用总像素 640,000 和原始编码字节目标 1MiB。其 catalog 只使用一个 `imagePixelBudget` 字段：正整数选择确切总像素预算，`low` 选择总像素 512×512，省略时使用路由默认值。2048×1024 规范化附件在这个硬上限下会投影为 1130×565。预算内 PNG 或 JPEG 原样直通；WebP 以及任何需要缩放或重新压缩的图片都使用 85/75/60 JPEG 质量阶梯，透明像素铺在白色背景上，该决定由 [JPEG 请求图片兼容记录](../bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md)拥有。没有任何档位达到目标时保留最小 JPEG 产物。普通 agent 轮次、直接 `ctx.llm.stream` 调用、压缩和辅助流都使用同一派生过程。
+ 
+ `variantId` 和缓存路径覆盖规范化附件 ID、变换策略版本、路由像素和字节预算及固定编码参数。新缓存条目在发布前会完整解码。缓存命中只探测文件头，校验格式、8-bit sRGB/sRGBA、尺寸和透明通道，不会再次完整解码光栅；不匹配时会重新生成。因此，同一策略下的 DeepSeek Files 和 pi-ai 内联 base64 使用相同的确定性字节。内联计量使用派生字节经过 base64 膨胀后的长度，不使用规范化附件字节数。同一进程内相同 `variantId` 的调用共享一次变换和缓存写入。每个调用方可以取消自己的等待；只有全部等待方都取消时，共享变换才会中止。调用方对单数 `readImageRequest` 使用 `Promise.all` 保持结果顺序。本地实现通过一个 FIFO 限流器运行规范化和请求变换，`imageCompressionConcurrency` 的可配置范围为 1 至 8，默认值为 2。全部规范化附件准备完成后，批次仍按顺序发布。
+ 
+@@ -62,7 +62,7 @@ Status: implemented
+ 
+ ## Verification
+ 
+-包测试会生成 16-bit RGB 和 RGBA PNG fixture，验证 8-bit 转换与干净 8-bit 字节直通、字节压力下保留透明通道、首个候选合规后停止编码、字节目标不可达时保留最小阶梯产物、正方形和宽屏 640,000 像素投影、相同变体与上传 singleflight 且不会共享取消、变换并发上限、缓存与上传身份、跳过已保守 offload 的历史附件读取、批量只准备一次、Files 响应不一致、进入刷新余量时不查询远端并更新 ID、单个 ID、多个 ID 和模糊失效响应只恢复一次、文件解析失败后回退到有界全内联请求、删除配额文件前完成分页、规范化提供方诊断、纯文本投影，以及普通请求与压缩共享请求字节。无需密钥的组装快照覆盖真实工具 schema 和图片请求路径。使用凭据的测试只使用内置 `deepseek-official` 路由及其已配置端点，不使用自定义提供方条目。
++包测试会生成 16-bit RGB 和 RGBA PNG fixture，验证持久版本的 8-bit 转换与干净 8-bit 字节直通、字节压力下保留持久透明通道、把 WebP 与缩放后的请求图片投影为 JPEG、首个候选合规后停止编码、字节目标不可达时保留最小阶梯产物、正方形和宽屏 640,000 像素投影、相同变体与上传 singleflight 且不会共享取消、变换并发上限、缓存与上传身份、跳过已保守 offload 的历史附件读取、批量只准备一次、Files 响应不一致、进入刷新余量时不查询远端并更新 ID、单个 ID、多个 ID 和模糊失效响应只恢复一次、文件解析失败后回退到有界全内联请求、删除配额文件前完成分页、规范化提供方诊断、纯文本投影，以及普通请求与压缩共享请求字节。无需密钥的组装快照覆盖真实工具 schema 和图片请求路径。使用凭据的测试只使用内置 `deepseek-official` 路由及其已配置端点，不使用自定义提供方条目。
+ 
+ ## Consequences
+ 
+diff --git a/packages/attachment/attachment-local/README.i18n.yaml b/packages/attachment/attachment-local/README.i18n.yaml
+index f3250efc09f4e3026be66b89a41f985b1742faf8..4afc9330b60c3d6ac356fda525a6d7611207617c 100644
+--- a/packages/attachment/attachment-local/README.i18n.yaml
++++ b/packages/attachment/attachment-local/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/attachment/attachment-local/README.md
+-README.md: 2b4c4e17ee8578d63c3f2ef44f7b2c44f116906a
+-README.zh.md: f44b0cf975b2a86c8e5b7c8ba585701fe88c19f2
++README.md: 5ac86ebc4450b1eb4690336abb7bdcb78a2465b1
++README.zh.md: 9dd5d224371a8fb6ffbac08ea426b5858adb7451
+diff --git a/packages/attachment/attachment-local/README.md b/packages/attachment/attachment-local/README.md
+index 2b4c4e17ee8578d63c3f2ef44f7b2c44f116906a..5ac86ebc4450b1eb4690336abb7bdcb78a2465b1 100644
+--- a/packages/attachment/attachment-local/README.md
++++ b/packages/attachment/attachment-local/README.md
+@@ -56,7 +56,7 @@ Attached images are kept below `<DSH_HOME>/attachments/v1` on this machine. Stor
+ 
+ ### What happens when you attach an image
+ 
+-Attach an image and its source limits, media, dimensions, and pixels are checked before it is normalized and saved. EXIF orientation is applied, metadata and color profiles are removed, transparency is preserved, and the raster is reduced under a total-pixel budget plus a long-edge cap. Alpha images use WebP and opaque images use JPEG on the shared 85/75/60 quality ladder; the smallest output is retained when every candidate exceeds the byte target. An accepted image reappears in history and later turns, including after restart; the selected model route receives a cached request version and, when its filesystem maps the host object, a read-only execution-world path.
++Attach an image and its source limits, media, dimensions, and pixels are checked before it is normalized and saved. EXIF orientation is applied, metadata and color profiles are removed, transparency is preserved, and the raster is reduced under a total-pixel budget plus a long-edge cap. Durable alpha images use WebP and opaque images use JPEG on the shared 85/75/60 quality ladder; the smallest output is retained when every candidate exceeds the byte target. An accepted image reappears in history and later turns, including after restart. The selected model route receives a cached request version: in-budget PNG and JPEG pass through, while WebP and any image requiring a request transform become JPEG so OpenAI-compatible media decoders do not need WebP support. When its filesystem maps the host object, the route also receives a read-only execution-world path.
+ 
+ ### What can go wrong
+ 
+@@ -76,7 +76,7 @@ This section explains the durability and verification design behind the storage,
+ 
+ - **Durability by fsync chain, not existence.** A synced file alone does not survive a crash when its directory entry never reached storage, so the write path syncs every ancestor entry to a process-proven boundary before a reference can reach a session checkpoint.
+ - **Normalize once, project per route.** Admission persists one provider-independent normalized attachment; request projection derives deterministic variants without rewriting durable history.
+-- **Lazy alpha-routed encoding.** Alpha images use WebP and opaque images use JPEG; quality candidates run in 85/75/60 order, and the smallest output is retained when none meets the encoded-byte target.
++- **Separate durable and request codecs.** Durable normalization keeps alpha in WebP and uses JPEG for opaque images. Request projection passes through in-budget PNG and JPEG but converts WebP and every transformed image to JPEG; transparent pixels are composited over white.
+ - **Limits are write-time policy.** Byte, total-pixel, and per-side dimension limits bind admission only, so tightening them later never makes admitted history unreadable.
+ 
+ ### Write and read paths
+@@ -85,7 +85,7 @@ Objects land at `<DSH_HOME>/attachments/v1/objects/<sha256-prefix>/<sha256>`; eq
+ 
+ Admission accepts up to 20 images and 200 MiB of source bytes per message; one source may use up to 20 MiB, 64 million pixels, and 8192 pixels per side. It applies orientation, removes metadata and color profiles, and normalizes under a 2048×2048 total-pixel budget, an 8192-pixel long edge, and a 4 MiB encoded-byte target. Extreme aspect ratios therefore retain their short-edge resolution. Clean single-frame 8-bit sRGB/sRGBA PNG, JPEG, or WebP input already within those limits passes through byte-identically; GIF, animation, metadata, orientation, 16-bit PNG, and incompatible color spaces force conversion.
+ 
+-Request versions live below `<DSH_HOME>/attachments/v1/request-images/`. `readImageRequest` scales without enlargement to a route pixel budget, then applies a separate encoded-byte target through the same alpha routing and quality ladder. Its cache identity includes the attachment id, transform version, budgets, and fixed encoder settings; cached bytes are header-probed for format, 8-bit sRGB/sRGBA, dimensions, and alpha facts, and a mismatch regenerates the entry. Concurrent callers share one transform and cache write, while cancellation stops shared work only when no waiter remains. `imageHostPath` derives the normalized object's host path, and the mounted filesystem may map that path into its execution world without writing it to durable history.
++Request versions live below `<DSH_HOME>/attachments/v1/request-images/`. `readImageRequest` passes through an in-budget PNG or JPEG; WebP and images that exceed the route pixel or byte budget are encoded as JPEG through the 85/75/60 quality ladder, with transparent pixels composited over white. Its cache identity includes the attachment id, transform version, budgets, JPEG settings, and alpha background; cached bytes are header-probed for JPEG, 8-bit sRGB, dimensions, and absence of alpha, and a mismatch regenerates the entry. Concurrent callers share one transform and cache write, while cancellation stops shared work only when no waiter remains. `imageHostPath` derives the normalized object's host path, and the mounted filesystem may map that path into its execution world without writing it to durable history.
+ 
+ ### Source map
+ 
+@@ -133,6 +133,7 @@ These limits describe what this storage can and cannot do; they are current pack
+ - **Images are kept forever** — stored images are never deleted automatically, and nothing collects unreferenced objects.
+ - **Local to this machine** — images live on the machine that runs the harness; other hosts cannot read them.
+ - **Animated GIF becomes static** — normalization retains only the first frame; animation is outside the version-one image contract.
++- **Transformed request images have no alpha** — WebP and any image resized or recompressed for a model route become JPEG with transparent pixels composited over white; the durable normalized attachment retains its transparency.
+ - **Encoder output is versioned** — the installed Sharp/libvips build pins normalization and request bytes; an encoder or transform-version upgrade re-addresses future variants while existing objects remain valid.
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/attachment/attachment-local/README.zh.md b/packages/attachment/attachment-local/README.zh.md
+index f44b0cf975b2a86c8e5b7c8ba585701fe88c19f2..9dd5d224371a8fb6ffbac08ea426b5858adb7451 100644
+--- a/packages/attachment/attachment-local/README.zh.md
++++ b/packages/attachment/attachment-local/README.zh.md
+@@ -56,7 +56,7 @@ kind: "package-reference"
+ 
+ ### 附加图片时会发生什么
+ 
+-附加图片后，会先检查源图限制、媒体类型、尺寸与像素，再完成规范化并保存。系统应用 EXIF 方向、移除元数据与色彩配置、保留透明度，并按总像素预算与长边上限缩小光栅。带 alpha 的图片使用 WebP，不透明图片使用 JPEG，共享 85/75/60 质量阶梯；全部候选都超过字节目标时保留最小输出。被接受的图片会重新出现在历史和后续轮次中，重启后也不例外；所选模型路由会收到缓存的请求版本，并在其文件系统可映射宿主对象时收到只读执行世界路径。
++附加图片后，会先检查源图限制、媒体类型、尺寸与像素，再完成规范化并保存。系统应用 EXIF 方向、移除元数据与色彩配置、保留透明度，并按总像素预算与长边上限缩小光栅。持久版本中带 alpha 的图片使用 WebP，不透明图片使用 JPEG，共享 85/75/60 质量阶梯；全部候选都超过字节目标时保留最小输出。被接受的图片会重新出现在历史和后续轮次中，重启后也不例外。所选模型路由会收到缓存的请求版本：预算内的 PNG 与 JPEG 原样直通，WebP 和任何需要请求变换的图片都会成为 JPEG，因此 OpenAI 兼容媒体解码器无需支持 WebP。文件系统可映射宿主对象时，路由还会收到只读执行世界路径。
+ 
+ ### 可能出什么问题
+ 
+@@ -76,7 +76,7 @@ kind: "package-reference"
+ 
+ - **持久性靠 fsync 链，而非存在性。** 当目录项从未到达存储时，仅同步文件无法在崩溃后存活，因此写入路径会在引用可能到达会话检查点前，把每个祖先条目同步到进程已验证的边界。
+ - **一次规范化，按路由投影。** 准入持久保存一份提供方无关的规范化附件；请求投影派生确定性变体而不改写持久历史。
+-- **惰性 alpha 路由编码。** 带 alpha 的图片使用 WebP，不透明图片使用 JPEG；质量候选按 85/75/60 顺序运行，没有候选满足编码字节目标时保留最小输出。
++- **持久版本与请求版本使用独立编码。** 持久规范化以 WebP 保留 alpha，不透明图片使用 JPEG。请求投影原样传递预算内的 PNG 与 JPEG，但把 WebP 和所有经过变换的图片转换为 JPEG；透明像素铺在白色背景上。
+ - **限制是写入时策略。** 字节、总像素与单边尺寸限制只约束准入，因此之后收紧它们绝不会让已接纳的历史不可读。
+ 
+ ### 写入与读取路径
+@@ -85,7 +85,7 @@ kind: "package-reference"
+ 
+ 准入允许每条消息最多 20 张图片与 200 MiB 源字节；单个源图最多 20 MiB、6400 万像素与单边 8192 像素。系统应用方向、移除元数据与色彩配置，并把规范化结果限制在 2048×2048 总像素预算、8192 像素长边和 4 MiB 编码字节目标内，因此极端宽高比会保留短边分辨率。已经满足限制的干净、单帧、8-bit sRGB/sRGBA PNG、JPEG 或 WebP 会逐字节直通；GIF、动画、元数据、方向、16-bit PNG 与不兼容色彩空间会触发转换。
+ 
+-请求版本位于 `<DSH_HOME>/attachments/v1/request-images/`。`readImageRequest` 在不放大的前提下缩放到路由像素预算，再通过相同的 alpha 路由与质量阶梯应用独立编码字节目标。缓存身份包含附件 id、变换版本、预算与固定编码参数；缓存字节会先探测格式、8-bit sRGB/sRGBA、尺寸与 alpha 信息，不匹配时重新生成。并发调用方共享一次变换与缓存写入，且只在没有等待方时由取消停止共享工作。`imageHostPath` 派生规范化对象的宿主路径，挂载的文件系统可以把该路径映射进执行世界，而不会写入持久历史。
++请求版本位于 `<DSH_HOME>/attachments/v1/request-images/`。`readImageRequest` 原样传递预算内的 PNG 或 JPEG；WebP 以及超过路由像素或字节预算的图片通过 85/75/60 质量阶梯编码为 JPEG，透明像素铺在白色背景上。缓存身份包含附件 id、变换版本、预算、JPEG 设置与 alpha 背景；缓存字节会先探测 JPEG、8-bit sRGB、尺寸和不存在 alpha，不匹配时重新生成。并发调用方共享一次变换与缓存写入，且只在没有等待方时由取消停止共享工作。`imageHostPath` 派生规范化对象的宿主路径，挂载的文件系统可以把该路径映射进执行世界，而不会写入持久历史。
+ 
+ ### 源码地图
+ 
+@@ -133,6 +133,7 @@ kind: "package-reference"
+ - **图片会永久保留**——已存储的图片永远不会被自动删除，也没有任何机制回收未被引用的对象。
+ - **仅限本机**——图片存放在运行 harness 的机器上；其他主机无法读取。
+ - **动态 GIF 变为静态**——规范化只保留第一帧；动画不属于版本一图片约定。
++- **经过变换的请求图片不含 alpha**——WebP 以及为模型路由缩放或重新压缩的任何图片都会成为 JPEG，透明像素铺在白色背景上；持久规范化附件仍保留透明度。
+ - **编码器输出带版本**——已安装的 Sharp/libvips 构建钉定规范化与请求字节；编码器或变换版本升级会让未来变体产生新地址，已有对象继续有效。
+ 
+ <a id="dev-note"></a>
+diff --git a/packages/attachment/attachment-local/src/encoding.ts b/packages/attachment/attachment-local/src/encoding.ts
+index 1b16aafb30b7ac6fbcd0ce67a2a450294fb354ab..9797f5cfcbb0e3b41589107a23585aacb0a86e37 100644
+--- a/packages/attachment/attachment-local/src/encoding.ts
++++ b/packages/attachment/attachment-local/src/encoding.ts
+@@ -6,6 +6,8 @@ import type { Sharp } from 'sharp'
+ export const IMAGE_ENCODING_QUALITIES = [85, 75, 60] as const
+ /** Fixed lossy-WebP effort; deeper search costs 3-4x encode time for about 5% size. */
+ export const WEBP_ENCODING_EFFORT = 0
++/** Background used when a model-request JPEG removes source transparency. */
++export const JPEG_ALPHA_BACKGROUND = '#ffffff'
+ 
+ /** One ladder output carrying its complete bytes and exact facts. */
+ export interface EncodedImage {
+@@ -23,6 +25,24 @@ async function encode(pipeline: Sharp, mediaType: EncodedImage['mediaType'], qua
+   return { data: new Uint8Array(data), mediaType, width: info.width, height: info.height }
+ }
+ 
++/**
++ * Build the request-image quality ladder in the broadly accepted JPEG format.
++ * Transparent pixels are composited over white because JPEG has no alpha
++ * channel; durable normalization still uses {@link encodingLadder} and keeps
++ * transparency in WebP.
++ * @param prepared - sized sRGB pipeline; cloned per candidate.
++ * @returns JPEG encoders ordered from highest to lowest ladder quality.
++ */
++export function jpegEncodingLadder(prepared: Sharp): Array<() => Promise<EncodedImage>> {
++  return IMAGE_ENCODING_QUALITIES.map(quality => (
++    () => encode(
++      prepared.clone().flatten({ background: JPEG_ALPHA_BACKGROUND }),
++      'image/jpeg',
++      quality,
++    )
++  ))
++}
++
+ /**
+  * Build the lazy quality ladder for one prepared pipeline: WebP keeps a source
+  * alpha channel, everything else is JPEG.
+diff --git a/packages/attachment/attachment-local/src/request-image.ts b/packages/attachment/attachment-local/src/request-image.ts
+index 237dc5811f1194e5932ed8687d72b13cfb803e0a..8143471c5cb21aa4464478a483866594a9129e25 100644
+--- a/packages/attachment/attachment-local/src/request-image.ts
++++ b/packages/attachment/attachment-local/src/request-image.ts
+@@ -14,15 +14,15 @@ import type {
+ } from '@deepseek-ai/dsh-attachment'
+ import {
+   IMAGE_ENCODING_QUALITIES,
+-  WEBP_ENCODING_EFFORT,
++  JPEG_ALPHA_BACKGROUND,
+   encodeFirstWithinLimit,
+-  encodingLadder,
+   isExhaustedEncoding,
++  jpegEncodingLadder,
+ } from './encoding.ts'
+-import { detectImage, encodedAlphaIsCompatible, probeImage } from './image.ts'
++import { detectImage, probeImage } from './image.ts'
+ 
+ /** Transform version included in every cache and upload-index identity. */
+-export const REQUEST_IMAGE_TRANSFORM_VERSION = 'request-image-v5'
++export const REQUEST_IMAGE_TRANSFORM_VERSION = 'request-image-v6'
+ 
+ interface EncodedRequestImage {
+   data: Uint8Array
+@@ -58,10 +58,9 @@ function descriptor(attachment: ImageAttachmentRef, policy: ImageRequestPolicy):
+     routePixelBudget: policy.maxPixels,
+     encodedByteBudget: policy.maxBytes,
+     encoding: {
+-      webpQualities: IMAGE_ENCODING_QUALITIES,
+-      webpEffort: WEBP_ENCODING_EFFORT,
+       jpegQualities: IMAGE_ENCODING_QUALITIES,
+-      order: ['alpha:webp', 'opaque:jpeg'],
++      transformedMediaType: 'image/jpeg',
++      alphaBackground: JPEG_ALPHA_BACKGROUND,
+       colourspace: 'srgb',
+     },
+   })
+@@ -92,10 +91,10 @@ function sourcePipeline(attachment: StoredImageAttachment): Sharp {
+ async function createRequestImage(
+   attachment: StoredImageAttachment,
+   policy: ImageRequestPolicy,
+-  hasAlpha: boolean,
+ ): Promise<EncodedRequestImage> {
+   const dimensions = requestImageDimensions(attachment.ref.width, attachment.ref.height, policy.maxPixels)
+-  if (dimensions.width === attachment.ref.width
++  if (attachment.ref.mediaType !== 'image/webp'
++    && dimensions.width === attachment.ref.width
+     && dimensions.height === attachment.ref.height
+     && attachment.data.byteLength <= policy.maxBytes) {
+     return {
+@@ -106,7 +105,7 @@ async function createRequestImage(
+     }
+   }
+   const encodedVersion = await encodeFirstWithinLimit(
+-    encodingLadder(pipeline(attachment, dimensions.width, dimensions.height), hasAlpha),
++    jpegEncodingLadder(pipeline(attachment, dimensions.width, dimensions.height)),
+     policy.maxBytes,
+   )
+   return isExhaustedEncoding(encodedVersion) ? encodedVersion.smallest : encodedVersion
+@@ -120,16 +119,16 @@ async function readCached(
+   path: string,
+   attachment: StoredImageAttachment,
+   policy: ImageRequestPolicy,
+-  expectedAlpha: boolean,
+   signal?: AbortSignal,
+ ): Promise<VerifiedRequestImage | undefined> {
+   try {
+     const data = new Uint8Array(await readFile(path, { signal }))
+     const detected = await probeImage(data)
+     const maximum = requestImageDimensions(attachment.ref.width, attachment.ref.height, policy.maxPixels)
+-    if (detected.depth !== 'uchar' || detected.space !== 'srgb'
++    if (detected.mediaType !== 'image/jpeg'
++      || detected.depth !== 'uchar' || detected.space !== 'srgb' || detected.hasAlpha
+       || detected.width > maximum.width || detected.height > maximum.height
+-      || !encodedAlphaIsCompatible(expectedAlpha, detected)) return undefined
++    ) return undefined
+     return { data, mediaType: detected.mediaType, width: detected.width, height: detected.height, hasAlpha: detected.hasAlpha }
+   } catch (error: unknown) {
+     if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined
+@@ -140,12 +139,12 @@ async function readCached(
+ 
+ async function verifyRequestImage(
+   image: EncodedRequestImage,
+-  expectedAlpha: boolean,
+ ): Promise<VerifiedRequestImage> {
+   const detected = await detectImage(image.data)
+-  if (detected.depth !== 'uchar' || detected.space !== 'srgb'
++  if (detected.mediaType !== 'image/jpeg'
++    || detected.depth !== 'uchar' || detected.space !== 'srgb' || detected.hasAlpha
+     || detected.width !== image.width || detected.height !== image.height
+-    || detected.mediaType !== image.mediaType || !encodedAlphaIsCompatible(expectedAlpha, detected)) {
++    || detected.mediaType !== image.mediaType) {
+     throw new AttachmentError(
+       'Encoded model-request image does not match its verified 8-bit sRGB metadata.',
+       'ATTACHMENT_WRITE_FAILED',
+@@ -185,11 +184,11 @@ export async function readRequestImageFile(
+   const variantId = requestImageVariantId(attachment.ref, policy)
+   const hash = String(variantId).slice('sha256:'.length)
+   const path = cachePath(root, hash)
+-  const cached = await readCached(path, attachment, policy, source.hasAlpha, signal)
+-  const created = cached ?? await createRequestImage(attachment, policy, source.hasAlpha)
++  const cached = await readCached(path, attachment, policy, signal)
++  const created = cached ?? await createRequestImage(attachment, policy)
+   const version = cached ?? (created.data === attachment.data
+     ? { ...created, hasAlpha: source.hasAlpha }
+-    : await verifyRequestImage(created, source.hasAlpha))
++    : await verifyRequestImage(created))
+   signal?.throwIfAborted()
+   if (cached === undefined && version.data !== attachment.data) await writeCached(path, version.data)
+   return {
+diff --git a/packages/attachment/attachment-local/tests/request-image.spec.ts b/packages/attachment/attachment-local/tests/request-image.spec.ts
+index 821480d02895155c5af7a33ef840cb14df09853d..e866c34fee6a1f255fa1273ec6e078585178d2b2 100644
+--- a/packages/attachment/attachment-local/tests/request-image.spec.ts
++++ b/packages/attachment/attachment-local/tests/request-image.spec.ts
+@@ -146,7 +146,7 @@ describe('local request-image cache', () => {
+     expect(low.width * low.height).toBeLessThanOrEqual(512 * 512 + low.width)
+   })
+ 
+-  it('routes opaque pixels to JPEG and preserves alpha on the WebP ladder', async () => {
++  it('projects resized opaque and alpha images to JPEG', async () => {
+     const attachments = await store()
+     const side = 256
+     const photoPixels = new Uint8Array(side * side * 3)
+@@ -179,10 +179,10 @@ describe('local request-image cache', () => {
+     const alphaRequest = await attachments.readImageRequest(alpha, { maxPixels: 128 * 128, maxBytes: 4_096 })
+ 
+     expect(photoRequest.mediaType).toBe('image/jpeg')
+-    expect(alphaRequest.mediaType).toBe('image/webp')
+-    expect(alphaRequest.bytes).toBeGreaterThan(4_096)
++    expect(alphaRequest.mediaType).toBe('image/jpeg')
++    expect(alphaRequest.bytes).toBeLessThanOrEqual(4_096)
+     expect(alphaRequest).toMatchObject({ width: 128, height: 128 })
+-    await expect(sharp(alphaRequest.data).metadata()).resolves.toMatchObject({ hasAlpha: true, depth: 'uchar', space: 'srgb' })
++    await expect(sharp(alphaRequest.data).metadata()).resolves.toMatchObject({ hasAlpha: false, depth: 'uchar', space: 'srgb' })
+   })
+ 
+   it.each([3, 4] as const)('projects a 16-bit %s-channel PNG as a bounded 8-bit request image', async (channels) => {
+@@ -197,21 +197,37 @@ describe('local request-image cache', () => {
+     expect(request.bytes).toBeLessThanOrEqual(1024 * 1024)
+     expect(request.width * request.height).toBeLessThanOrEqual(16 * 16)
+     await expect(sharp(request.data).metadata()).resolves.toMatchObject({
+-      depth: 'uchar', space: 'srgb', hasAlpha: channels === 4,
++      depth: 'uchar', space: 'srgb', hasAlpha: false,
+     })
+   })
+ 
+-  it('accepts a resized WebP request version that omits an all-opaque alpha plane', async () => {
++  it('projects an opaque alpha plane to JPEG', async () => {
+     const attachments = await store()
+     const source = await complexOpaqueAlphaImage(64, 32)
+     const attachment = await attachments.saveImage({ data: source, mediaType: 'image/png' })
+ 
+     const request = await attachments.readImageRequest(attachment, { maxPixels: 16 * 16, maxBytes: 1024 * 1024 })
+ 
+-    expect(request.mediaType).toBe('image/webp')
++    expect(request.mediaType).toBe('image/jpeg')
+     await expect(sharp(request.data).metadata()).resolves.toMatchObject({ hasAlpha: false })
+   })
+ 
++  it('converts an in-budget WebP attachment to JPEG', async () => {
++    const attachments = await store()
++    const source = new Uint8Array(await sharp({
++      create: { width: 8, height: 4, channels: 4, background: { r: 12, g: 34, b: 56, alpha: 0.5 } },
++    }).webp().toBuffer())
++    const attachment = await attachments.saveImage({ data: source, mediaType: 'image/webp' })
++
++    const request = await attachments.readImageRequest(attachment, { maxPixels: 1_000, maxBytes: 1024 * 1024 })
++
++    expect(request.mediaType).toBe('image/jpeg')
++    expect(request.data).not.toEqual(source)
++    await expect(sharp(request.data).metadata()).resolves.toMatchObject({
++      format: 'jpeg', hasAlpha: false, depth: 'uchar', space: 'srgb',
++    })
++  })
++
+   it('keeps a complex 640,000-pixel request version below 1 MiB', async () => {
+     const attachments = await store()
+     const side = 1024
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.i18n.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..1058df7232ee6cc1246799296a8490aaebd248cb
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md
++2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md: 0b610db032401ac44fe529b3c99792e418f91a3d
++2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md: e1d2d62ddfd0dba39aa7a60f528d4ff7d2aabd0a
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b610db032401ac44fe529b3c99792e418f91a3d
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md
+@@ -0,0 +1,32 @@
++# Agent Note: JPEG request images for WebP-incompatible providers
++
++Status: implemented
++
++English | [中文](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md)
++
++## Problem
++
++An image-capable OpenAI-compatible provider may accept PNG and JPEG while its media decoder rejects WebP with HTTP 400. Durable normalization can legitimately store WebP, and the route request transform also produced WebP whenever an alpha-bearing PNG needed resizing or recompression. A successful `read_image` result therefore entered session history before the next model request failed; every later turn replayed the same rejected media. Provider model metadata declares the image modality but does not declare accepted image media types, so the adapter cannot negotiate the format before the first request.
++
++## Decision
++
++The local attachment backend keeps durable normalization provider-independent: clean in-budget PNG, JPEG, and WebP still pass through, and normalization that must preserve alpha still uses WebP. Model-request projection has a separate compatibility rule. An in-budget PNG or JPEG passes through unchanged, while every WebP attachment and every image requiring route resizing or recompression is encoded as JPEG through the 85/75/60 quality ladder. JPEG conversion composites transparent pixels over white. The request transform version is `request-image-v6`; its identity records the JPEG qualities and alpha background, so version-five WebP cache entries are not reused.
++
++The conversion runs before an adapter serializes inline base64 or uploads a provider file. Frontends, including DSHmux, do not inspect or rewrite attachment bytes: internal tool results and outbound model requests live in the Harness process, and request projection is the one path shared by chat uploads, `read_image`, compaction, direct LLM calls, and provider Files.
++
++This decision partially supersedes the request-encoding part of the [alpha-routed image quality ladders note](2026-08-24-alpha-routed-image-quality-ladders.md). Its alpha-routed durable normalization, fixed quality ladder, byte-target semantics, and total-pixel sizing remain unchanged. It also updates the deterministic request-version facts in the [unified image request pipeline note](../feature/2026-08-20-unified-image-request-pipeline.md).
++
++## Alternatives considered
++
++**Convert inside DSHmux.** Rejected: DSHmux relays browser traffic to DSH, but an internal tool image and DSH's provider request never cross that relay. Intercepting them would require an outbound provider proxy with image-decoder native dependencies and would still miss non-DSHmux Harness clients.
++
++**Retry only after the provider returns the generic media-decoder 400.** Rejected: the provider response does not identify which image or media type failed, an invisible retry would make the successful model input depend on an unlogged provider response, and one extra rejected request would be spent for every new variant.
++
++**Convert WebP to PNG and preserve alpha.** Rejected: the observed endpoint has also rejected request images whose durable reference was PNG because route resizing re-encoded them as WebP, and JPEG is the common denominator required by this deployment. Durable history continues to preserve transparency for later routes.
++
++## Consequences
++
++- OpenAI-compatible backends need JPEG decoding for transformed request images and no longer need WebP decoding for Harness-generated requests.
++- A transparent WebP, or any transparent image that exceeds a route request budget, reaches the model composited over white. Its durable normalized attachment retains alpha and remains available to a future projection policy.
++- Existing request-image caches regenerate under `request-image-v6`; durable attachment ids and session logs do not change.
++- Focused attachment tests cover in-budget WebP conversion, alpha compositing metadata, cache validation, route resizing, and the unchanged normalized-image path. The Blender reproduction stores `render_full.png` as WebP but projects it as a 1280×960 JPEG before pi-ai serialization.
+diff --git a/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1d2d62ddfd0dba39aa7a60f528d4ff7d2aabd0a
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-08-31-jpeg-request-images-for-webp-incompatible-providers.zh.md
+@@ -0,0 +1,32 @@
++# Agent Note: 为不兼容 WebP 的提供方生成 JPEG 请求图片
++
++Status: implemented
++
++[English](2026-08-31-jpeg-request-images-for-webp-incompatible-providers.md) | 中文
++
++## 问题
++
++支持图片的 OpenAI 兼容提供方可能接受 PNG 与 JPEG，却让媒体解码器以 HTTP 400 拒绝 WebP。持久规范化可以合理地存储 WebP；路由请求变换也会在带 alpha 的 PNG 需要缩放或重新压缩时生成 WebP。因此，成功的 `read_image` 结果会先进入会话历史，下一次模型请求才失败；之后每个轮次都会重放同一份被拒绝的媒体。提供方模型元数据只声明图片模态，不声明可接受的图片媒体类型，所以适配器无法在第一次请求前协商格式。
++
++## 决定
++
++本地附件后端继续让持久规范化与提供方无关：预算内的干净 PNG、JPEG 与 WebP 仍按字节直通，必须保留 alpha 的规范化仍使用 WebP。模型请求投影使用独立兼容规则。预算内的 PNG 或 JPEG 原样直通；每个 WebP 附件以及每张需要按路由缩放或重新压缩的图片，都通过 85/75/60 质量阶梯编码为 JPEG。JPEG 转换把透明像素铺在白色背景上。请求变换版本为 `request-image-v6`；其身份记录 JPEG 质量与 alpha 背景，因此不会复用版本五的 WebP 缓存条目。
++
++转换发生在适配器序列化内联 base64 或上传提供方文件之前。包括 DSHmux 在内的前端不检查或改写附件字节：内部工具结果和 DSH 发往提供方的请求都位于 Harness 进程中，而请求投影是聊天上传、`read_image`、压缩、直接 LLM 调用和提供方 Files 共同使用的唯一路径。
++
++本决定部分取代[按 alpha 路由的图片质量阶梯记录](2026-08-24-alpha-routed-image-quality-ladders.zh.md)中的请求编码部分；其按 alpha 路由的持久规范化、固定质量阶梯、字节目标语义与总像素尺寸规则不变。本决定也更新[统一图片请求管线记录](../feature/2026-08-20-unified-image-request-pipeline.zh.md)中的确定性请求版本事实。
++
++## 考虑过的替代方案
++
++**在 DSHmux 内转换。** 否决：DSHmux 只把浏览器流量转发给 DSH，内部工具图片与 DSH 的提供方请求都不会经过这条转发。拦截它们需要带原生图片解码依赖的出站提供方代理，而且仍会漏掉不使用 DSHmux 的 Harness 客户端。
++
++**只在提供方返回通用媒体解码 400 后重试。** 否决：提供方响应不会指出失败的是哪张图片或哪种媒体类型；不可见重试会让成功的模型输入取决于未记录的提供方响应；每个新变体还会额外消耗一次必然被拒绝的请求。
++
++**把 WebP 转换为 PNG 并保留 alpha。** 否决：观察到的端点也曾拒绝持久引用为 PNG 的请求图片，因为路由缩放把它们重新编码成 WebP；JPEG 是该部署需要的共同格式。持久历史继续保留透明度，供之后的路由使用。
++
++## 后果
++
++- OpenAI 兼容后端只需为经过变换的请求图片解码 JPEG，不再需要为 Harness 生成的请求解码 WebP。
++- 透明 WebP 或任何超过路由请求预算的透明图片会以白色背景合成后到达模型。其持久规范化附件保留 alpha，未来的投影策略仍可使用。
++- 已有请求图片缓存会按 `request-image-v6` 重新生成；持久附件 ID 与会话日志不变。
++- 聚焦附件测试覆盖预算内 WebP 转换、alpha 合成元数据、缓存校验、路由缩放和未改变的规范化图片路径。Blender 复现中，`render_full.png` 持久存为 WebP，但会在 pi-ai 序列化前投影为 1280×960 JPEG。

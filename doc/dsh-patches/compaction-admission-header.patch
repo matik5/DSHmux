@@ -1,0 +1,307 @@
+From 59de2bcde480ef2d6d36ec85a1708b14a36ab39d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?mati=20kosem=C3=A4e?= <mati.kosemae@gmail.com>
+Date: Wed, 26 Aug 2026 18:55:25 +0000
+Subject: [PATCH] Mark pi-ai compaction requests on the wire
+
+---
+ ...06-18-compaction-capability-seam.i18n.yaml |  4 +--
+ .../2026-06-18-compaction-capability-seam.md  |  2 +-
+ ...026-06-18-compaction-capability-seam.zh.md |  2 +-
+ ...i-ai-compaction-admission-marker.i18n.yaml |  6 +++++
+ ...08-26-pi-ai-compaction-admission-marker.md | 27 +++++++++++++++++++
+ ...26-pi-ai-compaction-admission-marker.zh.md | 27 +++++++++++++++++++
+ .../compaction-basic/README.i18n.yaml         |  4 +--
+ .../compaction/compaction-basic/README.md     |  2 +-
+ .../compaction/compaction-basic/README.zh.md  |  2 +-
+ packages/llm/llm-pi-ai/README.i18n.yaml       |  4 +--
+ packages/llm/llm-pi-ai/README.md              |  4 +++
+ packages/llm/llm-pi-ai/README.zh.md           |  4 +++
+ packages/llm/llm-pi-ai/src/adapter.ts         | 21 ++++++++++-----
+ packages/llm/llm-pi-ai/tests/adapter.spec.ts  | 18 ++++++++++++-
+ 14 files changed, 110 insertions(+), 17 deletions(-)
+ create mode 100644 .agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.i18n.yaml
+ create mode 100644 .agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md
+ create mode 100644 .agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md
+
+diff --git a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.i18n.yaml b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.i18n.yaml
+index d82b99bbc05d8f4e43cd189d96d12ae20227c281..dfff89e3279f8f8985368334537d8ab50bd0fdf0 100644
+--- a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.i18n.yaml
++++ b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md
+-2026-06-18-compaction-capability-seam.md: 71ea7144cd843364fd77db0dd2c8a0d1e8bab1ac
+-2026-06-18-compaction-capability-seam.zh.md: f25c0d295e8d782213cc044e7109377feaa93e7e
++2026-06-18-compaction-capability-seam.md: e682e81027dfe8dc9c03b75379c3f32249933c5a
++2026-06-18-compaction-capability-seam.zh.md: 97aebd0febd3f058003c05b77f084513e16ffdf8
+diff --git a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md
+index 71ea7144cd843364fd77db0dd2c8a0d1e8bab1ac..e682e81027dfe8dc9c03b75379c3f32249933c5a 100644
+--- a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md
++++ b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md
+@@ -33,7 +33,7 @@ This is not a coupling smell — it is the contract's domain. The "only cordis"
+ 
+ Putting the full algorithm (the retention walk, token-summing, text extraction) as concrete methods on the interface recouples the contract to one strategy: a backend that wants a different retention policy or event sequence would have to fight inherited concrete code. Making all three operations abstract puts every *how* decision in the backend and keeps the interface a statement of *what*. Token measurement is not a compaction hook at all; the singleton service lets multiple consumers share one per-session replay fold.
+ 
+-`compactIfNeeded(agent, trigger, signal)` takes an explicit `'pressure' | 'context-overflow'` trigger and cancellation. It reads only the latest durable routed request; no header means no work, while any routed provider/model target uses the singleton estimator. `compactNow(agent, signal)` requires an idle agent and performs one useful balanced reduction even below pressure, returning `null` without writes when none exists. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for explicit callers. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options, and records the provider/model pair after any `llm/stream` routing. It replays the routed request's prefix and appends the compaction directive as a trailing user message so the provider's warm KV cache is reused — see the [summary prefix-cache Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md). The result carries `llmStreamCall: true` because it consumed exactly one call through this context's LLM service; a subclass sets that marker only under the same condition, since retained `rawOutput` alone does not identify the call path. The call sets the provider-neutral `GenerateOptions.purpose` to `compaction`; adapters may map that purpose to model-hidden transport metadata, and the DeepSeek adapter sends `x-deepseek-harness-compact: 1`.
++`compactIfNeeded(agent, trigger, signal)` takes an explicit `'pressure' | 'context-overflow'` trigger and cancellation. It reads only the latest durable routed request; no header means no work, while any routed provider/model target uses the singleton estimator. `compactNow(agent, signal)` requires an idle agent and performs one useful balanced reduction even below pressure, returning `null` without writes when none exists. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for explicit callers. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options, and records the provider/model pair after any `llm/stream` routing. It replays the routed request's prefix and appends the compaction directive as a trailing user message so the provider's warm KV cache is reused — see the [summary prefix-cache Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md). The result carries `llmStreamCall: true` because it consumed exactly one call through this context's LLM service; a subclass sets that marker only under the same condition, since retained `rawOutput` alone does not identify the call path. The call sets the provider-neutral `GenerateOptions.purpose` to `compaction`; adapters may map that purpose to model-hidden transport metadata. The [pi-ai compaction admission marker decision](2026-08-26-pi-ai-compaction-admission-marker.md) records the DeepSeek and pi-ai adapters' exact `x-deepseek-harness-compact: 1` wire mapping and reserved-header semantics.
+ 
+ ### Automatic pressure runs after successful durable step work
+ 
+diff --git a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.zh.md b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.zh.md
+index f25c0d295e8d782213cc044e7109377feaa93e7e..97aebd0febd3f058003c05b77f084513e16ffdf8 100644
+--- a/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.zh.md
++++ b/.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.zh.md
+@@ -33,7 +33,7 @@ Status: implemented
+ 
+ 将完整算法（保留遍历、token 求和、文本提取）作为接口上的具体方法，会将约定重新耦合到一种策略：想要不同保留策略或事件排序的后端必须与继承来的具体代码对抗。将三个操作都设为抽象，把所有*怎么做*的决策放在后端，并让接口保持为*做什么*的声明。token 测量根本不是压缩钩子；单例服务使多个消费方能够共享逐会话的回放折叠。
+ 
+-`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV Cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.zh.md)。该结果携带 `llmStreamCall: true`，因为生成它时恰好通过此上下文的 LLM 服务发起了一次调用；只有满足相同条件时，子类才设置该标记，因为单有保留的 `rawOutput` 并不能判定调用路径。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
++`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV Cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.zh.md)。该结果携带 `llmStreamCall: true`，因为生成它时恰好通过此上下文的 LLM 服务发起了一次调用；只有满足相同条件时，子类才设置该标记，因为单有保留的 `rawOutput` 并不能判定调用路径。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据。[pi-ai 压缩准入标记决策](2026-08-26-pi-ai-compaction-admission-marker.zh.md)记录 DeepSeek 与 pi-ai 适配器精确的 `x-deepseek-harness-compact: 1` 协议映射及保留标头语义。
+ 
+ ### 成功的持久步骤工作完成后运行自动压力检查
+ 
+diff --git a/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.i18n.yaml b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.i18n.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c58970eb8bcff34009f80a4aa0e6a8ea23a45211
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md
++2026-08-26-pi-ai-compaction-admission-marker.md: 9489e9fa331d1fb6977f155e1c1449cfaf66bfe7
++2026-08-26-pi-ai-compaction-admission-marker.zh.md: c96c9c6d3996e359fe61a92a5fd0be9d95e798b9
+diff --git a/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9489e9fa331d1fb6977f155e1c1449cfaf66bfe7
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md
+@@ -0,0 +1,27 @@
++# Agent Note: pi-ai compaction admission marker
++
++Status: implemented
++
++English | [中文](2026-08-26-pi-ai-compaction-admission-marker.zh.md)
++
++## Problem
++
++The [compaction capability decision](2026-06-18-compaction-capability-seam.md) identifies Compact-basic's summarizer call with `GenerateOptions.purpose = 'compaction'`, but the pi-ai adapter discarded that transport-only purpose. A gateway that protects a recovery reserve therefore applied its ordinary hard input limit to the summarizer itself. Near the limit, the original request correctly triggered overflow recovery, then the recovery request could exceed the same limit and leave the session unable to compact.
++
++## Decision
++
++The pi-ai adapter maps only `purpose === 'compaction'` to `x-deepseek-harness-compact: 1` in the provider request headers, matching the direct DeepSeek adapter's existing wire contract. The marker does not enter the model-visible request body. It is Harness-owned alongside attribution headers: configured profile headers are filtered case-insensitively so a deployment cannot mark ordinary requests permanently or replace the marker value.
++
++Gateways may use the exact marker to select a recovery-specific admission limit. They remain responsible for enforcing a physical context bound and output headroom; the marker describes request purpose, not permission to exceed the model window.
++
++## Alternatives considered
++
++**Raise the advertised model context or ordinary gateway input cap.** Rejected because it moves every agent turn into the recovery reserve and recreates the slow, difficult-to-compact state the reserve exists to prevent.
++
++**Infer summarization from prompt text, request size, or user agent.** Rejected because prompt inspection is brittle and model-visible, while request size and attribution cannot distinguish a user turn from the internal summarizer call.
++
++**Allow the marker through configured profile headers.** Rejected because profile headers apply to every request on a route and would silently disable the ordinary admission boundary.
++
++## Consequences
++
++Pi-ai routes can now cooperate with gateways that reserve context specifically for recovery, so an overflow-triggered summary has room to run while ordinary requests remain below the operational limit. Non-compaction requests are byte-for-byte unchanged except that a conflicting configured marker is removed. Gateways that ignore the header retain their previous behavior.
+diff --git a/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c96c9c6d3996e359fe61a92a5fd0be9d95e798b9
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md
+@@ -0,0 +1,27 @@
++# Agent Note：pi-ai 压缩准入标记
++
++状态：implemented
++
++[English](2026-08-26-pi-ai-compaction-admission-marker.md) | 中文
++
++## 问题
++
++[压缩能力决策](2026-06-18-compaction-capability-seam.zh.md)使 Compact-basic 用 `GenerateOptions.purpose = 'compaction'` 标识摘要器调用，但 pi-ai 适配器丢弃了这个仅用于传输的 purpose。因而，保护恢复预留空间的网关会对摘要器本身套用普通请求的严格输入上限。接近上限时，原请求虽能正确触发溢出恢复，恢复请求却可能超过同一上限，使会话陷入无法压缩的状态。
++
++## 决策
++
++Pi-ai 适配器只在 `purpose === 'compaction'` 时把它映射为提供方请求标头 `x-deepseek-harness-compact: 1`，与直接 DeepSeek 适配器已有的 wire 契约一致。该标记不会进入模型可见的请求体。它与归因标头一样归 Harness 所有：配置的 profile 标头会按大小写无关方式过滤，因此部署无法把普通请求永久标为压缩请求，也无法替换标记值。
++
++网关可以用这个精确标记选择恢复专用准入上限。网关仍须执行物理上下文边界并预留输出空间；该标记描述请求用途，并不授予超出模型窗口的权限。
++
++## 备选方案
++
++**提高公布的模型上下文或普通网关输入上限。** 否决，因为这会让每个 agent 回合都进入恢复预留区，重新制造该预留本应避免的缓慢、难以压缩状态。
++
++**从摘要提示词、请求大小或 User-Agent 推断。** 否决，因为提示词检查脆弱且涉及模型可见内容，而请求大小与归因都无法区分用户回合和内部摘要器调用。
++
++**允许配置的 profile 标头提供该标记。** 否决，因为 profile 标头应用于路由上的每个请求，会静默取消普通准入边界。
++
++## 后果
++
++Pi-ai 路由现在可以与为恢复专门预留上下文的网关协作，使溢出触发的摘要有空间运行，而普通请求仍停留在运行上限之下。非压缩请求除移除冲突的配置标记外保持不变。忽略该标头的网关继续保持原有行为。
+diff --git a/packages/compaction/compaction-basic/README.i18n.yaml b/packages/compaction/compaction-basic/README.i18n.yaml
+index 9801eba71a7fdf7c851ee1977fd4f9c01d23ef70..00caa7587efbcc0bfc8157c9d65f319ac46b5357 100644
+--- a/packages/compaction/compaction-basic/README.i18n.yaml
++++ b/packages/compaction/compaction-basic/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/compaction/compaction-basic/README.md
+-README.md: 60b6bb7fb3e4d7a36f0e609e64238ea1020def4d
+-README.zh.md: e9f081c39720999f5ba537780a91582c41268fba
++README.md: 3fe879fa14c88e273ec4f8b8db19f32f5a593dd3
++README.zh.md: 6f56895b9380918d87d6609ddcb3ffca44951cec
+diff --git a/packages/compaction/compaction-basic/README.md b/packages/compaction/compaction-basic/README.md
+index 60b6bb7fb3e4d7a36f0e609e64238ea1020def4d..3fe879fa14c88e273ec4f8b8db19f32f5a593dd3 100644
+--- a/packages/compaction/compaction-basic/README.md
++++ b/packages/compaction/compaction-basic/README.md
+@@ -115,7 +115,7 @@ Pressure policy resolves capacity from the adapter that owns the durable route.
+ 
+ ### Summarization mechanics
+ 
+-A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the conversation's own system prompt, tools, and shadowed-region messages verbatim — including image references, which the selected adapter must resolve or explicitly reject — and appends the compaction instruction as the final user message, so it reuses the provider's warm prefix cache instead of invalidating it. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event.
++A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the conversation's own system prompt, tools, and shadowed-region messages verbatim — including image references, which the selected adapter must resolve or explicitly reject — and appends the compaction instruction as the final user message, so it reuses the provider's warm prefix cache instead of invalidating it. The call sets `GenerateOptions.purpose` to `compaction`; the [DeepSeek and pi-ai adapters](../../../.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md) forward that purpose as `x-deepseek-harness-compact: 1` without changing the model-visible body, so compatible gateways can reserve context for recovery. Only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event.
+ 
+ ### The region transaction
+ 
+diff --git a/packages/compaction/compaction-basic/README.zh.md b/packages/compaction/compaction-basic/README.zh.md
+index e9f081c39720999f5ba537780a91582c41268fba..6f56895b9380918d87d6609ddcb3ffca44951cec 100644
+--- a/packages/compaction/compaction-basic/README.zh.md
++++ b/packages/compaction/compaction-basic/README.zh.md
+@@ -115,7 +115,7 @@ kind: "package-reference"
+ 
+ ### 摘要机制
+ 
+-直接 `ctx.llm.stream()` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 `AgentOptions` 对，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用逐字回放会话自身的系统提示词、工具与已遮蔽区域消息——包括所选适配器必须解析或明确拒绝的图片引用——并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。调用将 `GenerateOptions.purpose` 设为 `compaction`；只有返回文本进入检查点，推理与工具调用都会被排除。图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。替换 user 消息用 `<compacted-summary>` 标签框定摘要；原始摘要保留在 `compaction/summary` 事件上。
++直接 `ctx.llm.stream()` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 `AgentOptions` 对，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用逐字回放会话自身的系统提示词、工具与已遮蔽区域消息——包括所选适配器必须解析或明确拒绝的图片引用——并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。调用将 `GenerateOptions.purpose` 设为 `compaction`；[DeepSeek 与 pi-ai 适配器](../../../.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md)会将此用途转发为 `x-deepseek-harness-compact: 1`，而不改变模型可见请求体，使兼容网关可以为恢复预留上下文空间。只有返回文本进入检查点，推理与工具调用都会被排除。图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。替换 user 消息用 `<compacted-summary>` 标签框定摘要；原始摘要保留在 `compaction/summary` 事件上。
+ 
+ ### 区域事务
+ 
+diff --git a/packages/llm/llm-pi-ai/README.i18n.yaml b/packages/llm/llm-pi-ai/README.i18n.yaml
+index 38b01bcd526daab2b90cf8eb38057b315df808fb..e2e3b16ea59b5d691cf65ec2a45ca00273b3d11a 100644
+--- a/packages/llm/llm-pi-ai/README.i18n.yaml
++++ b/packages/llm/llm-pi-ai/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
+-README.md: dcafde78e176bd0acd142145d651d6d5b5539626
+-README.zh.md: a7292638b8449d7192d3e003f0377967d11ef94d
++README.md: fb9034b3f8105398be86126f4625ad1f859b9ce8
++README.zh.md: f1c9105206ae49cd88c0f1bcc0d3cd04bb2cb64b
+diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
+index dcafde78e176bd0acd142145d651d6d5b5539626..fb9034b3f8105398be86126f4625ad1f859b9ce8 100644
+--- a/packages/llm/llm-pi-ai/README.md
++++ b/packages/llm/llm-pi-ai/README.md
+@@ -100,6 +100,10 @@ A profile's `models` list replaces the route's installed catalog rather than ext
+ 
+ `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
+ 
++### Harness-owned request headers
++
++Every provider request carries the shared `User-Agent` from dsh-llm's `attributionHeaders()`. A request whose `GenerateOptions.purpose` is `compaction` also carries `x-deepseek-harness-compact: 1`, allowing a compatible gateway to admit the summarizer into context space reserved for recovery. Both header names are Harness-owned: case-insensitive collisions in configured `headers` are removed, ordinary requests never carry the compaction marker, and no provider-specific app-attribution headers are synthesized. The [LLM subsystem](../../../docs/subsystems/llm-streaming.md) owns the shared attribution contract; the [compaction admission marker decision](../../../.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.md) owns the purpose marker.
++
+ ### Change configuration at runtime
+ 
+ Profiles are re-read once per operation through the optional settings seam: the base and the user's `llm-pi-ai:` settings section merge per provider, so a user can add a route, override one field of a composition route, or point a route at another proxy, all effective on the next request with no restart. A section the adapter could not serve is refused where it is written — `settings.mutate` answers `settings-rejected` — and a stored section that later fails keeps the namespace's last good value. When the route set or a route's retry policy changes, the plugin re-registers atomically: a conflicting route leaves the previous routes serving.
+diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
+index a7292638b8449d7192d3e003f0377967d11ef94d..f1c9105206ae49cd88c0f1bcc0d3cd04bb2cb64b 100644
+--- a/packages/llm/llm-pi-ai/README.zh.md
++++ b/packages/llm/llm-pi-ai/README.zh.md
+@@ -100,6 +100,10 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每
+ 
+ `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是该等级过线的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
+ 
++### 归 Harness 所有的请求标头
++
++每个提供方请求都会携带来自 dsh-llm `attributionHeaders()` 的共享 `User-Agent`。`GenerateOptions.purpose` 为 `compaction` 的请求还会携带 `x-deepseek-harness-compact: 1`，使兼容网关可以允许摘要器进入为恢复预留的上下文空间。这两个标头名都归 Harness 所有：配置的 `headers` 中大小写不敏感的冲突项会被移除，普通请求绝不会携带压缩标记，也不会合成提供方特定的应用归因标头。[LLM 子系统](../../../docs/subsystems/llm-streaming.zh.md)拥有共享归因约定；[压缩准入标记决策](../../../.agents/notes/implemented/feature/2026-08-26-pi-ai-compaction-admission-marker.zh.md)拥有用途标记。
++
+ ### 运行时更改配置
+ 
+ profile 通过可选 settings seam 每次操作重新读取：base 与用户的 `llm-pi-ai:` 设置分节按提供方合并，因此用户可以新增路由、覆盖组合路由的一个字段或把路由指向另一个代理，全部在下一个请求生效、无需重启。适配器无法服务的分节会在写入处被拒绝——`settings.mutate` 回答 `settings-rejected`——之后失效的已存储分节会保留 namespace 最后有效值。当路由集合或某路由的重试策略变化时，插件会原子地重新注册：冲突路由会让此前路由继续服务。
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index e20b8e00720d52ef9cbb3712884661e8025f3dde..de065919b81f279c2555401bc5802c2cfad73a7b 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -62,6 +62,8 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
+ import { toPiContext } from './context.ts'
+ import { toStreamChunks } from './stream.ts'
+ 
++const COMPACTION_HEADER = 'x-deepseek-harness-compact'
++
+ /** One resolution's frozen view: the profiles and the collection built from them. */
+ interface PiAiSnapshot {
+   /** The resolved profiles this collection was built from, used as its identity. */
+@@ -201,13 +203,20 @@ function reasoningInfo(
+   }
+ }
+ 
+-/** Merge deployment headers while removing case-insensitive attribution collisions. */
+-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
++/** Merge deployment headers while reserving Harness-owned request metadata. */
++function requestHeaders(
++  headers: Readonly<Record<string, string>> | undefined,
++  purpose: GenerateOptions['purpose'],
++): Record<string, string> {
+   const attribution = attributionHeaders()
+-  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
++  const reserved = new Set([
++    ...Object.keys(attribution).map(name => name.toLowerCase()),
++    COMPACTION_HEADER,
++  ])
+   return {
+     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+     ...attribution,
++    ...purpose === 'compaction' ? { [COMPACTION_HEADER]: '1' } : {},
+   }
+ }
+ 
+@@ -378,9 +387,9 @@ export class PiAiAdapter extends LlmAdapter {
+         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+         signal: watchdog.signal,
+-        // Profile headers are deployment-owned; attribution names are
+-        // Harness-owned and therefore win collisions.
+-        headers: requestHeaders(profile.headers),
++        // Profile headers are deployment-owned; attribution and request
++        // purpose names are Harness-owned and therefore win collisions.
++        headers: requestHeaders(profile.headers, options.purpose),
+       })
+       const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+       let exhausted = false
+diff --git a/packages/llm/llm-pi-ai/tests/adapter.spec.ts b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+index cb2e71fad1f3b353cf1bd7424905535cc4030a39..9bfe9046d162c2bbbd4587601806c0a6c7e11f1e 100644
+--- a/packages/llm/llm-pi-ai/tests/adapter.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+@@ -116,11 +116,27 @@ describe('PiAiAdapter provider routing', () => {
+   it('merges profile headers with Harness attribution winning', async () => {
+     const server = await mockServer([{ events: textEvents }])
+     const ctx = await harness(server.url, {
+-      headers: { 'x-company': 'private', 'User-Agent': 'wrong' },
++      headers: {
++        'x-company': 'private',
++        'User-Agent': 'wrong',
++        'X-DeepSeek-Harness-Compact': 'wrong',
++      },
+     })
+     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+     expect(server.headers[0]?.['x-company']).toBe('private')
+     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
++    expect(server.headers[0]?.['x-deepseek-harness-compact']).toBeUndefined()
++  })
++
++  it('marks only compaction-purpose requests for context-reserve admission', async () => {
++    const server = await mockServer([{ events: textEvents }])
++    const ctx = await harness(server.url)
++    await assemble(ctx, {
++      model: 'deepseek-v4-flash',
++      messages: [],
++      purpose: 'compaction',
++    })
++    expect(server.headers[0]?.['x-deepseek-harness-compact']).toBe('1')
+   })
+ 
+   it('forwards common stream options and profile reasoning', async () => {
+-- 
+2.50.1 (Apple Git-155)
+
