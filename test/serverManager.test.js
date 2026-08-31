@@ -145,7 +145,17 @@ test("resolveDshPath finds the standard Windows roaming npm dsh.cmd", (t) => {
   fs.mkdirSync(npmDir, { recursive: true });
   const cmd = path.join(npmDir, "dsh.cmd");
   fs.writeFileSync(cmd, "");
-  assert.equal(resolveDshPath(home, "win32").path, cmd);
+  // On a real win32 host the roaming npm dir is read from the live APPDATA
+  // env var (production behavior), so point it at the fake home; on other
+  // hosts the injected home is used directly and this is a no-op.
+  const prevAppData = process.env.APPDATA;
+  process.env.APPDATA = path.join(home, "AppData", "Roaming");
+  try {
+    assert.equal(resolveDshPath(home, "win32").path, cmd);
+  } finally {
+    if (prevAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = prevAppData;
+  }
 });
 
 test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t) => {
@@ -162,7 +172,10 @@ test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t
 
 test("spawnSpec runs JS entry files under Node, never VS Code/Electron", () => {
   const jsBin = "C:\\src\\deepseek-harness\\apps\\cli\\lib\\bin.js";
-  const spec = spawnSpec(jsBin, "win32", "C:\\Program Files\\Microsoft VS Code\\Code.exe");
+  // Minimal env with no Node on PATH so the bare-name fallback is exercised
+  // deterministically instead of depending on the host's own Node install.
+  const noNodeEnv = { PATH: "C:\\Windows\\System32" };
+  const spec = spawnSpec(jsBin, "win32", "C:\\Program Files\\Microsoft VS Code\\Code.exe", undefined, noNodeEnv);
   assert.equal(spec.command, "node.exe");
   assert.deepEqual(spec.args, [jsBin]);
   assert.equal(spec.shell, false);
@@ -192,12 +205,19 @@ test("Node resolution survives a desktop IDE's minimal macOS PATH", (t) => {
     home,
     minimalEnv
   );
-  assert.equal(resolved, node);
+  // sameFsPath: on a Windows host the simulated darwin candidates are built
+  // with path.posix (forward slashes) and point at the same file.
+  assert.ok(sameFsPath(resolved, node), `resolved ${resolved} != ${node}`);
 
-  const spec = spawnSpec("/src/apps/cli/lib/bin.js", "darwin", "/Applications/Code", home, minimalEnv);
-  const childEnv = spawnEnvironment(spec, minimalEnv, "darwin");
-  assert.equal(spec.command, node);
-  assert.equal(childEnv.PATH, `${path.dirname(node)}:/usr/bin:/bin:/usr/sbin:/sbin`);
+  // The spawnSpec/spawnEnvironment half needs real posix path semantics
+  // (path.posix.isAbsolute on the resolved node); on a Windows host the fake
+  // home is a Windows path, so that scenario is only exercised off-Windows.
+  if (process.platform !== "win32") {
+    const spec = spawnSpec("/src/apps/cli/lib/bin.js", "darwin", "/Applications/Code", home, minimalEnv);
+    const childEnv = spawnEnvironment(spec, minimalEnv, "darwin");
+    assert.ok(sameFsPath(spec.command, node), `command ${spec.command} != ${node}`);
+    assert.equal(childEnv.PATH, `${path.dirname(node)}:/usr/bin:/bin:/usr/sbin:/sbin`);
+  }
 });
 
 test("spawnEnvironment preserves the Windows Path key and prepends Node", () => {
@@ -222,8 +242,10 @@ test("spawnSpec keeps plain binaries as-is (shell only on Windows)", () => {
   assert.deepEqual(posix.args, []);
   assert.equal(posix.shell, false);
   // A .js path is always launched through Node, independent of executable bits.
+  // The host's own Node is reused when its basename is node/node.exe, so
+  // assert the executable name, not the exact process.execPath string.
   const posixJs = spawnSpec("/src/apps/cli/lib/bin.js", "linux");
-  assert.equal(posixJs.command, process.execPath);
+  assert.equal(path.basename(posixJs.command), process.platform === "win32" ? "node.exe" : "node");
   assert.deepEqual(posixJs.args, ["/src/apps/cli/lib/bin.js"]);
   assert.equal(posixJs.shell, false);
 });
