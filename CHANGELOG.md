@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added an explicit DSH compatibility marker in the launcher header. DSHmux 0.4.0 is tested against dsh `0.1.2-alpha.2`; older, newer, or unrecognized versions keep running but show “Compatibility not tested” together with the tested version.
+- Fixed the sidebar session list with DSH 0.1.2: DSHmux now reads the `workspace/follow` baseline stream and uses slash-style Remote RPC endpoints with their named-argument envelopes, while retaining compatibility with older dot-style DSH APIs.
+- Increased the default DSH startup readiness timeout from 10 seconds to 30 seconds for slower cold starts and custom source checkouts.
+- Fixed Windows and macOS desktop startup for custom source checkouts: DSHmux now resolves the user's real Node installation even when VS Code's GUI extension host has a minimal `PATH`, keeps that Node toolchain on `PATH` for DSH subprocesses, runs configured `.js`, `.cjs`, and `.mjs` entries through it instead of VS Code/Electron, prefers the runnable Windows npm `.cmd` shim, checks `%APPDATA%\npm`, and includes DSH stderr in early launch errors.
 - Fixed embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
 - Fixed Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.
 - Added a `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.

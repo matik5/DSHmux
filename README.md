@@ -28,7 +28,7 @@
 - **Remote windows** — works in Remote SSH, WSL, and dev containers: DSHmux runs on the workspace host and maps DSH's loopback port into the webview, so the embedded UI reaches the remote DSH process.
 - **Session manager** — the sidebar lists active sessions with title and relative activity time, supports inline rename/archive, and switches the single primary chat view between sessions.
 - **Auto-start from the icon** — clicking the activity-bar icon starts dsh for you when it is not running.
-- **dsh version check + easy upgrade** — the launcher shows "Update available: x.y.z →" when a newer dsh exists; one click offers the right upgrade command for your install method (npx / npm global / nvm) prefilled into a terminal (24h check gate, offline-safe).
+- **dsh compatibility + easy upgrade** — the launcher shows the running dsh version and warns when it differs from the exact version tested with this DSHmux release (including the tested version in the warning). When a registry update exists, one click offers the right upgrade command for your install method (npx / npm global / nvm) prefilled into a terminal (24h check gate, offline-safe).
 - **Clipboard works** — copy/paste in the embedded UI goes through a transport bridge (VS Code webviews block clipboard inside iframes; the bridge routes it via `vscode.env.clipboard`).
 - **Event sounds** — distinct Web Audio cues announce task start, task completion, and requests for user input (`dshmux.completionSound`, default `true`).
 - **Compact side-panel typography** — the sidebar frame is zoomed to 90% by default (`dshmux.frameFontScale`, range 0.5–1.5); the editor-tab view keeps the upstream size.
@@ -59,7 +59,7 @@ To make DSH use your project as its default workspace, open that folder in the w
 
 | Setting | Default | Description |
 |---|---|---|
-| `dshmux.dshPath` | empty | Absolute path to DSH on the host where this VS Code window's workspace extension runs. In Remote SSH/WSL/container windows, set it under **Remote Settings**. An unavailable path is ignored and DSH is discovered on that host. For a source checkout, point to its built `apps/cli/lib/bin.js`. Restart DSH after changing it. |
+| `dshmux.dshPath` | empty | Absolute path to DSH on the host where this VS Code window's workspace extension runs. In Remote SSH/WSL/container windows, set it under **Remote Settings**. An unavailable path is ignored and DSH is discovered on that host. For a source checkout, point to its built `apps/cli/lib/bin.js`; Node.js must be installed on that host. Restart DSH after changing it. |
 | `dshmux.themeSync` | `follow` | Follow the VS Code color theme into the embedded DSH UI; `off` leaves DSH's own appearance untouched. |
 | `dshmux.completionSound` | `true` | Play sounds for task start, completion, and user-input requests. |
 | `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |

@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EventEmitter } from "node:events";
+import WebSocket from "ws";
 import { normalizePath } from "./workspaceTracker.js";
 import { shouldPassNoOpen } from "./versionCheck.js";
 
@@ -40,7 +41,7 @@ export interface StartOptions {
   cwd?: string;
   /** Override for $DSH_HOME (isolation mode; MVP shares ~/.dsh by default). */
   dshHome?: string;
-  /** Ready timeout in ms (default 10s). */
+  /** Ready timeout in ms (default 30s). */
   readyTimeoutMs?: number;
   /** Explicit binary path, bypasses resolution. */
   dshBin?: string;
@@ -60,14 +61,38 @@ export interface SessionSummary {
   title: string | null;
 }
 
-const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/;
-const DEFAULT_READY_TIMEOUT_MS = 10_000;
+// DSH >= 0.1.2-alpha prints the launch URL with its auth token
+// (`dsh web: http://127.0.0.1:<port>/?token=<base64url>`); pre-auth DSH
+// prints the bare origin. Capture the full URL so the token survives parsing.
+const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
+// Source checkouts and cold starts can spend several seconds resolving
+// packages and loading native modules before printing the ready URL.
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
+const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
 
-/** Extract the ready URL from one dsh stdout line, or null. */
+type ApiProtocol = "legacy" | "remote";
+
+/** HTTP failure from one DSH RPC carrier attempt. */
+class DshApiHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+/** Extract the launch URL from one dsh stdout line, or null. */
 export function parseUrlLine(line: string): string | null {
   const m = line.match(URL_LINE_RE);
   return m ? m[1] : null;
+}
+
+/** Split a dsh web launch URL into its origin and optional launch token. */
+export function splitLaunchUrl(launchUrl: string): { base: string; token?: string } {
+  const u = new URL(launchUrl);
+  return { base: u.origin, token: u.searchParams.get("token") ?? undefined };
 }
 
 /** First existing file among candidates; a `*` segment expands to ALL
@@ -101,9 +126,13 @@ function firstExisting(patterns: string[]): string | undefined {
 }
 
 /** npm global prefix (no `bin` suffix — added per platform by callers). */
-function npmGlobalPrefix(): string {
+function npmGlobalPrefix(platform: NodeJS.Platform = process.platform): string {
   try {
-    const res = spawnSync("npm", ["prefix", "-g"], { encoding: "utf8" });
+    // npm is npm.cmd on Windows and therefore needs cmd.exe.
+    const res = spawnSync("npm", ["prefix", "-g"], {
+      encoding: "utf8",
+      shell: platform === "win32",
+    });
     if (res.status === 0 && res.stdout) return res.stdout.trim();
   } catch {
     /* ignore */
@@ -111,11 +140,196 @@ function npmGlobalPrefix(): string {
   return "";
 }
 
+export interface DshSpawnSpec {
+  command: string;
+  args: string[];
+  shell: boolean;
+  /** Directory containing Node, prepended to PATH for DSH and its children. */
+  runtimePath?: string;
+}
+
+const nodeExecutableCache = new Map<string, string>();
+
+function pathEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): { key: string; value: string } {
+  if (platform !== "win32") return { key: "PATH", value: env.PATH ?? "" };
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "path") ?? "Path";
+  return { key, value: env[key] ?? "" };
+}
+
+/**
+ * Resolve a real Node executable without assuming that a desktop IDE inherited
+ * the user's shell PATH. VS Code launched from Finder commonly exposes only
+ * /usr/bin:/bin on macOS even though Node lives under Homebrew or a version
+ * manager. Using Code.exe/Electron directly is unsafe unless it is explicitly
+ * switched into Node mode, and its bundled Node ABI may not match native
+ * modules installed in a custom DSH checkout.
+ */
+export function resolveNodeExecutable(
+  platform: NodeJS.Platform = process.platform,
+  execPath: string = process.execPath,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const isWin = platform === "win32";
+  const pathApi = isWin ? path.win32 : path.posix;
+  const nodeName = isWin ? "node.exe" : "node";
+  const execName = pathApi.basename(execPath).toLowerCase();
+  if (execName === "node" || execName === "node.exe") return execPath;
+
+  const { value: currentPath } = pathEnvironment(env, platform);
+  const cacheKey = [
+    platform,
+    execPath,
+    home,
+    currentPath,
+    env.SHELL,
+    env.NVM_SYMLINK,
+    env.NVM_HOME,
+    env.VOLTA_HOME,
+    env.LOCALAPPDATA,
+    env.ProgramFiles,
+    env["ProgramFiles(x86)"],
+  ].join("\0");
+  const cached = nodeExecutableCache.get(cacheKey);
+  if (cached) return cached;
+
+  const delimiter = isWin ? ";" : ":";
+  const fromPath = currentPath
+    .split(delimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean)
+    .map((entry) => pathApi.join(entry, nodeName));
+  const candidates = isWin
+    ? [
+        ...fromPath,
+        ...(env.NVM_SYMLINK ? [path.win32.join(env.NVM_SYMLINK, nodeName)] : []),
+        ...(env.VOLTA_HOME ? [path.win32.join(env.VOLTA_HOME, "bin", nodeName)] : []),
+        ...(env.ProgramFiles ? [path.win32.join(env.ProgramFiles, "nodejs", nodeName)] : []),
+        ...(env["ProgramFiles(x86)"]
+          ? [path.win32.join(env["ProgramFiles(x86)"]!, "nodejs", nodeName)]
+          : []),
+        ...(env.LOCALAPPDATA
+          ? [
+              path.win32.join(env.LOCALAPPDATA, "Programs", "nodejs", nodeName),
+              path.win32.join(env.LOCALAPPDATA, "Volta", "bin", nodeName),
+            ]
+          : []),
+        path.win32.join(home, "scoop", "apps", "nodejs", "current", nodeName),
+        ...(env.NVM_HOME ? [path.win32.join(env.NVM_HOME, nodeName)] : []),
+        "C:\\Program Files\\nodejs\\node.exe",
+      ]
+    : [
+        ...fromPath,
+        ...(env.VOLTA_HOME ? [path.posix.join(env.VOLTA_HOME, "bin", nodeName)] : []),
+        path.posix.join(home, ".volta", "bin", nodeName),
+        path.posix.join(home, ".local", "bin", nodeName),
+        path.posix.join(home, ".asdf", "shims", nodeName),
+        path.posix.join(home, ".local", "share", "mise", "shims", nodeName),
+        path.posix.join(home, ".nvm", "versions", "node", "*", "bin", nodeName),
+        path.posix.join(home, ".local", "share", "fnm", "node-versions", "*", "installation", "bin", nodeName),
+        path.posix.join(home, ".fnm", "node-versions", "*", "installation", "bin", nodeName),
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+      ];
+  const found = firstExisting(candidates);
+  if (found) {
+    nodeExecutableCache.set(cacheKey, found);
+    return found;
+  }
+
+  // Version managers are often initialized only by the login shell. Keep this
+  // as a bounded, cached fallback and accept only an existing absolute path.
+  if (!isWin && platform === process.platform) {
+    const shell = env.SHELL;
+    if (shell && path.posix.isAbsolute(shell) && fs.existsSync(shell)) {
+      try {
+        const result = spawnSync(shell, ["-lic", "command -v node"], {
+          encoding: "utf8",
+          env,
+          timeout: 5_000,
+        });
+        const shellNode = (result.stdout ?? "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .reverse()
+          .find((line) => path.posix.isAbsolute(line) && fs.existsSync(line));
+        if (shellNode) {
+          nodeExecutableCache.set(cacheKey, shellNode);
+          return shellNode;
+        }
+      } catch {
+        /* use the PATH command below and surface ENOENT if unavailable */
+      }
+    }
+  }
+
+  nodeExecutableCache.set(cacheKey, nodeName);
+  return nodeName;
+}
+
+/** Ensure DSH subprocesses can find the same Node/npm toolchain as its entry. */
+export function spawnEnvironment(
+  spec: DshSpawnSpec,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): NodeJS.ProcessEnv {
+  if (!spec.runtimePath) return env;
+  const current = pathEnvironment(env, platform);
+  const delimiter = platform === "win32" ? ";" : ":";
+  const normalize = (value: string): string =>
+    platform === "win32" ? value.replace(/[\\/]+$/, "").toLowerCase() : value.replace(/\/+$/, "");
+  const entries = current.value.split(delimiter).filter(Boolean);
+  if (!entries.some((entry) => normalize(entry) === normalize(spec.runtimePath!))) {
+    entries.unshift(spec.runtimePath);
+  }
+  const result = { ...env, [current.key]: entries.join(delimiter) };
+  if (platform === "win32") {
+    for (const key of Object.keys(result)) {
+      if (key !== current.key && key.toLowerCase() === "path") delete result[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * How to launch a resolved dsh binary. A source checkout's
+ * `apps/cli/lib/bin.js` must run under Node explicitly: it is not executable
+ * on native Windows, may lack an executable bit on a WSL-mounted drive, and
+ * `process.execPath` inside desktop VS Code can be Code.exe/Electron rather
+ * than Node. Resolve the user's actual Node installation without relying only
+ * on the desktop extension host's often-minimal PATH.
+ */
+export function spawnSpec(
+  bin: string,
+  platform: NodeJS.Platform = process.platform,
+  execPath: string = process.execPath,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env
+): DshSpawnSpec {
+  const isWin = platform === "win32";
+  const pathApi = isWin ? path.win32 : path.posix;
+  const node = resolveNodeExecutable(platform, execPath, home, env);
+  const runtimePath = pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined;
+  if (/\.(?:c|m)?js$/i.test(bin)) {
+    return { command: node, args: [bin], shell: false, runtimePath };
+  }
+  return { command: bin, args: [], shell: isWin, runtimePath };
+}
+
 /** `dsh --version` via the resolved binary, or null when it fails. */
 export function resolveDshVersion(bin: string): string | null {
-  const isWin = process.platform === "win32";
+  const spec = spawnSpec(bin);
   try {
-    const res = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5000, shell: isWin });
+    const res = spawnSync(spec.command, [...spec.args, "--version"], {
+      encoding: "utf8",
+      env: spawnEnvironment(spec),
+      timeout: 5000,
+      shell: spec.shell,
+    });
     if (res.status === 0 && res.stdout) return res.stdout.trim().split("\n")[0];
   } catch {
     /* ignore */
@@ -140,7 +354,13 @@ export function probeNoOpenSupport(bin: string): boolean | null {
   if (noOpenProbeCache.has(bin)) return noOpenProbeCache.get(bin)!;
   let result: boolean | null = null;
   try {
-    const res = spawnSync(bin, ["web", "--help"], { encoding: "utf8", timeout: 5000, shell: process.platform === "win32" });
+    const spec = spawnSpec(bin);
+    const res = spawnSync(spec.command, [...spec.args, "web", "--help"], {
+      encoding: "utf8",
+      env: spawnEnvironment(spec),
+      timeout: 5000,
+      shell: spec.shell,
+    });
     // status === 0 means the probe ran (empty help output is still a valid
     // "no --no-open" answer); only a failed/never-started probe yields null.
     if (res.status === 0) result = /--no-open/.test(res.stdout ?? "");
@@ -151,9 +371,13 @@ export function probeNoOpenSupport(bin: string): boolean | null {
   return result;
 }
 
-/** Binary suffixes to probe, per platform (Windows npm shims are .cmd). */
+/** Binary suffixes to probe, per platform (Windows npm shims are .cmd).
+ *  On Windows the .cmd shim is probed FIRST: npm installs both an
+ *  extensionless Unix shim and a .cmd shim, and only the .cmd one is
+ *  executable by cmd.exe (the extensionless file makes the spawn exit
+ *  with code 1 before dsh ever starts). */
 function exeSuffixes(platform: NodeJS.Platform): string[] {
-  return platform === "win32" ? ["", ".cmd"] : [""];
+  return platform === "win32" ? [".cmd", ""] : [""];
 }
 
 /** Expand one base path into the platform's binary candidates (dsh / dsh.cmd). */
@@ -179,12 +403,18 @@ export function resolveDshPath(
   // the host machine's npm prefix (for example /opt/homebrew) into a simulated
   // Windows candidate list; production uses process.platform and still probes
   // the real global prefix.
-  const prefix = platform === process.platform ? npmGlobalPrefix() : "";
+  const prefix = platform === process.platform ? npmGlobalPrefix(platform) : "";
   const globalDir = isWin ? prefix : prefix ? path.join(prefix, "bin") : "";
+  const roamingNpmDir = isWin
+    ? platform === process.platform && process.env.APPDATA
+      ? path.join(process.env.APPDATA, "npm")
+      : path.join(home, "AppData", "Roaming", "npm")
+    : "";
 
   const candidates = [
     ...exeCandidates(process.env.DSH_BIN ?? "", platform),
     ...(globalDir ? exeCandidates(path.join(globalDir, "dsh"), platform) : []),
+    ...(roamingNpmDir ? exeCandidates(path.join(roamingNpmDir, "dsh"), platform) : []),
     ...(!isWin ? exeCandidates(path.join("/opt/homebrew/bin", "dsh"), platform) : []),
     ...(!isWin ? exeCandidates(path.join("/usr/local/bin", "dsh"), platform) : []),
     ...exeCandidates(path.join(home, ".npm-global/bin", "dsh"), platform),
@@ -234,12 +464,23 @@ export class DshServerManager extends EventEmitter {
   private child?: ChildProcess;
   private _state: ServerState = "stopped";
   private url?: string;
+  /** Launch URL printed by dsh (carries the auth token when DSH requires one). */
+  private _launchUrl?: string;
+  /** Browser-session cookie minted from the launch token; undefined for pre-auth DSH. */
+  private cookie?: string;
   private _version?: string;
   private _binPath?: string;
   private killTimer?: NodeJS.Timeout;
   private readyTimer?: NodeJS.Timeout;
   private stdoutBuffer = "";
+  private stderrBuffer = "";
   private startSettled = false;
+  /** finishReady() is running (or ran) for this start — guards the async
+   *  token exchange against re-entry from repeated stdout lines. Distinct
+   *  from startSettled: the start() promise only settles when finishReady
+   *  completes (or settleError/abortStart runs), so settleError must still
+   *  be able to settle after settleReady has flipped this flag. */
+  private readyProcessing = false;
   private startResolve?: (url: string) => void;
   private startReject?: (err: Error) => void;
 
@@ -258,6 +499,16 @@ export class DshServerManager extends EventEmitter {
 
   get serverUrl(): string | undefined {
     return this.url;
+  }
+
+  /** The launch URL dsh printed (base URL plus `?token=…` when DSH requires auth). */
+  get launchUrl(): string | undefined {
+    return this._launchUrl;
+  }
+
+  /** Browser-session cookie for this server's authority (undefined for pre-auth DSH). */
+  get authCookie(): string | undefined {
+    return this.cookie;
   }
 
   /** dsh CLI version resolved at start (undefined until a start ran / on failure). */
@@ -313,8 +564,12 @@ export class DshServerManager extends EventEmitter {
     this.emit("log", `spawning ${bin} (version=${version ?? "?"}, cwd=${cwd}, tried=[${resolved.tried.join(", ")}])`);
 
     this.stdoutBuffer = "";
+    this.stderrBuffer = "";
     this.url = undefined;
+    this._launchUrl = undefined;
+    this.cookie = undefined;
     this.startSettled = false;
+    this.readyProcessing = false;
     this.setState("starting");
 
     const env = { ...process.env };
@@ -331,12 +586,15 @@ export class DshServerManager extends EventEmitter {
     if (passNoOpen) args.push("--no-open");
     args.push(...(opts.extraArgs ?? []));
 
-    const child = spawn(bin, args, {
+    const spec = spawnSpec(bin);
+    const childEnv = spawnEnvironment(spec, env);
+    const child = spawn(spec.command, [...spec.args, ...args], {
       cwd,
-      env,
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
       // Windows npm shims are .cmd/.bat — Node needs a shell to run them.
-      shell: process.platform === "win32",
+      // .js entry files run under node.exe directly (no shell needed).
+      shell: spec.shell,
     });
     this.child = child;
 
@@ -350,17 +608,24 @@ export class DshServerManager extends EventEmitter {
         if (url) this.settleReady(url);
       });
       child.stderr?.on("data", (chunk: Buffer) => {
-        this.emit("stderr", chunk.toString());
+        const text = chunk.toString();
+        // Keep a bounded tail so a Windows/source-checkout launch failure is
+        // visible in the sidebar instead of only in Extension Host logs.
+        this.stderrBuffer = (this.stderrBuffer + text).slice(-2_000);
+        this.emit("stderr", text);
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         // Sleep/wake diagnostics: an "error" event without exit is a signal
         // hiccup (e.g. EINTR after SIGSTOP/CONT during laptop sleep).
         console.log(`[dsh] child error pid=${child.pid} code=${err.code} msg=${err.message}`);
+        const nodeCommand = process.platform === "win32" ? "node.exe" : "node";
         const msg =
-          err.code === "ENOENT"
-            ? `dsh not found. Tried: ${["PATH", ...resolved.tried].join(", ")}. ` +
-              `Install with: npm i -g @deepseek-ai/dsh`
-            : err.message;
+          err.code === "ENOENT" && spec.args[0] === bin
+            ? `Node.js was not found while launching ${bin}. Install Node.js or add ${nodeCommand} to PATH.`
+            : err.code === "ENOENT"
+              ? `dsh not found. Tried: ${["PATH", ...resolved.tried].join(", ")}. ` +
+                `Install with: npm i -g @deepseek-ai/dsh`
+              : err.message;
         this.settleError(new Error(msg));
       });
       child.on("exit", (code, signal) => {
@@ -372,12 +637,17 @@ export class DshServerManager extends EventEmitter {
         if (prev === "ready") {
           this.setState("error", { message: `dsh exited unexpectedly (code=${code}, signal=${signal})` });
         } else if (prev === "starting") {
-          this.settleError(new Error(`dsh exited before ready (code=${code}, signal=${signal})`));
+          const detail = this.stderrBuffer.trim().replace(/\s+/g, " ");
+          this.settleError(new Error(
+            `dsh exited before ready (code=${code}, signal=${signal})${detail ? `: ${detail}` : ""}`
+          ));
         } else if (prev === "stopping") {
           this.setState("stopped");
         }
         this.child = undefined;
         this.url = undefined; // never expose a dead server URL
+        this._launchUrl = undefined;
+        this.cookie = undefined;
         this.emit("exit", { code, signal });
       });
 
@@ -388,12 +658,58 @@ export class DshServerManager extends EventEmitter {
     });
   }
 
-  private settleReady(url: string): void {
+  private settleReady(launchUrl: string): void {
+    if (this.readyProcessing) return;
+    this.readyProcessing = true;
+    this.clearReadyTimer();
+    void this.finishReady(launchUrl);
+  }
+
+  /**
+   * Settle a ready start: split the launch URL into origin + token, exchange
+   * the token for the browser-session cookie (DSH >= 0.1.2-alpha; a no-op for
+   * pre-auth DSH that prints a bare URL), then publish "ready". The exchange
+   * is awaited so every consumer (api, bridge, document assembly) finds the
+   * cookie present by the time start() resolves.
+   */
+  private async finishReady(launchUrl: string): Promise<void> {
+    const { base, token } = splitLaunchUrl(launchUrl);
+    this._launchUrl = launchUrl;
+    if (token) {
+      try {
+        this.cookie = await this.exchangeLaunchToken(launchUrl);
+      } catch (err) {
+        this.settleError(
+          new Error(
+            `dsh launch-token exchange failed: ${err instanceof Error ? err.message : String(err)}`
+          )
+        );
+        return;
+      }
+    }
+    // A stop() during the exchange already settled the start (abortStart);
+    // never publish "ready" over a stopped server.
     if (this.startSettled) return;
     this.startSettled = true;
-    this.clearReadyTimer();
-    this.setState("ready", { url });
-    this.startResolve?.(url);
+    this.setState("ready", { url: base });
+    this.startResolve?.(base);
+  }
+
+  /**
+   * Exchange the process launch token for the per-authority browser-session
+   * cookie: GET the launch URL (redirect:manual) → 303 + Set-Cookie. The
+   * cookie is authority-bound (host:port) and the port changes on every start
+   * (--port 0), so it must be minted on every start.
+   */
+  private async exchangeLaunchToken(launchUrl: string): Promise<string> {
+    // Bounded: the ready timer is already cleared by settleReady, so a server
+    // that accepts the connection but never answers must not stall start().
+    const res = await fetch(launchUrl, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
+    const setCookie = res.headers.get("set-cookie");
+    if (res.status !== 303 || !setCookie) {
+      throw new Error(`expected 303 + Set-Cookie, got ${res.status}`);
+    }
+    return setCookie.split(";", 1)[0].trim();
   }
 
   private settleError(err: Error): void {
@@ -413,33 +729,192 @@ export class DshServerManager extends EventEmitter {
   }
 
   /**
-   * One RPC call with the client-request envelope (spike-verified, see
-   * ensureWorkspaceSession doc). Node has no browser headers, so the /api
-   * trust fence passes. Throws with the DSH error `code` attached when the
-   * result is not ok.
+   * One unary RPC call. DSH 0.1.2 moved from dot endpoints with a direct
+   * payload (`session.list`, `{}`) to Typert Remote slash endpoints with
+   * named arguments (`session/list`, `{args:{_request:{}}}`). Token-auth DSH
+   * prefers the new carrier; pre-auth DSH prefers the legacy carrier. A 404
+   * safely retries the other form, preserving older and transitional builds.
    */
   private async api(method: string, payload: Record<string, unknown>): Promise<any> {
+    const protocols: ApiProtocol[] = this.cookie
+      ? ["remote", "legacy"]
+      : ["legacy", "remote"];
+    try {
+      return await this.apiOnce(method, payload, protocols[0]);
+    } catch (err) {
+      // Mutating RPCs must never be retried after an ambiguous failure. HTTP
+      // 404 proves the first route did not dispatch, so it is the sole safe
+      // compatibility fallback.
+      if (!(err instanceof DshApiHttpError) || err.status !== 404) throw err;
+      return this.apiOnce(method, payload, protocols[1]);
+    }
+  }
+
+  private async apiOnce(
+    method: string,
+    payload: Record<string, unknown>,
+    protocol: ApiProtocol
+  ): Promise<any> {
     const base = this.url;
     if (!base) throw new Error("dsh is not ready");
-    const res = await fetch(`${base}/api/${method}`, {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (this.cookie) headers.cookie = this.cookie;
+    const wireMethod = protocol === "remote" ? method.replace(".", "/") : method;
+    const wirePayload =
+      protocol === "remote"
+        ? {
+            args:
+              method === "session.list"
+                ? { _request: payload }
+                : { request: payload },
+          }
+        : payload;
+    const res = await fetch(`${base}/api/${wireMethod}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         type: "client-request",
         rpcId: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        method,
-        payload,
+        method: wireMethod,
+        payload: wirePayload,
       }),
     });
-    const body: any = await res.json();
+    const text = await res.text();
+    if (!res.ok) {
+      const detail = text.trim().replace(/\s+/g, " ").slice(0, 300);
+      throw new DshApiHttpError(
+        `${wireMethod} returned HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+        res.status
+      );
+    }
+    let body: any;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new Error(`${wireMethod} returned invalid JSON`);
+    }
     if (!body?.result?.ok) {
       const err: Error & { code?: string } = new Error(
-        `${method} failed: ${body?.result?.error?.message ?? "unknown"}`
+        `${wireMethod} failed: ${body?.result?.error?.message ?? "unknown"}`
       );
       err.code = body?.result?.error?.code ?? undefined;
       throw err;
     }
     return body.result.value;
+  }
+
+  /**
+   * Read the reconnect baseline from DSH 0.1.2's workspace/follow stream.
+   * Each connection publishes a baseline first, so a short-lived socket is
+   * sufficient for the launcher's periodic snapshot list.
+   */
+  private remoteWorkspaceBaseline(): Promise<any> {
+    const base = this.url;
+    if (!base) return Promise.reject(new Error("dsh is not ready"));
+    const socketUrl = new URL("/api/remote.mux", base);
+    socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+    const streamId = `ws-workspaces-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(socketUrl, {
+        headers: this.cookie ? { cookie: this.cookie } : undefined,
+      });
+      let settled = false;
+      const timer = setTimeout(() => {
+        finish(new Error("workspace/follow did not publish a baseline within 5000ms"));
+      }, WORKSPACE_BASELINE_TIMEOUT_MS);
+
+      const finish = (error?: Error, value?: any): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(JSON.stringify({ type: "cancel", streamId }));
+          } catch {
+            /* socket is already closing */
+          }
+          socket.close();
+        } else if (socket.readyState === WebSocket.CONNECTING) {
+          socket.terminate();
+        }
+        if (error) reject(error);
+        else resolve(value);
+      };
+
+      socket.on("open", () => {
+        socket.send(
+          JSON.stringify({
+            type: "open",
+            streamId,
+            endpoint: "workspace/follow",
+            payload: { args: {} },
+          })
+        );
+      });
+      socket.on("message", (data) => {
+        try {
+          const frame: any = JSON.parse(data.toString());
+          if (frame?.streamId !== streamId) return;
+          if (frame.type === "error") {
+            const remote = frame.error ?? {};
+            finish(new Error(`workspace/follow failed: ${remote.message ?? "unknown"}`));
+          } else if (frame.type === "end") {
+            finish(new Error("workspace/follow ended before its baseline"));
+          } else if (
+            frame.type === "item" &&
+            frame.value?.type === "baseline" &&
+            Array.isArray(frame.value.value?.items) &&
+            Array.isArray(frame.value.value?.archivedSessionIds)
+          ) {
+            finish(undefined, frame.value.value);
+          }
+        } catch (err) {
+          finish(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+      socket.on("unexpected-response", (_request, response) => {
+        response.resume();
+        finish(
+          new DshApiHttpError(
+            `workspace/follow returned HTTP ${response.statusCode}`,
+            response.statusCode ?? 0
+          )
+        );
+      });
+      socket.on("error", (err) => finish(err));
+      socket.on("close", () => {
+        finish(new Error("workspace/follow closed before its baseline"));
+      });
+    });
+  }
+
+  /** Workspace snapshot across both the legacy unary and current stream API. */
+  private async workspaceBaseline(): Promise<any> {
+    if (!this.cookie) {
+      try {
+        return await this.apiOnce("workspace.list", {}, "legacy");
+      } catch (err) {
+        if (!(err instanceof DshApiHttpError) || err.status !== 404) throw err;
+        return this.remoteWorkspaceBaseline();
+      }
+    }
+
+    try {
+      return await this.remoteWorkspaceBaseline();
+    } catch (remoteError) {
+      try {
+        return await this.apiOnce("workspace.list", {}, "legacy");
+      } catch (legacyError) {
+        const remoteMessage =
+          remoteError instanceof Error ? remoteError.message : String(remoteError);
+        const legacyMessage =
+          legacyError instanceof Error ? legacyError.message : String(legacyError);
+        throw new Error(
+          `failed to load workspace state (${remoteMessage}; legacy fallback: ${legacyMessage})`
+        );
+      }
+    }
   }
 
   /**
@@ -455,7 +930,7 @@ export class DshServerManager extends EventEmitter {
    */
   async ensureWorkspaceSession(cwd: string): Promise<string> {
     // 1. Find an existing workspace whose path matches (realpath-normalized).
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     const workspace = target ?? (await this.api("workspace.create", { path: cwd })).workspace;
     // Reuse ANY bound, non-archived session (blank included): previously we
@@ -482,7 +957,7 @@ export class DshServerManager extends EventEmitter {
   async listWorkspaceSessions(
     cwd: string
   ): Promise<{ items: SessionSummary[]; archivedItems: SessionSummary[] }> {
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     if (!target) return { items: [], archivedItems: [] };
     const ids = new Set<string>(target.sessionIds ?? []);
@@ -520,7 +995,7 @@ export class DshServerManager extends EventEmitter {
 
   /** Workspace id for `cwd`, creating the workspace when missing. */
   async workspaceIdFor(cwd: string): Promise<string> {
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     if (target) return target.workspaceId;
     const created = await this.api("workspace.create", { path: cwd });

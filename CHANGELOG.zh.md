@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- 启动器顶部新增明确的 DSH 兼容性标记。DSHmux 0.4.0 已针对 dsh `0.1.2-alpha.2` 测试；更旧、更新或无法识别的版本仍可运行，但会显示“兼容性未经测试”，并同时注明已测试版本。
+- 修复 DSH 0.1.2 下的侧边栏会话列表：DSHmux 现在读取 `workspace/follow` 基线流，并使用带命名参数封装的斜杠式 Remote RPC 端点，同时继续兼容旧版 DSH 的点式 API。
+- 将 DSH 默认启动就绪超时从 10 秒延长到 30 秒，以适应较慢的冷启动和自定义源码检出。
+- 修复 Windows 与 macOS 桌面端自定义源码检出的启动问题：即使 VS Code GUI 扩展宿主的 `PATH` 很精简，DSHmux 也会解析用户实际安装的 Node，并让 DSH 子进程继续使用同一套 Node 工具链；配置的 `.js`、`.cjs` 和 `.mjs` 入口不会再误用 VS Code/Electron；Windows 还会优先使用可运行的 npm `.cmd` shim、检查 `%APPDATA%\npm`，并在过早退出时显示 DSH stderr。
 - 修复 Remote SSH、WSL 和开发容器窗口中的内嵌插件加载：现在会将 webview 中的 DSH 回环 HTTP 端口映射到远程扩展宿主。
 - 修复 Remote SSH、WSL 和开发容器中的启动问题：DSHmux 现在在工作区主机上运行；若配置的 `dshPath` 在该主机上不可用，则忽略该路径并在该主机上查找 DSH。`dshPath` 可在远程设置或工作区设置中覆盖。
 - 新增 `dshmux.dshPath` 设置，可运行自定义 DSH 可执行文件，包括补丁源码检出中构建出的 CLI。

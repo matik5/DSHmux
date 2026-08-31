@@ -33,7 +33,11 @@ export function registerCommands(
       vscode.window.showInformationMessage("DSHmux stopped.");
     }),
     vscode.commands.registerCommand("dshmux.openBrowser", async () => {
-      const url = manager.serverUrl;
+      // Token-auth DSH (>= 0.1.2-alpha) 401s the bare origin in a real
+      // browser; the launch URL (with ?token=) mints the session cookie via
+      // the 303 exchange, so prefer it. Pre-auth DSH: launchUrl is the bare
+      // origin anyway.
+      const url = manager.launchUrl ?? manager.serverUrl;
       if (!url) {
         vscode.window.showWarningMessage(t("command.notRunning"));
         return;

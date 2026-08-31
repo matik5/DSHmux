@@ -18,9 +18,15 @@ export class BridgeHost {
   constructor(
     private webview: vscode.Webview,
     private resolveBase: () => string,
-    private fetchImpl: typeof fetch = fetch
+    private fetchImpl: typeof fetch = fetch,
+    /** Optional DSH browser-session cookie provider (token-auth servers). */
+    private cookieProvider?: () => string | undefined
   ) {
-    this.wsRelay = new WsRelay((msg) => this.webview.postMessage(msg), resolveBase);
+    this.wsRelay = new WsRelay(
+      (msg) => this.webview.postMessage(msg),
+      resolveBase,
+      cookieProvider
+    );
     this.disposables.push(
       webview.onDidReceiveMessage((msg) => {
         void this.handle(msg);
@@ -35,7 +41,7 @@ export class BridgeHost {
       switch (m.type) {
         case "http": {
           const req = m as unknown as HttpRequestMsg;
-          const res = await relayHttp(this.resolveBase(), req, this.fetchImpl);
+          const res = await relayHttp(this.resolveBase(), req, this.fetchImpl, this.cookieProvider);
           if (res.status >= 400) {
             console.log(`[dsh] relay ${req.method} ${req.url} -> HTTP ${res.status}`);
           }

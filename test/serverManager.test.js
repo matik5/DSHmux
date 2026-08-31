@@ -4,10 +4,12 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { WebSocketServer } = require("ws");
 
-const { parseUrlLine, resolveDshPath, resolveStartBin, probeNoOpenSupport, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -21,9 +23,10 @@ function fakeDsh(dir, opts = {}) {
   const record = opts.recordArgs
     ? `if (!process.argv.includes("--help")) require("node:fs").writeFileSync(${JSON.stringify(opts.recordArgs)}, JSON.stringify(process.argv.slice(2)));\n`
     : "";
+  const urlLine = opts.urlLine ?? "dsh web: http://127.0.0.1:34567";
   const body = opts.quiet
     ? `${help}${record}setInterval(() => {}, 1000);\n`
-    : `${help}${record}process.stdout.write("dsh web: http://127.0.0.1:34567\\n");\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);\n`;
+    : `${help}${record}process.stdout.write(${JSON.stringify(urlLine + "\n")});\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);\n`;
   if (process.platform === "win32") {
     // Windows: cmd.exe cannot run unix-shebang scripts; ship a .cmd wrapper.
     const impl = path.join(dir, "dsh-impl.js");
@@ -35,6 +38,33 @@ function fakeDsh(dir, opts = {}) {
   const file = path.join(dir, "dsh");
   fs.writeFileSync(file, `#!/usr/bin/env node\n${body}`);
   fs.chmodSync(file, 0o755);
+  return file;
+}
+
+/**
+ * Write the same fake as a source-checkout-style JavaScript entry. Unlike
+ * fakeDsh(), this file has no executable bit or .cmd wrapper, so start() must
+ * invoke it through Node. Keep a space in the path to exercise argument
+ * quoting on Windows as well.
+ */
+function fakeDshJs(dir, opts = {}) {
+  const sourceDir = path.join(dir, "patched harness");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const file = path.join(sourceDir, "bin.js");
+  const helpOut = opts.helpNoOpen
+    ? 'process.stdout.write("  --no-open  do not open the Web UI\\n");\n'
+    : "";
+  const record = opts.recordArgs
+    ? `require("node:fs").writeFileSync(${JSON.stringify(opts.recordArgs)}, JSON.stringify(process.argv.slice(2)));\n`
+    : "";
+  const body = [
+    'if (process.argv.includes("--version")) { process.stdout.write("0.1.1-test\\n"); process.exit(0); }',
+    `if (process.argv.includes("--help")) { ${helpOut}process.exit(0); }`,
+    opts.failMessage
+      ? `process.stderr.write(${JSON.stringify(`${opts.failMessage}\n`)}); process.exit(42);`
+      : `${record}process.stdout.write("dsh web: http://127.0.0.1:34567\\n");\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);`,
+  ].join("\n");
+  fs.writeFileSync(file, `${body}\n`);
   return file;
 }
 
@@ -51,6 +81,26 @@ test("parseUrlLine extracts the ready URL", () => {
   assert.equal(parseUrlLine("some other line"), null);
   assert.equal(parseUrlLine(""), null);
   assert.equal(parseUrlLine("prefix dsh web: http://127.0.0.1:3080 suffix"), "http://127.0.0.1:3080");
+});
+
+test("parseUrlLine keeps the launch token query (token-auth DSH)", () => {
+  assert.equal(
+    parseUrlLine("dsh web: http://127.0.0.1:62750/?token=abc-DEF_123"),
+    "http://127.0.0.1:62750/?token=abc-DEF_123"
+  );
+  // The optional (LAN: …) suffix must not leak into the capture.
+  assert.equal(
+    parseUrlLine("dsh web: http://127.0.0.1:62750/?token=abc (LAN: http://192.168.1.5:62750)"),
+    "http://127.0.0.1:62750/?token=abc"
+  );
+});
+
+test("splitLaunchUrl splits origin and token", () => {
+  assert.deepEqual(splitLaunchUrl("http://127.0.0.1:62750"), { base: "http://127.0.0.1:62750", token: undefined });
+  assert.deepEqual(splitLaunchUrl("http://127.0.0.1:62750/?token=abc-DEF_123"), {
+    base: "http://127.0.0.1:62750",
+    token: "abc-DEF_123",
+  });
 });
 
 test("resolveDshPath finds dsh in an injected home", (t) => {
@@ -89,14 +139,122 @@ test("resolveDshPath handles Windows layout (npm-cache _npx, dsh.cmd)", (t) => {
   assert.ok(res.tried.every((p) => !p.includes("opt/homebrew")));
 });
 
-test("resolveDshPath finds either dsh or dsh.cmd on Windows when both exist", (t) => {
+test("resolveDshPath finds the standard Windows roaming npm dsh.cmd", (t) => {
+  const home = tmpdir(t);
+  const npmDir = path.join(home, "AppData", "Roaming", "npm");
+  fs.mkdirSync(npmDir, { recursive: true });
+  const cmd = path.join(npmDir, "dsh.cmd");
+  fs.writeFileSync(cmd, "");
+  // On a real win32 host the roaming npm dir is read from the live APPDATA
+  // env var (production behavior), so point it at the fake home; on other
+  // hosts the injected home is used directly and this is a no-op.
+  const prevAppData = process.env.APPDATA;
+  process.env.APPDATA = path.join(home, "AppData", "Roaming");
+  try {
+    assert.equal(resolveDshPath(home, "win32").path, cmd);
+  } finally {
+    if (prevAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = prevAppData;
+  }
+});
+
+test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t) => {
   const home = tmpdir(t);
   const npxDir = path.join(home, "AppData", "Local", "npm-cache", "_npx", "h2", "node_modules", ".bin");
   fs.mkdirSync(npxDir, { recursive: true });
   fs.writeFileSync(path.join(npxDir, "dsh"), "");
   fs.writeFileSync(path.join(npxDir, "dsh.cmd"), "");
   const res = resolveDshPath(home, "win32");
-  assert.ok(res.path === path.join(npxDir, "dsh") || res.path === path.join(npxDir, "dsh.cmd"));
+  // The extensionless Unix shim is not executable by cmd.exe (spawn exits
+  // code 1), so the .cmd shim must win when both exist.
+  assert.equal(res.path, path.join(npxDir, "dsh.cmd"));
+});
+
+test("spawnSpec runs JS entry files under Node, never VS Code/Electron", () => {
+  const jsBin = "C:\\src\\deepseek-harness\\apps\\cli\\lib\\bin.js";
+  // Minimal env with no Node on PATH; the resolver may still find a Node at
+  // a standard install location (e.g. C:\Program Files\nodejs on CI images),
+  // so assert the contract — a Node executable, never Code.exe — not the
+  // exact fallback string.
+  const noNodeEnv = { PATH: "C:\\Windows\\System32" };
+  const spec = spawnSpec(jsBin, "win32", "C:\\Program Files\\Microsoft VS Code\\Code.exe", undefined, noNodeEnv);
+  assert.notEqual(spec.command, "C:\\Program Files\\Microsoft VS Code\\Code.exe");
+  assert.equal(path.win32.basename(spec.command), "node.exe");
+  assert.deepEqual(spec.args, [jsBin]);
+  assert.equal(spec.shell, false);
+  // Reuse a genuine Node executable instead of doing another PATH lookup.
+  assert.equal(
+    spawnSpec(jsBin, "win32", "C:\\Program Files\\nodejs\\node.exe").command,
+    "C:\\Program Files\\nodejs\\node.exe"
+  );
+  // WSL/remote POSIX hosts also need Node when the entry lives on a mount
+  // without an executable bit.
+  assert.equal(
+    path.basename(spawnSpec("/mnt/c/src/apps/cli/lib/bin.mjs", "linux", "/usr/share/code/code").command),
+    "node"
+  );
+});
+
+test("Node resolution survives a desktop IDE's minimal macOS PATH", (t) => {
+  const home = tmpdir(t);
+  const node = path.join(home, ".local", "bin", "node");
+  fs.mkdirSync(path.dirname(node), { recursive: true });
+  fs.writeFileSync(node, "");
+  fs.chmodSync(node, 0o755);
+  const minimalEnv = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/missing-shell" };
+  const resolved = resolveNodeExecutable(
+    "darwin",
+    "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+    home,
+    minimalEnv
+  );
+  // sameFsPath: on a Windows host the simulated darwin candidates are built
+  // with path.posix (forward slashes) and point at the same file.
+  assert.ok(sameFsPath(resolved, node), `resolved ${resolved} != ${node}`);
+
+  // The spawnSpec/spawnEnvironment half needs real posix path semantics
+  // (path.posix.isAbsolute on the resolved node); on a Windows host the fake
+  // home is a Windows path, so that scenario is only exercised off-Windows.
+  if (process.platform !== "win32") {
+    const spec = spawnSpec("/src/apps/cli/lib/bin.js", "darwin", "/Applications/Code", home, minimalEnv);
+    const childEnv = spawnEnvironment(spec, minimalEnv, "darwin");
+    assert.ok(sameFsPath(spec.command, node), `command ${spec.command} != ${node}`);
+    assert.equal(childEnv.PATH, `${path.dirname(node)}:/usr/bin:/bin:/usr/sbin:/sbin`);
+  }
+});
+
+test("spawnEnvironment preserves the Windows Path key and prepends Node", () => {
+  const spec = {
+    command: "C:\\Program Files\\nodejs\\node.exe",
+    args: ["C:\\src\\bin.js"],
+    shell: false,
+    runtimePath: "C:\\Program Files\\nodejs",
+  };
+  const env = spawnEnvironment(spec, { Path: "C:\\Windows\\System32" }, "win32");
+  assert.equal(env.Path, "C:\\Program Files\\nodejs;C:\\Windows\\System32");
+  assert.equal(env.PATH, undefined);
+});
+
+test("spawnSpec keeps plain binaries as-is (shell only on Windows)", () => {
+  const win = spawnSpec("C:\\Users\\u\\AppData\\Roaming\\npm\\dsh.cmd", "win32");
+  assert.equal(win.command, "C:\\Users\\u\\AppData\\Roaming\\npm\\dsh.cmd");
+  assert.deepEqual(win.args, []);
+  assert.equal(win.shell, true);
+  const posix = spawnSpec("/usr/local/bin/dsh", "linux");
+  assert.equal(posix.command, "/usr/local/bin/dsh");
+  assert.deepEqual(posix.args, []);
+  assert.equal(posix.shell, false);
+  // A .js path is always launched through Node, independent of executable bits.
+  // The resolved executable depends on the host (its own Node is reused when
+  // recognized, otherwise the simulated platform's bare fallback name is
+  // used), so assert the executable name, not the exact path.
+  const posixJs = spawnSpec("/src/apps/cli/lib/bin.js", "linux");
+  assert.ok(
+    ["node", "node.exe"].includes(path.basename(posixJs.command)),
+    `command ${posixJs.command} is not a Node executable`
+  );
+  assert.deepEqual(posixJs.args, ["/src/apps/cli/lib/bin.js"]);
+  assert.equal(posixJs.shell, false);
 });
 
 test("start() reaches ready via stdout URL and stop() exits cleanly", async (t) => {
@@ -123,6 +281,103 @@ test("start() reaches ready via stdout URL and stop() exits cleanly", async (t) 
   assert.equal(manager.isRunning, false);
 });
 
+/**
+ * Start a local exchange endpoint mimicking DSH >= 0.1.2-alpha:
+ * GET /?token=<token> → 303 + Set-Cookie; anything else → 401.
+ * Returns { port, stop }.
+ */
+function exchangeServer(t, token) {
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    if (req.method === "GET" && u.pathname === "/" && u.searchParams.get("token") === token) {
+      res.writeHead(303, {
+        location: "/",
+        "set-cookie": "dsh-auth-abc123=v1.body.sig; Max-Age=86400; Path=/; HttpOnly; SameSite=Strict",
+      });
+      res.end();
+    } else {
+      res.writeHead(401);
+      res.end("unauthorized");
+    }
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      t.after(() => server.close());
+      resolve({ port, stop: () => server.close() });
+    });
+  });
+}
+
+test("start() exchanges the launch token for a cookie (token-auth DSH)", async (t) => {
+  const dir = tmpdir(t);
+  const ex = await exchangeServer(t, "tok-123");
+  const bin = fakeDsh(dir, { urlLine: `dsh web: http://127.0.0.1:${ex.port}/?token=tok-123` });
+  const manager = new DshServerManager();
+
+  const url = await manager.start({ dshBin: bin, cwd: dir });
+  // start() resolves with the BASE url (no token) — serverUrl consumers unchanged.
+  assert.equal(url, `http://127.0.0.1:${ex.port}`);
+  assert.equal(manager.serverUrl, url);
+  assert.equal(manager.launchUrl, `http://127.0.0.1:${ex.port}/?token=tok-123`);
+  // Only the name=value segment is kept (attributes stripped).
+  assert.equal(manager.authCookie, "dsh-auth-abc123=v1.body.sig");
+  assert.equal(manager.state, "ready");
+
+  // Current Remote api() must send both the cookie and slash/named-argument
+  // envelope used by token-auth DSH.
+  let seenHeaders;
+  let seenUrl;
+  let seenRequest;
+  const realFetch = global.fetch;
+  global.fetch = async (requestUrl, opts) => {
+    seenHeaders = opts.headers;
+    seenUrl = requestUrl;
+    seenRequest = JSON.parse(opts.body);
+    return new Response(
+      JSON.stringify({ result: { ok: true, value: { title: "Renamed", seq: 7 } } }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+  try {
+    await manager.renameSession("s1", "Renamed");
+    assert.equal(seenHeaders.cookie, "dsh-auth-abc123=v1.body.sig");
+    assert.equal(new URL(seenUrl).pathname, "/api/session/rename");
+    assert.equal(seenRequest.method, "session/rename");
+    assert.deepEqual(seenRequest.payload, {
+      args: { request: { sessionId: "s1", title: "Renamed" } },
+    });
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  const exited = new Promise((r) => manager.once("exit", r));
+  manager.stop();
+  await exited;
+  assert.equal(manager.state, "stopped");
+  // Dead server: no stale launch URL / cookie may survive.
+  assert.equal(manager.launchUrl, undefined);
+  assert.equal(manager.authCookie, undefined);
+});
+
+test("start() rejects when the launch-token exchange fails (no cookie possible)", async (t) => {
+  const dir = tmpdir(t);
+  // Reserve a port then close it so the exchange fetch is refused.
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", r));
+  const { port } = probe.address();
+  await new Promise((r) => probe.close(r));
+  const bin = fakeDsh(dir, { urlLine: `dsh web: http://127.0.0.1:${port}/?token=tok-123` });
+  const manager = new DshServerManager();
+
+  await assert.rejects(manager.start({ dshBin: bin, cwd: dir }), /launch-token exchange failed/);
+  assert.equal(manager.state, "error");
+  assert.equal(manager.authCookie, undefined);
+  const exited = new Promise((r) => manager.once("exit", r));
+  manager.stop();
+  await exited;
+});
+
 test("start() uses the configured binary provider", async (t) => {
   const dir = tmpdir(t);
   const bin = fakeDsh(dir);
@@ -134,6 +389,36 @@ test("start() uses the configured binary provider", async (t) => {
   const exited = new Promise((resolve) => manager.once("exit", resolve));
   manager.stop();
   await exited;
+});
+
+test("start() executes a configured source-checkout bin.js through Node", async (t) => {
+  const dir = tmpdir(t);
+  const argsFile = path.join(dir, "js-args.json");
+  const bin = fakeDshJs(dir, { helpNoOpen: true, recordArgs: argsFile });
+  const manager = new DshServerManager(() => `  ${bin}  `);
+
+  const url = await manager.start({ cwd: dir });
+  assert.equal(url, "http://127.0.0.1:34567");
+  assert.equal(manager.dshBinPath, bin);
+  assert.equal(manager.dshVersion, "0.1.1-test");
+  const spawned = JSON.parse(fs.readFileSync(argsFile, "utf8"));
+  assert.deepEqual(spawned, ["web", "--port", "0", "--no-open"]);
+
+  const exited = new Promise((resolve) => manager.once("exit", resolve));
+  manager.stop();
+  await exited;
+});
+
+test("start() includes source-checkout stderr when it exits before ready", async (t) => {
+  const dir = tmpdir(t);
+  const bin = fakeDshJs(dir, { failMessage: "custom harness dependency is missing" });
+  const manager = new DshServerManager(() => bin);
+
+  await assert.rejects(
+    manager.start({ cwd: dir }),
+    /dsh exited before ready.*custom harness dependency is missing/
+  );
+  assert.equal(manager.state, "error");
 });
 
 test("resolveStartBin ignores a configured dshPath missing on this host (falls back to discovery)", () => {
@@ -257,7 +542,10 @@ test("stop() during the ready window settles the promise and stays stopped (no l
 /** Mock global.fetch to serve the client-request envelope; restore afterwards. */
 function mockFetch(handler) {
   const real = global.fetch;
-  global.fetch = async (_url, opts) => ({ json: async () => handler(JSON.parse(opts.body)) });
+  global.fetch = async (_url, opts) => new Response(
+    JSON.stringify(handler(JSON.parse(opts.body))),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
   return () => {
     global.fetch = real;
   };
@@ -269,6 +557,111 @@ function apiManager() {
   manager.url = "http://127.0.0.1:9999";
   return manager;
 }
+
+test("listWorkspaceSessions uses the DSH 0.1.2 Remote stream and slash RPC", async (t) => {
+  let sessionRequest;
+  let sessionPath;
+  let sessionCookie;
+  let workspaceOpen;
+  let workspaceCookie;
+
+  const server = http.createServer(async (req, res) => {
+    sessionPath = new URL(req.url, "http://127.0.0.1").pathname;
+    sessionCookie = req.headers.cookie;
+    if (req.method !== "POST" || sessionPath !== "/api/session/list") {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+      return;
+    }
+    let text = "";
+    req.setEncoding("utf8");
+    for await (const chunk of req) text += chunk;
+    sessionRequest = JSON.parse(text);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      result: {
+        ok: true,
+        value: {
+          items: [
+            { sessionId: "s1", updatedAt: 10, running: false, blank: false, cwd: "/ws/a", projections: { values: { title: "Current" } } },
+            { sessionId: "s2", updatedAt: 20, running: false, blank: false, cwd: "/other", projections: { values: { title: "Other" } } },
+          ],
+        },
+      },
+    }));
+  });
+  const wss = new WebSocketServer({ server, path: "/api/remote.mux" });
+  wss.on("connection", (socket, request) => {
+    workspaceCookie = request.headers.cookie;
+    socket.on("message", (data) => {
+      const frame = JSON.parse(data.toString());
+      if (frame.type !== "open") return;
+      workspaceOpen = frame;
+      socket.send(JSON.stringify({
+        type: "item",
+        streamId: frame.streamId,
+        value: {
+          type: "baseline",
+          value: {
+            items: [{ workspaceId: "w1", path: "/ws/a", sessionIds: ["s1"] }],
+            archivedSessionIds: [],
+          },
+        },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const client of wss.clients) client.terminate();
+    await new Promise((resolve) => wss.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const manager = new DshServerManager();
+  const { port } = server.address();
+  manager.url = `http://127.0.0.1:${port}`;
+  manager.cookie = "dsh-auth-current=v1.body.sig";
+
+  const { items, archivedItems } = await manager.listWorkspaceSessions("/ws/a");
+  assert.deepEqual(items.map((item) => item.sessionId), ["s1"]);
+  assert.equal(items[0].title, "Current");
+  assert.deepEqual(archivedItems, []);
+  assert.equal(workspaceCookie, "dsh-auth-current=v1.body.sig");
+  assert.equal(workspaceOpen.endpoint, "workspace/follow");
+  assert.deepEqual(workspaceOpen.payload, { args: {} });
+  assert.equal(sessionPath, "/api/session/list");
+  assert.equal(sessionCookie, "dsh-auth-current=v1.body.sig");
+  assert.equal(sessionRequest.method, "session/list");
+  assert.deepEqual(sessionRequest.payload, { args: { _request: {} } });
+});
+
+test("token-auth unary RPC falls back to the legacy dot endpoint only after 404", async () => {
+  const manager = apiManager();
+  manager.cookie = "dsh-auth-transitional=value";
+  const calls = [];
+  const realFetch = global.fetch;
+  global.fetch = async (requestUrl, opts) => {
+    calls.push({ path: new URL(requestUrl).pathname, body: JSON.parse(opts.body) });
+    if (calls.length === 1) return new Response("not found", { status: 404 });
+    return new Response(
+      JSON.stringify({ result: { ok: true, value: { title: "Legacy", seq: 2 } } }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+  try {
+    assert.deepEqual(await manager.renameSession("s1", "Legacy"), { title: "Legacy", seq: 2 });
+    assert.deepEqual(calls.map((call) => call.path), [
+      "/api/session/rename",
+      "/api/session.rename",
+    ]);
+    assert.deepEqual(calls[0].body.payload, {
+      args: { request: { sessionId: "s1", title: "Legacy" } },
+    });
+    assert.deepEqual(calls[1].body.payload, { sessionId: "s1", title: "Legacy" });
+  } finally {
+    global.fetch = realFetch;
+  }
+});
 
 test("listWorkspaceSessions filters session.list to the cwd workspace", async () => {
   const manager = apiManager();

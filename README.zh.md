@@ -28,7 +28,7 @@
 - **远程窗口**：支持 Remote SSH、WSL 与 dev container——DSHmux 运行在工作区所在主机，并将 DSH 回环端口映射进 webview，使内嵌 UI 能访问远程 DSH 进程。
 - **会话管理器**：侧边栏列出活跃会话（标题 + 相对时间），支持重命名、归档，并在单一主对话视图中切换会话。
 - **点图标自动启动**：点击活动栏图标，dsh 未运行时自动启动。
-- **dsh 版本检查 + 一键升级**：启动器显示 "有新版本：x.y.z →"（有新版时，文案随界面语言本地化）；点击后按你的安装方式（npx / npm 全局 / nvm）给出对应升级命令，预填进终端（24 小时检查门、离线静默）。
+- **dsh 兼容性检查 + 一键升级**：启动器显示当前运行的 dsh 版本；若与本 DSHmux 版本所测试的准确版本不同，会提示兼容性未经测试，并同时注明已测试的 dsh 版本。有注册表更新时，可按安装方式（npx / npm 全局 / nvm）将升级命令预填进终端（24 小时检查门、离线静默）。
 - **剪贴板可用**：内嵌 UI 的复制/粘贴走传输桥（VS Code webview 会屏蔽 iframe 内的剪贴板；桥通过 `vscode.env.clipboard` 转发）。
 - **事件提示音**：任务开始、完成及需要用户输入时播放不同提示音（`dshmux.completionSound`，默认 `true`）。
 - **紧凑侧边栏字号**：侧边栏 frame 默认缩放 90%（`dshmux.frameFontScale`，范围 0.5–1.5）；编辑器标签页保留上游字号。
@@ -59,7 +59,7 @@
 
 | 设置项 | 默认 | 说明 |
 |---|---|---|
-| `dshmux.dshPath` | 空 | 当前 VS Code 窗口的工作区扩展所在主机上的 DSH 绝对路径。在 Remote SSH/WSL/容器窗口中，请通过**远程设置**配置。不可用的路径会被忽略，并在该主机上自动查找 DSH。若使用源码检出，请指向构建后的 `apps/cli/lib/bin.js`。修改后需重启 DSH。 |
+| `dshmux.dshPath` | 空 | 当前 VS Code 窗口的工作区扩展所在主机上的 DSH 绝对路径。在 Remote SSH/WSL/容器窗口中，请通过**远程设置**配置。不可用的路径会被忽略，并在该主机上自动查找 DSH。若使用源码检出，请指向构建后的 `apps/cli/lib/bin.js`，并确保该主机已安装 Node.js。修改后需重启 DSH。 |
 | `dshmux.themeSync` | `follow` | 将 VS Code 颜色主题同步到内嵌 DSH 界面；`off` 尊重 DSH 自身外观设置。 |
 | `dshmux.completionSound` | `true` | 为任务开始、完成及用户输入请求播放提示音。 |
 | `dshmux.frameFontScale` | `0.9` | 内嵌 DSH 界面内容的缩放（1 = 默认大小）；数值越小，界面越紧凑。范围 0.5–1.5。 |

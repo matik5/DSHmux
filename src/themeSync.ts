@@ -13,15 +13,21 @@ function preferenceFor(kind: vscode.ColorThemeKind): "dark" | "light" {
     : "light";
 }
 
-async function syncNow(getServerBase: () => string | undefined): Promise<void> {
+async function syncNow(
+  getServerBase: () => string | undefined,
+  getCookie?: () => string | undefined
+): Promise<void> {
   const base = getServerBase();
   if (!base) return;
   if (dshmuxConfiguration("themeSync", "follow") !== "follow") return;
   const preference = preferenceFor(vscode.window.activeColorTheme.kind);
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const cookie = getCookie?.();
+  if (cookie) headers.cookie = cookie;
   try {
     await fetch(base + "/api/settings.update", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         type: "client-request",
         rpcId: "theme-sync-" + Date.now(),
@@ -37,12 +43,14 @@ async function syncNow(getServerBase: () => string | undefined): Promise<void> {
 /** Register the theme-change listener; returns syncNow for start-time calls. */
 export function registerThemeSync(
   context: vscode.ExtensionContext,
-  getServerBase: () => string | undefined
+  getServerBase: () => string | undefined,
+  /** Optional DSH browser-session cookie provider (token-auth servers). */
+  getCookie?: () => string | undefined
 ): { syncNow: () => Promise<void> } {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveColorTheme(() => {
-      void syncNow(getServerBase);
+      void syncNow(getServerBase, getCookie);
     })
   );
-  return { syncNow: () => syncNow(getServerBase) };
+  return { syncNow: () => syncNow(getServerBase, getCookie) };
 }
