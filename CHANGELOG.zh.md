@@ -2,19 +2,28 @@
 
 ## 未发布
 
+## [0.4.0] - 2026-08-31
+
+### 新增
 - 启动器顶部新增明确的 DSH 兼容性标记。DSHmux 0.4.0 已针对 dsh `0.1.2-alpha.2` 测试；更旧、更新或无法识别的版本仍可运行，但会显示“兼容性未经测试”，并同时注明已测试版本。
+- 新增 `dshmux.dshPath` 设置，可运行自定义 DSH 可执行文件，包括补丁源码检出中构建出的 CLI。
+- 在侧边栏对话切换到其他 DSH 会话时，立即显示变暗的加载遮罩和进度条。
+- 新增 `dshmux.frameFontScale` 设置（默认 `0.9`，范围 0.5–1.5），用于缩放内嵌侧边栏 DSH frame；编辑器标签页保留上游字号。
+- 新增逐项提示音开关（`dshmux.soundStart`、`dshmux.soundDone`、`dshmux.soundAsk`，均默认 `true`），可分别静音每种会话提示音；`dshmux.completionSound` 仍为总开关。
+
+### 修复
 - 修复 DSH 0.1.2 下的侧边栏会话列表：DSHmux 现在读取 `workspace/follow` 基线流，并使用带命名参数封装的斜杠式 Remote RPC 端点，同时继续兼容旧版 DSH 的点式 API。
-- 将 DSH 默认启动就绪超时从 10 秒延长到 30 秒，以适应较慢的冷启动和自定义源码检出。
 - 修复 Windows 与 macOS 桌面端自定义源码检出的启动问题：即使 VS Code GUI 扩展宿主的 `PATH` 很精简，DSHmux 也会解析用户实际安装的 Node，并让 DSH 子进程继续使用同一套 Node 工具链；配置的 `.js`、`.cjs` 和 `.mjs` 入口不会再误用 VS Code/Electron；Windows 还会优先使用可运行的 npm `.cmd` shim、检查 `%APPDATA%\npm`，并在过早退出时显示 DSH stderr。
 - 修复 Remote SSH、WSL 和开发容器窗口中的内嵌插件加载：现在会将 webview 中的 DSH 回环 HTTP 端口映射到远程扩展宿主。
 - 修复 Remote SSH、WSL 和开发容器中的启动问题：DSHmux 现在在工作区主机上运行；若配置的 `dshPath` 在该主机上不可用，则忽略该路径并在该主机上查找 DSH。`dshPath` 可在远程设置或工作区设置中覆盖。
-- 新增 `dshmux.dshPath` 设置，可运行自定义 DSH 可执行文件，包括补丁源码检出中构建出的 CLI。
 - 修复内嵌内容缩放后溢出视口并导致粘性对话输入框失效的问题。
+- 修复 Chromium webview 音频上下文挂起时提示音不播放的问题，补充 `turn/end`、`question/requested` 与 `approval/requested`（提权/权限提示）协议事件，并避免回退事件重复播放。
+- 修复 DSH 0.1.2 下会话提示音静默的问题：webview 现在读取新的多路复用 `/api/remote.mux` item 帧（`api-session/status`、`user-questions/request`、`approval/request`，以及 follow 流的 `turn/start` / `turn/end` / `tool/call` 事件），同时保留旧版 `payload` 帧作为回退。提示音始终在本机 webview（Web Audio）播放，远程 DSH 服务器不会发声。
+
+### 变更
+- 将 DSH 默认启动就绪超时从 10 秒延长到 30 秒，以适应较慢的冷启动和自定义源码检出。
 - 项目、扩展 ID、视图、命令和设置统一更名为 **DSHmux**（`matik5.dshmux`；仓库 `matik5/DSHmux`）。为兼容旧配置，仍会读取已有的 `deepseekHarness.*` 设置值。
 - 主侧边视图更名为 **DSHmux 对话**，并在 VS Code 或扩展宿主重启后自动显示。
-- 在侧边栏对话切换到其他 DSH 会话时，立即显示变暗的加载遮罩和进度条。
-- 修复 Chromium webview 音频上下文挂起时提示音不播放的问题，补充 `turn/end`、`question/requested` 与 `approval/requested`（提权/权限提示）协议事件，并避免回退事件重复播放。
-- 新增 `dshmux.frameFontScale` 设置（默认 `0.9`，范围 0.5–1.5），用于缩放内嵌侧边栏 DSH frame；编辑器标签页保留上游字号。
 
 [English](CHANGELOG.md) | **中文**
 
