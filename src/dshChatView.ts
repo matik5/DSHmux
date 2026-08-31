@@ -251,7 +251,12 @@ export class DshChatView implements vscode.WebviewViewProvider {
       localResourceRoots: [vscode.Uri.file(this.distRootPath())],
       portMapping: dshWebviewPortMappings(this.manager.serverUrl),
     };
-    this.bridge = new BridgeHost(webviewView.webview, () => this.manager.serverUrl ?? "");
+    this.bridge = new BridgeHost(
+      webviewView.webview,
+      () => this.manager.serverUrl ?? "",
+      fetch,
+      () => this.manager.authCookie
+    );
 
     // View-level commands from the placeholder/overlay chrome.
     webviewView.webview.onDidReceiveMessage((msg) => {
@@ -344,6 +349,9 @@ export class DshChatView implements vscode.WebviewViewProvider {
           ? JSON.stringify({ sessionId: this.currentSessionId })
           : undefined,
         chromeHtml: statusChromeHtml(true),
+        // The index route is auth-gated on DSH >= 0.1.2-alpha; the cookie is
+        // minted from the launch token at start (manager.authCookie).
+        cookieProvider: () => this.manager.authCookie,
         log: (m) => console.log("[dsh] " + m),
       });
       // A newer refresh superseded this one (e.g. loadSession raced the

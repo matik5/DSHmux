@@ -11,12 +11,15 @@ const path = require("node:path");
 const { assembleDocument, extractRev, rewriteBootPluginUrls, rewriteBootPluginPreloads } = require("../out/documentAssembly.js");
 
 /** Serve a small fake DSH dist; returns { url, stop, requestCount }. */
-function serveDist(t) {
+function serveDist(t, { relativeRefs = false } = {}) {
+  const assetPrefix = relativeRefs ? "./assets/" : "/assets/";
+  const staticPrefix = relativeRefs ? "./" : "/";
+  const cssFontRef = relativeRefs ? "./fonts/ka.woff2" : "/assets/fonts/ka.woff2";
   const files = new Map([
-    ["/", `<!doctype html><html lang="zh-CN"><head><script>(()=>{window.__ModuleLoader__={mode:"queue",pendingQueue:[],load(){},create(){}}})()</script><script src="/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=m1"></script><script src="/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=r1"></script><script>window.__DSH_BOOT__ = {"rev":"rev123","entries":[{"id":"p1","url":"/plugins/p1/client.js?rev=1"}]}</script><script type="module" crossorigin src="/assets/index-a1b2.js"></script><link rel="modulepreload" crossorigin href="/assets/vendor-c3d4.js"><link rel="stylesheet" crossorigin href="/assets/app-e5f6.css"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/favicon.svg"></head><body><div id="root"></div></body></html>`],
+    ["/", `<!doctype html><html lang="zh-CN"><head><script>(()=>{window.__ModuleLoader__={mode:"queue",pendingQueue:[],load(){},create(){}}})()</script><script src="/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=m1"></script><script src="/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=r1"></script><script>window.__DSH_BOOT__ = {"rev":"rev123","entries":[{"id":"p1","url":"/plugins/p1/client.js?rev=1"}]}</script><script type="module" crossorigin src="${assetPrefix}index-a1b2.js"></script><link rel="modulepreload" crossorigin href="${assetPrefix}vendor-c3d4.js"><link rel="stylesheet" crossorigin href="${assetPrefix}app-e5f6.css"><link rel="manifest" href="${staticPrefix}manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="${staticPrefix}favicon.svg"></head><body><div id="root"></div></body></html>`],
     ["/assets/index-a1b2.js", `import{c}from"./vendor-c3d4.js";import("./langs/ts.js");`],
     ["/assets/vendor-c3d4.js", "vendor-content"],
-    ["/assets/app-e5f6.css", `@font-face{font-family:KaTeX;src:url(/assets/fonts/ka.woff2) format("woff2")}`],
+    ["/assets/app-e5f6.css", `@font-face{font-family:KaTeX;src:url(${cssFontRef}) format("woff2")}`],
     ["/assets/fonts/ka.woff2", Buffer.from([0, 1, 2, 3])],
     ["/assets/langs/ts.js", "lang-content"],
     ["/manifest.webmanifest", `{"name":"x"}`],
@@ -79,6 +82,14 @@ test("rewriteBootPluginUrls matches the 0.1.1-rc.2 globalThis boot shape", () =>
   const out = rewriteBootPluginUrls(html, "http://127.0.0.1:9999");
   assert.ok(out.includes('"url":"http://127.0.0.1:9999/plugins/p/client.js?rev=1"'));
   assert.ok(out.includes('globalThis["__DSH_BOOT__"]'), "injection statement preserved");
+});
+
+test("rewriteBootPluginUrls rewrites DSH 0.1.2 batched plugin urls", () => {
+  const html = `<script>globalThis["__DSH_BOOT__"] = {"rev":"r","entries":[{"id":"p","url":"/plugins/p/client.js?rev=1"}],"batches":[{"phase":"bootstrap","url":"/plugins/??p/client.js&rev=2","entries":["p"]}]}</script>`;
+  const out = rewriteBootPluginUrls(html, "http://127.0.0.1:9999");
+  assert.ok(out.includes('"url":"http://127.0.0.1:9999/plugins/p/client.js?rev=1"'));
+  assert.ok(out.includes('"url":"http://127.0.0.1:9999/plugins/??p/client.js&rev=2"'));
+  assert.ok(!out.includes('"url":"/plugins/'));
 });
 
 test("rewriteBootPluginPreloads makes preload script src absolute (rc.8 boot manifest)", () => {
@@ -172,6 +183,41 @@ test("assembleDocument reuses the cache when the rev is unchanged", async (t) =>
   assert.ok(server.requestCount - countAfterFirst <= 2, `requestCount grew by ${server.requestCount - countAfterFirst}`);
 });
 
+test("assembleDocument supports DSH 0.1.2 relative assets and repairs an incomplete cache", async (t) => {
+  const server = await serveDist(t, { relativeRefs: true });
+  const dist = tmpdir(t);
+  // Reproduce the broken v0.3.9 state: the revision was committed even though
+  // the old /assets-only matcher downloaded no frontend files.
+  fs.writeFileSync(path.join(dist, "rev.txt"), "rev123");
+
+  const { html, downloaded } = await assembleDocument({
+    serverBase: server.url,
+    distRootPath: dist,
+    asWebviewUri,
+    bridgeClientJs: "",
+    cspSource: "x",
+    log: () => {},
+  });
+
+  assert.equal(downloaded, true, "matching rev with missing assets must be repaired");
+  for (const file of [
+    "assets/index-a1b2.js",
+    "assets/vendor-c3d4.js",
+    "assets/app-e5f6.css",
+    "assets/fonts/ka.woff2",
+    "assets/langs/ts.js",
+  ]) {
+    assert.ok(fs.existsSync(path.join(dist, file)), `missing ${file}`);
+  }
+  assert.ok(!html.includes('src="./assets/'));
+  assert.ok(!html.includes('href="./assets/'));
+  assert.ok(html.includes(`href="${server.url}/manifest.webmanifest"`));
+  assert.ok(html.includes(`href="${server.url}/favicon.svg"`));
+
+  const css = fs.readFileSync(path.join(dist, "assets/app-e5f6.css"), "utf8");
+  assert.ok(css.includes(`url(vscode-webview-resource://test${path.join(dist, "assets", "fonts", "ka.woff2")})`));
+});
+
 test("assembleDocument injects the session preset before the module script (req R2/T7d)", async (t) => {
   const server = await serveDist(t);
   const dist = tmpdir(t);
@@ -228,4 +274,35 @@ test("assembleDocument injects an explicit frame font scale", async (t) => {
   // viewport; a `height: 100/Z%` would overflow the document and break the
   // app's sticky composer.
   assert.match(out.html, /#root \{ zoom: 0\.8; \}/);
+});
+
+test("assembleDocument sends the cookie on the auth-gated index fetch", async (t) => {
+  const indexCookies = [];
+  const server = http.createServer((req, res) => {
+    if (req.url === "/") {
+      indexCookies.push(req.headers.cookie);
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<!doctype html><html><head><script>window.__DSH_BOOT__ = {"rev":"r1","entries":[]}</script><script type="module" crossorigin src="/assets/index-a1b2.js"></script></head><body></body></html>`
+      );
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("vendor-content");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const dist = tmpdir(t);
+
+  await assembleDocument({
+    serverBase: `http://127.0.0.1:${port}`,
+    distRootPath: dist,
+    asWebviewUri,
+    bridgeClientJs: "",
+    cspSource: "x",
+    cookieProvider: () => "dsh-auth-abc123=v1.body.sig",
+    log: () => {},
+  });
+  assert.deepEqual(indexCookies, ["dsh-auth-abc123=v1.body.sig"]);
 });

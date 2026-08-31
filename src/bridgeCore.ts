@@ -20,15 +20,24 @@ export interface HttpResponseMsg {
   body: ArrayBuffer;
 }
 
-/** Relay one http request to the server; returns the response payload. */
+/**
+ * Relay one http request to the server; returns the response payload.
+ * `cookieProvider` (optional) supplies the DSH browser-session cookie for
+ * token-authenticated servers (DSH >= 0.1.2-alpha); undefined keeps the
+ * pre-auth behavior (no cookie header).
+ */
 export async function relayHttp(
   serverBase: string,
   msg: HttpRequestMsg,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  cookieProvider?: () => string | undefined
 ): Promise<HttpResponseMsg> {
+  const headers: Record<string, string> = { ...(msg.headers ?? {}) };
+  const cookie = cookieProvider?.();
+  if (cookie) headers.cookie = cookie;
   const res = await fetchImpl(serverBase + msg.url, {
     method: msg.method,
-    headers: msg.headers,
+    headers,
     body: msg.body as never, // bridge boundary: string | ArrayBuffer
   });
   const buf = await res.arrayBuffer();
@@ -52,12 +61,17 @@ export class WsRelay {
 
   constructor(
     private post: (msg: unknown) => void,
-    private resolveBase: () => string
+    private resolveBase: () => string,
+    /** Optional DSH browser-session cookie provider (token-auth servers). */
+    private cookieProvider?: () => string | undefined
   ) {}
 
   open(id: number, path: string): void {
     if (this.sockets.has(id)) return;
-    const ws = new WebSocket(this.resolveBase() + path);
+    const cookie = this.cookieProvider?.();
+    const ws = new WebSocket(this.resolveBase() + path, {
+      headers: cookie ? { cookie } : undefined,
+    });
     this.sockets.set(id, ws);
     ws.on("open", () => this.post({ type: "ws-open-res", id, ok: true }));
     ws.on("message", (data) => this.post({ type: "ws-frame", id, data: data.toString() }));

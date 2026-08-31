@@ -44,6 +44,42 @@ test("relayHttp forwards a POST and returns status/headers/binary body", async (
   assert.deepEqual(Buffer.from(out.body).toString(), "{}");
 });
 
+test("relayHttp forwards the cookie from the cookieProvider (token-auth DSH)", async (t) => {
+  let seenCookie;
+  const server = http.createServer((req, res) => {
+    seenCookie = req.headers.cookie;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const { port } = server.address();
+
+  const out = await relayHttp(
+    `http://127.0.0.1:${port}`,
+    { type: "http", id: 1, method: "GET", url: "/api/x" },
+    fetch,
+    () => "dsh-auth-abc123=v1.body.sig"
+  );
+  assert.equal(out.status, 200);
+  assert.equal(seenCookie, "dsh-auth-abc123=v1.body.sig");
+});
+
+test("relayHttp sends no cookie header without a cookieProvider (pre-auth DSH)", async (t) => {
+  let seenCookie;
+  const server = http.createServer((req, res) => {
+    seenCookie = req.headers.cookie;
+    res.writeHead(200);
+    res.end("ok");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const { port } = server.address();
+
+  await relayHttp(`http://127.0.0.1:${port}`, { type: "http", id: 1, method: "GET", url: "/" });
+  assert.equal(seenCookie, undefined);
+});
+
 test("relayHttp surfaces non-2xx status as a transport response (client decides)", async (t) => {
   const server = http.createServer((_req, res) => {
     res.writeHead(403);
@@ -89,6 +125,31 @@ test("WsRelay relays open/frame/close with the webview-assigned id", async (t) =
   // close -> ws-close.
   relay.close(42);
   await waitFor(() => posts.some((p) => p.type === "ws-close" && p.id === 42));
+});
+
+test("WsRelay sends the cookie header on the WebSocket upgrade (token-auth DSH)", async (t) => {
+  let seenCookie;
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((r) => wss.once("listening", r));
+  t.after(() => wss.close());
+  const { port } = wss.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  wss.on("connection", (socket, req) => {
+    seenCookie = req.headers.cookie;
+    socket.close();
+  });
+
+  const posts = [];
+  const relay = new WsRelay(
+    (msg) => posts.push(msg),
+    () => base,
+    () => "dsh-auth-abc123=v1.body.sig"
+  );
+  relay.open(7, "/api/events.mux");
+  await waitFor(() => posts.some((p) => p.type === "ws-open-res" && p.id === 7 && p.ok));
+  assert.equal(seenCookie, "dsh-auth-abc123=v1.body.sig");
+  relay.dispose();
 });
 
 test("WsRelay reports ws-open-res ok:false when the server is unreachable", async (t) => {

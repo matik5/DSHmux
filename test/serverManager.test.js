@@ -4,10 +4,11 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-const { parseUrlLine, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -21,9 +22,10 @@ function fakeDsh(dir, opts = {}) {
   const record = opts.recordArgs
     ? `if (!process.argv.includes("--help")) require("node:fs").writeFileSync(${JSON.stringify(opts.recordArgs)}, JSON.stringify(process.argv.slice(2)));\n`
     : "";
+  const urlLine = opts.urlLine ?? "dsh web: http://127.0.0.1:34567";
   const body = opts.quiet
     ? `${help}${record}setInterval(() => {}, 1000);\n`
-    : `${help}${record}process.stdout.write("dsh web: http://127.0.0.1:34567\\n");\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);\n`;
+    : `${help}${record}process.stdout.write(${JSON.stringify(urlLine + "\n")});\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1000);\n`;
   if (process.platform === "win32") {
     // Windows: cmd.exe cannot run unix-shebang scripts; ship a .cmd wrapper.
     const impl = path.join(dir, "dsh-impl.js");
@@ -78,6 +80,26 @@ test("parseUrlLine extracts the ready URL", () => {
   assert.equal(parseUrlLine("some other line"), null);
   assert.equal(parseUrlLine(""), null);
   assert.equal(parseUrlLine("prefix dsh web: http://127.0.0.1:3080 suffix"), "http://127.0.0.1:3080");
+});
+
+test("parseUrlLine keeps the launch token query (token-auth DSH)", () => {
+  assert.equal(
+    parseUrlLine("dsh web: http://127.0.0.1:62750/?token=abc-DEF_123"),
+    "http://127.0.0.1:62750/?token=abc-DEF_123"
+  );
+  // The optional (LAN: …) suffix must not leak into the capture.
+  assert.equal(
+    parseUrlLine("dsh web: http://127.0.0.1:62750/?token=abc (LAN: http://192.168.1.5:62750)"),
+    "http://127.0.0.1:62750/?token=abc"
+  );
+});
+
+test("splitLaunchUrl splits origin and token", () => {
+  assert.deepEqual(splitLaunchUrl("http://127.0.0.1:62750"), { base: "http://127.0.0.1:62750", token: undefined });
+  assert.deepEqual(splitLaunchUrl("http://127.0.0.1:62750/?token=abc-DEF_123"), {
+    base: "http://127.0.0.1:62750",
+    token: "abc-DEF_123",
+  });
 });
 
 test("resolveDshPath finds dsh in an injected home", (t) => {
@@ -227,6 +249,90 @@ test("start() reaches ready via stdout URL and stop() exits cleanly", async (t) 
   }
   assert.equal(manager.state, "stopped");
   assert.equal(manager.isRunning, false);
+});
+
+/**
+ * Start a local exchange endpoint mimicking DSH >= 0.1.2-alpha:
+ * GET /?token=<token> → 303 + Set-Cookie; anything else → 401.
+ * Returns { port, stop }.
+ */
+function exchangeServer(t, token) {
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    if (req.method === "GET" && u.pathname === "/" && u.searchParams.get("token") === token) {
+      res.writeHead(303, {
+        location: "/",
+        "set-cookie": "dsh-auth-abc123=v1.body.sig; Max-Age=86400; Path=/; HttpOnly; SameSite=Strict",
+      });
+      res.end();
+    } else {
+      res.writeHead(401);
+      res.end("unauthorized");
+    }
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      t.after(() => server.close());
+      resolve({ port, stop: () => server.close() });
+    });
+  });
+}
+
+test("start() exchanges the launch token for a cookie (token-auth DSH)", async (t) => {
+  const dir = tmpdir(t);
+  const ex = await exchangeServer(t, "tok-123");
+  const bin = fakeDsh(dir, { urlLine: `dsh web: http://127.0.0.1:${ex.port}/?token=tok-123` });
+  const manager = new DshServerManager();
+
+  const url = await manager.start({ dshBin: bin, cwd: dir });
+  // start() resolves with the BASE url (no token) — serverUrl consumers unchanged.
+  assert.equal(url, `http://127.0.0.1:${ex.port}`);
+  assert.equal(manager.serverUrl, url);
+  assert.equal(manager.launchUrl, `http://127.0.0.1:${ex.port}/?token=tok-123`);
+  // Only the name=value segment is kept (attributes stripped).
+  assert.equal(manager.authCookie, "dsh-auth-abc123=v1.body.sig");
+  assert.equal(manager.state, "ready");
+
+  // api() must send the cookie header.
+  let seenHeaders;
+  const realFetch = global.fetch;
+  global.fetch = async (_url, opts) => {
+    seenHeaders = opts.headers;
+    return { json: async () => ({ result: { ok: true, value: { items: [] } } }) };
+  };
+  try {
+    await manager.listWorkspaceSessions("/ws/a");
+    assert.equal(seenHeaders.cookie, "dsh-auth-abc123=v1.body.sig");
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  const exited = new Promise((r) => manager.once("exit", r));
+  manager.stop();
+  await exited;
+  assert.equal(manager.state, "stopped");
+  // Dead server: no stale launch URL / cookie may survive.
+  assert.equal(manager.launchUrl, undefined);
+  assert.equal(manager.authCookie, undefined);
+});
+
+test("start() rejects when the launch-token exchange fails (no cookie possible)", async (t) => {
+  const dir = tmpdir(t);
+  // Reserve a port then close it so the exchange fetch is refused.
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", r));
+  const { port } = probe.address();
+  await new Promise((r) => probe.close(r));
+  const bin = fakeDsh(dir, { urlLine: `dsh web: http://127.0.0.1:${port}/?token=tok-123` });
+  const manager = new DshServerManager();
+
+  await assert.rejects(manager.start({ dshBin: bin, cwd: dir }), /launch-token exchange failed/);
+  assert.equal(manager.state, "error");
+  assert.equal(manager.authCookie, undefined);
+  const exited = new Promise((r) => manager.once("exit", r));
+  manager.stop();
+  await exited;
 });
 
 test("start() uses the configured binary provider", async (t) => {

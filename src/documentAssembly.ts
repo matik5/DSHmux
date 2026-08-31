@@ -45,6 +45,12 @@ export interface AssembleOptions {
   /** Extra markup injected before </body> (e.g. the server-status overlay). */
   chromeHtml?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * DSH browser-session cookie provider (token-auth servers, DSH >=
+   * 0.1.2-alpha): the index route is auth-gated, so the index fetch needs the
+   * cookie minted from the launch token. Undefined for pre-auth DSH.
+   */
+  cookieProvider?: () => string | undefined;
   log?: (msg: string) => void;
 }
 
@@ -54,15 +60,19 @@ export interface Assembled {
   downloaded: boolean;
 }
 
-const ASSET_REF_RE = /(src|href)="(\/assets\/[^"]+)"/g;
-const CSS_URL_RE = /url\(\s*["']?(\/assets\/[^)"']+)["']?\s*\)/g;
+// DSH <= 0.1.1 emitted root-relative `/assets/...` references. DSH 0.1.2
+// switched the same index entries to document-relative `./assets/...`.
+// Capture both forms; resolveAssetRef() normalizes either one to a safe path
+// below /assets before it is fetched or mapped into the webview.
+const ASSET_REF_RE = /(src|href)="((?:\/|\.\/)assets\/[^"]+)"/g;
+const CSS_URL_RE = /url\(\s*(["']?)([^)"']+)\1\s*\)/g;
 const SHELL_IMPORT_RE = /\.\/((?:vendor|langs)\/[A-Za-z0-9_.-]+\.js)/g;
 // Boot manifest injection changed shape between rc.8 (`window.__DSH_BOOT__ =`)
 // and 0.1.1-rc.2 (`globalThis["__DSH_BOOT__"] =`). Match either prefix; the
 // capture runs to the closing `</script>`.
 const BOOT_RE = /(?:window\.__DSH_BOOT__|globalThis\["__DSH_BOOT__"\])\s*=\s*(\{.*?\})<\/script>/s;
 const REV_RE = /"rev"\s*:\s*"([^"]+)"/;
-const SERVER_STATIC_RE = /(src|href)="\/(manifest\.webmanifest|favicon\.svg)"/g;
+const SERVER_STATIC_RE = /(src|href)="(?:\/|\.\/)(manifest\.webmanifest|favicon\.svg)"/g;
 // DSH boot-manifest preloads: injectBootManifest (dsh-client-modules >= rc.8)
 // emits blocking <script src="/plugins/..."> tags for @deepseek-ai/dsh-client-modules
 // and @deepseek-ai/dsh-client-runtime before window.__DSH_BOOT__. They are
@@ -72,6 +82,48 @@ const SERVER_STATIC_RE = /(src|href)="\/(manifest\.webmanifest|favicon\.svg)"/g;
 // The owning webview also maps this loopback port to the extension host; that
 // is required when DSH runs under Remote SSH/WSL/a dev container.
 const PLUGIN_PRELOAD_RE = /(src|href)="(\/plugins\/[^"]+)"/g;
+
+interface AssetRef {
+  /** Server request target, including a query string when present. */
+  requestPath: string;
+  /** Safe path relative to distRootPath (always starts with `assets/`). */
+  cachePath: string;
+}
+
+/**
+ * Resolve an index/CSS asset reference against a server path and constrain it
+ * to the DSH `/assets/` tree. This both normalizes `./assets/...` and keeps
+ * filesystem writes below distRootPath.
+ */
+function resolveAssetRef(ref: string, basePath = "/"): AssetRef | undefined {
+  try {
+    const base = new URL(basePath, "http://dsh.invalid/");
+    const resolved = new URL(ref, base);
+    if (resolved.origin !== base.origin || !resolved.pathname.startsWith("/assets/")) {
+      return undefined;
+    }
+    const cachePath = resolved.pathname.slice(1);
+    if (cachePath.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+      return undefined;
+    }
+    return { requestPath: resolved.pathname + resolved.search, cachePath };
+  } catch {
+    return undefined;
+  }
+}
+
+function indexAssetRefs(indexHtml: string): AssetRef[] {
+  const refs: AssetRef[] = [];
+  for (const match of indexHtml.matchAll(ASSET_REF_RE)) {
+    const asset = resolveAssetRef(match[2]);
+    if (asset) refs.push(asset);
+  }
+  return refs;
+}
+
+function assetFsPath(distRootPath: string, asset: AssetRef): string {
+  return path.join(distRootPath, ...asset.cachePath.split("/"));
+}
 
 /** Extract the boot manifest rev from index.html ("" when absent). */
 export function extractRev(html: string): string {
@@ -83,14 +135,18 @@ export function extractRev(html: string): string {
 export function rewriteBootPluginUrls(html: string, serverBase: string): string {
   const m = html.match(BOOT_RE);
   if (!m) return html;
-  let graph: { entries?: { url?: string }[] };
+  let graph: {
+    entries?: { url?: string }[];
+    /** DSH 0.1.2 groups loader requests into bootstrap/application batches. */
+    batches?: { url?: string }[];
+  };
   try {
     graph = JSON.parse(m[1]);
   } catch {
     return html;
   }
-  for (const entry of graph.entries ?? []) {
-    if (entry.url?.startsWith("/")) entry.url = serverBase + entry.url;
+  for (const item of [...(graph.entries ?? []), ...(graph.batches ?? [])]) {
+    if (item.url?.startsWith("/")) item.url = serverBase + item.url;
   }
   const next = JSON.stringify(graph).replaceAll("<", "\\u003c");
   return html.replace(m[1], next);
@@ -139,22 +195,37 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
   const fetchImpl = opts.fetchImpl ?? fetch;
   const logf = log ?? (() => {});
 
-  const indexRes = await fetchImpl(serverBase + "/");
+  const indexHeaders: Record<string, string> = {};
+  const cookie = opts.cookieProvider?.();
+  if (cookie) indexHeaders.cookie = cookie;
+  const indexRes = await fetchImpl(serverBase + "/", { headers: indexHeaders });
   if (!indexRes.ok) throw new Error(`failed to fetch ${serverBase}/ (HTTP ${indexRes.status})`);
   const indexHtml = await indexRes.text();
   const rev = extractRev(indexHtml);
+  const entryAssets = indexAssetRefs(indexHtml);
+  if (entryAssets.length === 0) {
+    throw new Error("DSH index contains no supported frontend asset references");
+  }
 
   const revFile = path.join(distRootPath, "rev.txt");
   const cached = fs.existsSync(revFile) ? fs.readFileSync(revFile, "utf8") : "";
+  const cacheComplete = entryAssets.every((asset) => fs.existsSync(assetFsPath(distRootPath, asset)));
   let downloaded = false;
 
-  if (cached !== rev) {
+  if (cached !== rev || !cacheComplete) {
     if (!distDownloadInFlight) {
       distDownloadInFlight = (async () => {
-        logf(`dist rev changed (${cached || "none"} -> ${rev}); re-downloading`);
+        const reason = cached !== rev
+          ? `rev changed (${cached || "none"} -> ${rev})`
+          : "cache is incomplete";
+        logf(`dist ${reason}; re-downloading`);
         fs.rmSync(distRootPath, { recursive: true, force: true });
         fs.mkdirSync(distRootPath, { recursive: true });
         await downloadTree(serverBase, distRootPath, indexHtml, asWebviewUri, fetchImpl, logf);
+        const missing = entryAssets.find((asset) => !fs.existsSync(assetFsPath(distRootPath, asset)));
+        if (missing) throw new Error(`failed to cache required DSH asset ${missing.requestPath}`);
+        // rev.txt is the completion marker: write it only after every required
+        // entry asset exists, so an interrupted/unsupported download is retried.
         fs.writeFileSync(revFile, rev);
       })().finally(() => {
         distDownloadInFlight = undefined;
@@ -165,9 +236,11 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
     downloaded = true;
   }
 
-  const localAsset = (url: string) => asWebviewUri(path.join(distRootPath, url));
   let html = indexHtml;
-  html = html.replace(ASSET_REF_RE, (_m, attr: string, url: string) => `${attr}="${localAsset(url)}"`);
+  html = html.replace(ASSET_REF_RE, (original, attr: string, url: string) => {
+    const asset = resolveAssetRef(url);
+    return asset ? `${attr}="${asWebviewUri(assetFsPath(distRootPath, asset))}"` : original;
+  });
   html = html.replace(SERVER_STATIC_RE, (_m, attr: string, name: string) => `${attr}="${serverBase}/${name}"`);
   html = rewriteBootPluginUrls(html, serverBase);
   html = rewriteBootPluginPreloads(html, serverBase);
@@ -198,42 +271,41 @@ async function downloadTree(
   fetchImpl: typeof fetch,
   log: (msg: string) => void
 ): Promise<void> {
-  const queue: string[] = [];
+  const queue: AssetRef[] = [];
   const seen = new Set<string>();
-  for (const m of indexHtml.matchAll(ASSET_REF_RE)) queue.push(m[2]);
+  queue.push(...indexAssetRefs(indexHtml));
 
   while (queue.length > 0) {
-    const url = queue.shift()!;
-    if (seen.has(url)) continue;
-    seen.add(url);
-    if (!url.startsWith("/assets/") || url.includes("..")) {
-      log(`skip suspicious asset url ${url}`);
-      continue;
-    }
-    const fsPath = path.join(distRootPath, url);
+    const asset = queue.shift()!;
+    if (seen.has(asset.requestPath)) continue;
+    seen.add(asset.requestPath);
+    const fsPath = assetFsPath(distRootPath, asset);
     fs.mkdirSync(path.dirname(fsPath), { recursive: true });
-    const res = await fetchImpl(serverBase + url);
+    const res = await fetchImpl(serverBase + asset.requestPath);
     if (!res.ok) {
-      log(`skip ${url} (HTTP ${res.status})`);
-      continue;
+      throw new Error(`failed to download ${asset.requestPath} (HTTP ${res.status})`);
     }
     const buf = Buffer.from(await res.arrayBuffer());
     fs.writeFileSync(fsPath, buf);
 
-    if (url.endsWith(".css")) {
+    if (asset.cachePath.endsWith(".css")) {
       let text = buf.toString("utf8");
       let rewritten = false;
-      text = text.replace(CSS_URL_RE, (_m, asset: string) => {
-        if (!asset.startsWith("/assets/") || asset.includes("..")) return _m; // leave unsafe refs untouched
+      text = text.replace(CSS_URL_RE, (original, _quote: string, ref: string) => {
+        const nested = resolveAssetRef(ref, asset.requestPath);
+        if (!nested) return original;
         rewritten = true;
-        queue.push(asset); // ensure the font/image is downloaded too
-        return `url(${asWebviewUri(path.join(distRootPath, asset))})`;
+        queue.push(nested); // ensure the font/image is downloaded too
+        return `url(${asWebviewUri(assetFsPath(distRootPath, nested))})`;
       });
       if (rewritten) fs.writeFileSync(fsPath, text);
-    } else if (/\/index-[\w-]+\.js$/.test(url)) {
+    } else if (/\/index-[\w-]+\.js$/.test(asset.cachePath)) {
       // Shell bundle: its relative imports must exist in the local tree.
       const text = buf.toString("utf8");
-      for (const m of text.matchAll(SHELL_IMPORT_RE)) queue.push("/assets/" + m[1]);
+      for (const match of text.matchAll(SHELL_IMPORT_RE)) {
+        const nested = resolveAssetRef("./" + match[1], asset.requestPath);
+        if (nested) queue.push(nested);
+      }
     }
   }
 }

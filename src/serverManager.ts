@@ -60,14 +60,23 @@ export interface SessionSummary {
   title: string | null;
 }
 
-const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/;
+// DSH >= 0.1.2-alpha prints the launch URL with its auth token
+// (`dsh web: http://127.0.0.1:<port>/?token=<base64url>`); pre-auth DSH
+// prints the bare origin. Capture the full URL so the token survives parsing.
+const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
 const SIGKILL_GRACE_MS = 6_000;
 
-/** Extract the ready URL from one dsh stdout line, or null. */
+/** Extract the launch URL from one dsh stdout line, or null. */
 export function parseUrlLine(line: string): string | null {
   const m = line.match(URL_LINE_RE);
   return m ? m[1] : null;
+}
+
+/** Split a dsh web launch URL into its origin and optional launch token. */
+export function splitLaunchUrl(launchUrl: string): { base: string; token?: string } {
+  const u = new URL(launchUrl);
+  return { base: u.origin, token: u.searchParams.get("token") ?? undefined };
 }
 
 /** First existing file among candidates; a `*` segment expands to ALL
@@ -439,6 +448,10 @@ export class DshServerManager extends EventEmitter {
   private child?: ChildProcess;
   private _state: ServerState = "stopped";
   private url?: string;
+  /** Launch URL printed by dsh (carries the auth token when DSH requires one). */
+  private _launchUrl?: string;
+  /** Browser-session cookie minted from the launch token; undefined for pre-auth DSH. */
+  private cookie?: string;
   private _version?: string;
   private _binPath?: string;
   private killTimer?: NodeJS.Timeout;
@@ -446,6 +459,12 @@ export class DshServerManager extends EventEmitter {
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private startSettled = false;
+  /** finishReady() is running (or ran) for this start — guards the async
+   *  token exchange against re-entry from repeated stdout lines. Distinct
+   *  from startSettled: the start() promise only settles when finishReady
+   *  completes (or settleError/abortStart runs), so settleError must still
+   *  be able to settle after settleReady has flipped this flag. */
+  private readyProcessing = false;
   private startResolve?: (url: string) => void;
   private startReject?: (err: Error) => void;
 
@@ -464,6 +483,16 @@ export class DshServerManager extends EventEmitter {
 
   get serverUrl(): string | undefined {
     return this.url;
+  }
+
+  /** The launch URL dsh printed (base URL plus `?token=…` when DSH requires auth). */
+  get launchUrl(): string | undefined {
+    return this._launchUrl;
+  }
+
+  /** Browser-session cookie for this server's authority (undefined for pre-auth DSH). */
+  get authCookie(): string | undefined {
+    return this.cookie;
   }
 
   /** dsh CLI version resolved at start (undefined until a start ran / on failure). */
@@ -521,7 +550,10 @@ export class DshServerManager extends EventEmitter {
     this.stdoutBuffer = "";
     this.stderrBuffer = "";
     this.url = undefined;
+    this._launchUrl = undefined;
+    this.cookie = undefined;
     this.startSettled = false;
+    this.readyProcessing = false;
     this.setState("starting");
 
     const env = { ...process.env };
@@ -598,6 +630,8 @@ export class DshServerManager extends EventEmitter {
         }
         this.child = undefined;
         this.url = undefined; // never expose a dead server URL
+        this._launchUrl = undefined;
+        this.cookie = undefined;
         this.emit("exit", { code, signal });
       });
 
@@ -608,12 +642,58 @@ export class DshServerManager extends EventEmitter {
     });
   }
 
-  private settleReady(url: string): void {
+  private settleReady(launchUrl: string): void {
+    if (this.readyProcessing) return;
+    this.readyProcessing = true;
+    this.clearReadyTimer();
+    void this.finishReady(launchUrl);
+  }
+
+  /**
+   * Settle a ready start: split the launch URL into origin + token, exchange
+   * the token for the browser-session cookie (DSH >= 0.1.2-alpha; a no-op for
+   * pre-auth DSH that prints a bare URL), then publish "ready". The exchange
+   * is awaited so every consumer (api, bridge, document assembly) finds the
+   * cookie present by the time start() resolves.
+   */
+  private async finishReady(launchUrl: string): Promise<void> {
+    const { base, token } = splitLaunchUrl(launchUrl);
+    this._launchUrl = launchUrl;
+    if (token) {
+      try {
+        this.cookie = await this.exchangeLaunchToken(launchUrl);
+      } catch (err) {
+        this.settleError(
+          new Error(
+            `dsh launch-token exchange failed: ${err instanceof Error ? err.message : String(err)}`
+          )
+        );
+        return;
+      }
+    }
+    // A stop() during the exchange already settled the start (abortStart);
+    // never publish "ready" over a stopped server.
     if (this.startSettled) return;
     this.startSettled = true;
-    this.clearReadyTimer();
-    this.setState("ready", { url });
-    this.startResolve?.(url);
+    this.setState("ready", { url: base });
+    this.startResolve?.(base);
+  }
+
+  /**
+   * Exchange the process launch token for the per-authority browser-session
+   * cookie: GET the launch URL (redirect:manual) → 303 + Set-Cookie. The
+   * cookie is authority-bound (host:port) and the port changes on every start
+   * (--port 0), so it must be minted on every start.
+   */
+  private async exchangeLaunchToken(launchUrl: string): Promise<string> {
+    // Bounded: the ready timer is already cleared by settleReady, so a server
+    // that accepts the connection but never answers must not stall start().
+    const res = await fetch(launchUrl, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
+    const setCookie = res.headers.get("set-cookie");
+    if (res.status !== 303 || !setCookie) {
+      throw new Error(`expected 303 + Set-Cookie, got ${res.status}`);
+    }
+    return setCookie.split(";", 1)[0].trim();
   }
 
   private settleError(err: Error): void {
@@ -641,9 +721,11 @@ export class DshServerManager extends EventEmitter {
   private async api(method: string, payload: Record<string, unknown>): Promise<any> {
     const base = this.url;
     if (!base) throw new Error("dsh is not ready");
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (this.cookie) headers.cookie = this.cookie;
     const res = await fetch(`${base}/api/${method}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         type: "client-request",
         rpcId: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
