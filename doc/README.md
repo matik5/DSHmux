@@ -13,6 +13,15 @@ doc/
 ├── architecture/                            ← 跨项目/架构级提案（不进 feature 管线）
 │   └── proposal-by-deepseek.md              ← 桥架构总提案 + DSH 安装包源码事实核查（§2 Facts，非臆测）
 │
+├── dsh-patches/                             ← DeepSeek Harness/DSHmux compatibility patch catalog, rationale, and reproducible Git artifacts
+│   ├── README.md                            ← Patch index, repository boundaries, application rules, and maintenance workflow
+│   ├── compaction-admission-header.md       ← Harness compaction-purpose request header contract and verification
+│   ├── compaction-admission-header.patch    ← Mail-formatted Harness patch for the compaction admission header
+│   ├── remote-loopback-proxy.md             ← DSHmux remote webview loopback mapping rationale and verification
+│   ├── remote-loopback-proxy.patch          ← Mail-formatted DSHmux patch for Remote SSH/WSL/container plugin loading
+│   ├── request-image-jpeg-compatibility.md  ← Harness PNG/WebP-to-JPEG request projection rationale and verification
+│   └── request-image-jpeg-compatibility.patch ← Raw Harness patch for provider-compatible JPEG request images
+│
 ├── feature/                                 ← 需求驱动的特性流程 + 项目级规划（规划类文档放根，管线类进 NN-feature-name/）
 │   ├── roadmap.md                           ← 项目全景：架构/MVP/功能/非功能，完成 [x] 与待办 [ ] 全列出
 │   ├── TODO.md                              ← 全局待办：跨 feature 优先级（G-01..G-12，P0→P2）+ 剩余问题

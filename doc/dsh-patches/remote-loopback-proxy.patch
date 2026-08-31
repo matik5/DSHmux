@@ -1,0 +1,244 @@
+From 3557288a923aac3d7bb8150f79bbfaeb59e1525b Mon Sep 17 00:00:00 2001
+From: matik <matik@windowslive.com>
+Date: Fri, 28 Aug 2026 12:28:31 +0300
+Subject: [PATCH] feat: implement loopback port mapping for DSH plugins in
+ remote environments; update changelog and tests
+
+---
+ CHANGELOG.md                    |  1 +
+ CHANGELOG.zh.md                 |  1 +
+ package-lock.json               |  4 ++--
+ package.json                    |  2 +-
+ src/documentAssembly.ts         |  5 +++--
+ src/dshChatView.ts              |  9 +++++++++
+ src/dshPanel.ts                 |  6 ++++++
+ src/webviewPortMapping.ts       | 27 +++++++++++++++++++++++++++
+ test/dshChatView.test.js        | 11 +++++++++++
+ test/webviewPortMapping.test.js | 22 ++++++++++++++++++++++
+ 10 files changed, 83 insertions(+), 5 deletions(-)
+ create mode 100644 src/webviewPortMapping.ts
+ create mode 100644 test/webviewPortMapping.test.js
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 205312bd783395e7fb7a96adaf5501a9f2670726..f6fb480cf784ad9b8a2d05ac44ffbcdf5955fae9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,7 @@
+ 
+ ## Unreleased
+ 
++- Fixed embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
+ - Fixed Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.
+ - Added a `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
+ - Fixed zoomed embedded content overflowing the viewport and breaking the sticky chat composer.
+diff --git a/CHANGELOG.zh.md b/CHANGELOG.zh.md
+index 749eff4daebe10c936a2e7544f32891763c06422..512fb2f9b2a37d0aacc05a9dca4dfba50836ed81 100644
+--- a/CHANGELOG.zh.md
++++ b/CHANGELOG.zh.md
+@@ -2,6 +2,7 @@
+ 
+ ## 未发布
+ 
++- 修复 Remote SSH、WSL 和开发容器窗口中的内嵌插件加载：现在会将 webview 中的 DSH 回环 HTTP 端口映射到远程扩展宿主。
+ - 修复 Remote SSH、WSL 和开发容器中的启动问题：DSHmux 现在在工作区主机上运行；若配置的 `dshPath` 在该主机上不可用，则忽略该路径并在该主机上查找 DSH。`dshPath` 可在远程设置或工作区设置中覆盖。
+ - 新增 `dshmux.dshPath` 设置，可运行自定义 DSH 可执行文件，包括补丁源码检出中构建出的 CLI。
+ - 修复内嵌内容缩放后溢出视口并导致粘性对话输入框失效的问题。
+diff --git a/package-lock.json b/package-lock.json
+index 4600d3dfa4b528d4dba2b24cf9dddc98972dfc8b..fbeeee6b6ab0c16ba0c87a83982800158e264b96 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "dshmux",
+-  "version": "0.3.6",
++  "version": "0.3.7",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "dshmux",
+-      "version": "0.3.6",
++      "version": "0.3.7",
+       "license": "MIT",
+       "dependencies": {
+         "ws": "^8.21.3"
+diff --git a/package.json b/package.json
+index 11a631b27a9e8c083560259665e8a7668770f738..3893166c715f9cf51cf72602b18f0b0cf825a550 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "dshmux",
+   "displayName": "DSHmux",
+   "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity — side-panel chat, editor-tab view, shared browser state, sounds, clipboard, and theme sync.",
+-  "version": "0.3.6",
++  "version": "0.3.7",
+   "publisher": "matik5",
+   "license": "MIT",
+   "repository": {
+diff --git a/src/documentAssembly.ts b/src/documentAssembly.ts
+index 29f322f894f22aea2b83a7f0018712b0cf4b10b8..3c10b8723082298d48f345e365bb15ab34241f17 100644
+--- a/src/documentAssembly.ts
++++ b/src/documentAssembly.ts
+@@ -68,8 +68,9 @@ const SERVER_STATIC_RE = /(src|href)="\/(manifest\.webmanifest|favicon\.svg)"/g;
+ // and @deepseek-ai/dsh-client-runtime before window.__DSH_BOOT__. They are
+ // classic scripts (cross-origin OK, spike F2/F14) but must be absolute like
+ // the JSON entries, or the webview resolves them against vscode-webview://
+-// and the module-system queue never receives the client-modules registration
+-// ("Failed to load plugins / HTML did not preload .../client.js").
++// and the module-system queue never receives the client-modules registration.
++// The owning webview also maps this loopback port to the extension host; that
++// is required when DSH runs under Remote SSH/WSL/a dev container.
+ const PLUGIN_PRELOAD_RE = /(src|href)="(\/plugins\/[^"]+)"/g;
+ 
+ /** Extract the boot manifest rev from index.html ("" when absent). */
+diff --git a/src/dshChatView.ts b/src/dshChatView.ts
+index 3992f0eb1079963ed116a7d6fd84240cf2fb2249..52f75cf62803d1da624c2a39a0925947ab76888f 100644
+--- a/src/dshChatView.ts
++++ b/src/dshChatView.ts
+@@ -19,6 +19,7 @@ import { BridgeHost } from "./bridgeHost.js";
+ import { workspaceRoot } from "./commands.js";
+ import { t, langCode } from "./i18n.js";
+ import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
++import { dshWebviewPortMappings } from "./webviewPortMapping.js";
+ 
+ const DIST_DIR_NAME = "dsh-dist";
+ 
+@@ -248,6 +249,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
+     webviewView.webview.options = {
+       enableScripts: true,
+       localResourceRoots: [vscode.Uri.file(this.distRootPath())],
++      portMapping: dshWebviewPortMappings(this.manager.serverUrl),
+     };
+     this.bridge = new BridgeHost(webviewView.webview, () => this.manager.serverUrl ?? "");
+ 
+@@ -320,6 +322,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
+         "utf8"
+       );
+       const webview = this.view.webview;
++      // Plugin bundles remain absolute HTTP URLs because they are classic
++      // scripts. In a remote window, map their loopback port to the remote
++      // extension host before loading the assembled document.
++      webview.options = {
++        ...webview.options,
++        portMapping: dshWebviewPortMappings(url),
++      };
+       const { html } = await assembleDocument({
+         serverBase: url,
+         distRootPath: this.distRootPath(),
+diff --git a/src/dshPanel.ts b/src/dshPanel.ts
+index 58c7662eb3f18dc464158dc495d850ffcdd8dd2a..775a949b4cfe4b96bb047254410eaf96ec57d18e 100644
+--- a/src/dshPanel.ts
++++ b/src/dshPanel.ts
+@@ -9,6 +9,7 @@ import { BridgeHost } from "./bridgeHost.js";
+ import { workspaceRoot } from "./commands.js";
+ import { t, langCode } from "./i18n.js";
+ import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
++import { dshWebviewPortMappings } from "./webviewPortMapping.js";
+ 
+ const DIST_DIR_NAME = "dsh-dist";
+ const PANEL_TITLE = "DSHmux";
+@@ -159,6 +160,7 @@ export class DshPanel {
+         enableScripts: true,
+         retainContextWhenHidden: true,
+         localResourceRoots: [vscode.Uri.file(this.distRootPath())],
++        portMapping: dshWebviewPortMappings(this.manager.serverUrl),
+       }
+     );
+     // Tab icon: WebviewPanel.iconPath is a settable property (unlike options).
+@@ -231,6 +233,10 @@ export class DshPanel {
+         "utf8"
+       );
+       const webview = this.panel.webview;
++      webview.options = {
++        ...webview.options,
++        portMapping: dshWebviewPortMappings(url),
++      };
+       const { html } = await assembleDocument({
+         serverBase: url,
+         distRootPath: this.distRootPath(),
+diff --git a/src/webviewPortMapping.ts b/src/webviewPortMapping.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c26ca2ba278aac483f6e3f7ec2168b43a78369a6
+--- /dev/null
++++ b/src/webviewPortMapping.ts
+@@ -0,0 +1,27 @@
++import type { WebviewPortMapping } from "vscode";
++
++const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"]);
++
++/**
++ * Route loopback HTTP URLs in a webview to the extension host.
++ *
++ * This is a no-op for a local extension host. In Remote SSH/WSL/containers,
++ * VS Code opens a tunnel to `extensionHostPort`, so an absolute DSH plugin URL
++ * such as http://127.0.0.1:42873/plugins/... reaches the remote DSH process
++ * instead of the user's local machine.
++ */
++export function dshWebviewPortMappings(serverBase?: string): readonly WebviewPortMapping[] {
++  if (!serverBase) return [];
++  try {
++    const url = new URL(serverBase);
++    if ((url.protocol !== "http:" && url.protocol !== "https:") || !LOOPBACK_HOSTS.has(url.hostname)) {
++      return [];
++    }
++    if (!url.port) return [];
++    const port = Number(url.port);
++    if (!Number.isInteger(port) || port < 1 || port > 65_535) return [];
++    return [{ webviewPort: port, extensionHostPort: port }];
++  } catch {
++    return [];
++  }
++}
+diff --git a/test/dshChatView.test.js b/test/dshChatView.test.js
+index 5e48eb86a29cf352bd9bac4492e199dc341f4865..076024e44329f93d27db7e8ca5b065cbf709382e 100644
+--- a/test/dshChatView.test.js
++++ b/test/dshChatView.test.js
+@@ -160,6 +160,17 @@ test("loadSession re-assembles with the chosen session baked into the preset", a
+   }
+ });
+ 
++test("maps DSH localhost HTTP to the extension host for remote plugin scripts", async () => {
++  const view = new DshChatView(makeContext(), makeManager());
++  const wv = makeWebviewView();
++  view.resolveWebviewView(wv);
++  await flush();
++
++  assert.deepEqual(wv.webview.options.portMapping, [
++    { webviewPort: 1, extensionHostPort: 1 },
++  ]);
++});
++
+ test("loadSession of the already-shown session is a no-op (no re-assembly)", async () => {
+   const view = new DshChatView(makeContext(), makeManager());
+   const wv = makeWebviewView();
+diff --git a/test/webviewPortMapping.test.js b/test/webviewPortMapping.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..c5f9acdd12e459eef88c420b6988ee6d95b77efb
+--- /dev/null
++++ b/test/webviewPortMapping.test.js
+@@ -0,0 +1,22 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++
++const { dshWebviewPortMappings } = require("../out/webviewPortMapping.js");
++
++test("maps an explicit DSH loopback port to the extension host", () => {
++  assert.deepEqual(dshWebviewPortMappings("http://127.0.0.1:42873"), [
++    { webviewPort: 42873, extensionHostPort: 42873 },
++  ]);
++  assert.deepEqual(dshWebviewPortMappings("http://localhost:40001"), [
++    { webviewPort: 40001, extensionHostPort: 40001 },
++  ]);
++});
++
++test("does not map malformed, non-loopback, or implicit ports", () => {
++  assert.deepEqual(dshWebviewPortMappings(undefined), []);
++  assert.deepEqual(dshWebviewPortMappings("not a url"), []);
++  assert.deepEqual(dshWebviewPortMappings("https://example.com:42873"), []);
++  assert.deepEqual(dshWebviewPortMappings("http://127.0.0.1"), []);
++});
+-- 
+2.50.1 (Apple Git-155)
+
