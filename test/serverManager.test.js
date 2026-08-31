@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { WebSocketServer } = require("ws");
 
 const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
@@ -294,16 +295,29 @@ test("start() exchanges the launch token for a cookie (token-auth DSH)", async (
   assert.equal(manager.authCookie, "dsh-auth-abc123=v1.body.sig");
   assert.equal(manager.state, "ready");
 
-  // api() must send the cookie header.
+  // Current Remote api() must send both the cookie and slash/named-argument
+  // envelope used by token-auth DSH.
   let seenHeaders;
+  let seenUrl;
+  let seenRequest;
   const realFetch = global.fetch;
-  global.fetch = async (_url, opts) => {
+  global.fetch = async (requestUrl, opts) => {
     seenHeaders = opts.headers;
-    return { json: async () => ({ result: { ok: true, value: { items: [] } } }) };
+    seenUrl = requestUrl;
+    seenRequest = JSON.parse(opts.body);
+    return new Response(
+      JSON.stringify({ result: { ok: true, value: { title: "Renamed", seq: 7 } } }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
   };
   try {
-    await manager.listWorkspaceSessions("/ws/a");
+    await manager.renameSession("s1", "Renamed");
     assert.equal(seenHeaders.cookie, "dsh-auth-abc123=v1.body.sig");
+    assert.equal(new URL(seenUrl).pathname, "/api/session/rename");
+    assert.equal(seenRequest.method, "session/rename");
+    assert.deepEqual(seenRequest.payload, {
+      args: { request: { sessionId: "s1", title: "Renamed" } },
+    });
   } finally {
     global.fetch = realFetch;
   }
@@ -499,7 +513,10 @@ test("stop() during the ready window settles the promise and stays stopped (no l
 /** Mock global.fetch to serve the client-request envelope; restore afterwards. */
 function mockFetch(handler) {
   const real = global.fetch;
-  global.fetch = async (_url, opts) => ({ json: async () => handler(JSON.parse(opts.body)) });
+  global.fetch = async (_url, opts) => new Response(
+    JSON.stringify(handler(JSON.parse(opts.body))),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
   return () => {
     global.fetch = real;
   };
@@ -511,6 +528,111 @@ function apiManager() {
   manager.url = "http://127.0.0.1:9999";
   return manager;
 }
+
+test("listWorkspaceSessions uses the DSH 0.1.2 Remote stream and slash RPC", async (t) => {
+  let sessionRequest;
+  let sessionPath;
+  let sessionCookie;
+  let workspaceOpen;
+  let workspaceCookie;
+
+  const server = http.createServer(async (req, res) => {
+    sessionPath = new URL(req.url, "http://127.0.0.1").pathname;
+    sessionCookie = req.headers.cookie;
+    if (req.method !== "POST" || sessionPath !== "/api/session/list") {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+      return;
+    }
+    let text = "";
+    req.setEncoding("utf8");
+    for await (const chunk of req) text += chunk;
+    sessionRequest = JSON.parse(text);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      result: {
+        ok: true,
+        value: {
+          items: [
+            { sessionId: "s1", updatedAt: 10, running: false, blank: false, cwd: "/ws/a", projections: { values: { title: "Current" } } },
+            { sessionId: "s2", updatedAt: 20, running: false, blank: false, cwd: "/other", projections: { values: { title: "Other" } } },
+          ],
+        },
+      },
+    }));
+  });
+  const wss = new WebSocketServer({ server, path: "/api/remote.mux" });
+  wss.on("connection", (socket, request) => {
+    workspaceCookie = request.headers.cookie;
+    socket.on("message", (data) => {
+      const frame = JSON.parse(data.toString());
+      if (frame.type !== "open") return;
+      workspaceOpen = frame;
+      socket.send(JSON.stringify({
+        type: "item",
+        streamId: frame.streamId,
+        value: {
+          type: "baseline",
+          value: {
+            items: [{ workspaceId: "w1", path: "/ws/a", sessionIds: ["s1"] }],
+            archivedSessionIds: [],
+          },
+        },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const client of wss.clients) client.terminate();
+    await new Promise((resolve) => wss.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const manager = new DshServerManager();
+  const { port } = server.address();
+  manager.url = `http://127.0.0.1:${port}`;
+  manager.cookie = "dsh-auth-current=v1.body.sig";
+
+  const { items, archivedItems } = await manager.listWorkspaceSessions("/ws/a");
+  assert.deepEqual(items.map((item) => item.sessionId), ["s1"]);
+  assert.equal(items[0].title, "Current");
+  assert.deepEqual(archivedItems, []);
+  assert.equal(workspaceCookie, "dsh-auth-current=v1.body.sig");
+  assert.equal(workspaceOpen.endpoint, "workspace/follow");
+  assert.deepEqual(workspaceOpen.payload, { args: {} });
+  assert.equal(sessionPath, "/api/session/list");
+  assert.equal(sessionCookie, "dsh-auth-current=v1.body.sig");
+  assert.equal(sessionRequest.method, "session/list");
+  assert.deepEqual(sessionRequest.payload, { args: { _request: {} } });
+});
+
+test("token-auth unary RPC falls back to the legacy dot endpoint only after 404", async () => {
+  const manager = apiManager();
+  manager.cookie = "dsh-auth-transitional=value";
+  const calls = [];
+  const realFetch = global.fetch;
+  global.fetch = async (requestUrl, opts) => {
+    calls.push({ path: new URL(requestUrl).pathname, body: JSON.parse(opts.body) });
+    if (calls.length === 1) return new Response("not found", { status: 404 });
+    return new Response(
+      JSON.stringify({ result: { ok: true, value: { title: "Legacy", seq: 2 } } }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+  try {
+    assert.deepEqual(await manager.renameSession("s1", "Legacy"), { title: "Legacy", seq: 2 });
+    assert.deepEqual(calls.map((call) => call.path), [
+      "/api/session/rename",
+      "/api/session.rename",
+    ]);
+    assert.deepEqual(calls[0].body.payload, {
+      args: { request: { sessionId: "s1", title: "Legacy" } },
+    });
+    assert.deepEqual(calls[1].body.payload, { sessionId: "s1", title: "Legacy" });
+  } finally {
+    global.fetch = realFetch;
+  }
+});
 
 test("listWorkspaceSessions filters session.list to the cwd workspace", async () => {
   const manager = apiManager();

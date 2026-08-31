@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EventEmitter } from "node:events";
+import WebSocket from "ws";
 import { normalizePath } from "./workspaceTracker.js";
 import { shouldPassNoOpen } from "./versionCheck.js";
 
@@ -40,7 +41,7 @@ export interface StartOptions {
   cwd?: string;
   /** Override for $DSH_HOME (isolation mode; MVP shares ~/.dsh by default). */
   dshHome?: string;
-  /** Ready timeout in ms (default 10s). */
+  /** Ready timeout in ms (default 30s). */
   readyTimeoutMs?: number;
   /** Explicit binary path, bypasses resolution. */
   dshBin?: string;
@@ -68,6 +69,19 @@ const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
 // packages and loading native modules before printing the ready URL.
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
+const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
+
+type ApiProtocol = "legacy" | "remote";
+
+/** HTTP failure from one DSH RPC carrier attempt. */
+class DshApiHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
 
 /** Extract the launch URL from one dsh stdout line, or null. */
 export function parseUrlLine(line: string): string | null {
@@ -715,35 +729,192 @@ export class DshServerManager extends EventEmitter {
   }
 
   /**
-   * One RPC call with the client-request envelope (spike-verified, see
-   * ensureWorkspaceSession doc). Node has no browser headers, so the /api
-   * trust fence passes. Throws with the DSH error `code` attached when the
-   * result is not ok.
+   * One unary RPC call. DSH 0.1.2 moved from dot endpoints with a direct
+   * payload (`session.list`, `{}`) to Typert Remote slash endpoints with
+   * named arguments (`session/list`, `{args:{_request:{}}}`). Token-auth DSH
+   * prefers the new carrier; pre-auth DSH prefers the legacy carrier. A 404
+   * safely retries the other form, preserving older and transitional builds.
    */
   private async api(method: string, payload: Record<string, unknown>): Promise<any> {
+    const protocols: ApiProtocol[] = this.cookie
+      ? ["remote", "legacy"]
+      : ["legacy", "remote"];
+    try {
+      return await this.apiOnce(method, payload, protocols[0]);
+    } catch (err) {
+      // Mutating RPCs must never be retried after an ambiguous failure. HTTP
+      // 404 proves the first route did not dispatch, so it is the sole safe
+      // compatibility fallback.
+      if (!(err instanceof DshApiHttpError) || err.status !== 404) throw err;
+      return this.apiOnce(method, payload, protocols[1]);
+    }
+  }
+
+  private async apiOnce(
+    method: string,
+    payload: Record<string, unknown>,
+    protocol: ApiProtocol
+  ): Promise<any> {
     const base = this.url;
     if (!base) throw new Error("dsh is not ready");
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (this.cookie) headers.cookie = this.cookie;
-    const res = await fetch(`${base}/api/${method}`, {
+    const wireMethod = protocol === "remote" ? method.replace(".", "/") : method;
+    const wirePayload =
+      protocol === "remote"
+        ? {
+            args:
+              method === "session.list"
+                ? { _request: payload }
+                : { request: payload },
+          }
+        : payload;
+    const res = await fetch(`${base}/api/${wireMethod}`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         type: "client-request",
         rpcId: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        method,
-        payload,
+        method: wireMethod,
+        payload: wirePayload,
       }),
     });
-    const body: any = await res.json();
+    const text = await res.text();
+    if (!res.ok) {
+      const detail = text.trim().replace(/\s+/g, " ").slice(0, 300);
+      throw new DshApiHttpError(
+        `${wireMethod} returned HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+        res.status
+      );
+    }
+    let body: any;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new Error(`${wireMethod} returned invalid JSON`);
+    }
     if (!body?.result?.ok) {
       const err: Error & { code?: string } = new Error(
-        `${method} failed: ${body?.result?.error?.message ?? "unknown"}`
+        `${wireMethod} failed: ${body?.result?.error?.message ?? "unknown"}`
       );
       err.code = body?.result?.error?.code ?? undefined;
       throw err;
     }
     return body.result.value;
+  }
+
+  /**
+   * Read the reconnect baseline from DSH 0.1.2's workspace/follow stream.
+   * Each connection publishes a baseline first, so a short-lived socket is
+   * sufficient for the launcher's periodic snapshot list.
+   */
+  private remoteWorkspaceBaseline(): Promise<any> {
+    const base = this.url;
+    if (!base) return Promise.reject(new Error("dsh is not ready"));
+    const socketUrl = new URL("/api/remote.mux", base);
+    socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+    const streamId = `ws-workspaces-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(socketUrl, {
+        headers: this.cookie ? { cookie: this.cookie } : undefined,
+      });
+      let settled = false;
+      const timer = setTimeout(() => {
+        finish(new Error("workspace/follow did not publish a baseline within 5000ms"));
+      }, WORKSPACE_BASELINE_TIMEOUT_MS);
+
+      const finish = (error?: Error, value?: any): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(JSON.stringify({ type: "cancel", streamId }));
+          } catch {
+            /* socket is already closing */
+          }
+          socket.close();
+        } else if (socket.readyState === WebSocket.CONNECTING) {
+          socket.terminate();
+        }
+        if (error) reject(error);
+        else resolve(value);
+      };
+
+      socket.on("open", () => {
+        socket.send(
+          JSON.stringify({
+            type: "open",
+            streamId,
+            endpoint: "workspace/follow",
+            payload: { args: {} },
+          })
+        );
+      });
+      socket.on("message", (data) => {
+        try {
+          const frame: any = JSON.parse(data.toString());
+          if (frame?.streamId !== streamId) return;
+          if (frame.type === "error") {
+            const remote = frame.error ?? {};
+            finish(new Error(`workspace/follow failed: ${remote.message ?? "unknown"}`));
+          } else if (frame.type === "end") {
+            finish(new Error("workspace/follow ended before its baseline"));
+          } else if (
+            frame.type === "item" &&
+            frame.value?.type === "baseline" &&
+            Array.isArray(frame.value.value?.items) &&
+            Array.isArray(frame.value.value?.archivedSessionIds)
+          ) {
+            finish(undefined, frame.value.value);
+          }
+        } catch (err) {
+          finish(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+      socket.on("unexpected-response", (_request, response) => {
+        response.resume();
+        finish(
+          new DshApiHttpError(
+            `workspace/follow returned HTTP ${response.statusCode}`,
+            response.statusCode ?? 0
+          )
+        );
+      });
+      socket.on("error", (err) => finish(err));
+      socket.on("close", () => {
+        finish(new Error("workspace/follow closed before its baseline"));
+      });
+    });
+  }
+
+  /** Workspace snapshot across both the legacy unary and current stream API. */
+  private async workspaceBaseline(): Promise<any> {
+    if (!this.cookie) {
+      try {
+        return await this.apiOnce("workspace.list", {}, "legacy");
+      } catch (err) {
+        if (!(err instanceof DshApiHttpError) || err.status !== 404) throw err;
+        return this.remoteWorkspaceBaseline();
+      }
+    }
+
+    try {
+      return await this.remoteWorkspaceBaseline();
+    } catch (remoteError) {
+      try {
+        return await this.apiOnce("workspace.list", {}, "legacy");
+      } catch (legacyError) {
+        const remoteMessage =
+          remoteError instanceof Error ? remoteError.message : String(remoteError);
+        const legacyMessage =
+          legacyError instanceof Error ? legacyError.message : String(legacyError);
+        throw new Error(
+          `failed to load workspace state (${remoteMessage}; legacy fallback: ${legacyMessage})`
+        );
+      }
+    }
   }
 
   /**
@@ -759,7 +930,7 @@ export class DshServerManager extends EventEmitter {
    */
   async ensureWorkspaceSession(cwd: string): Promise<string> {
     // 1. Find an existing workspace whose path matches (realpath-normalized).
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     const workspace = target ?? (await this.api("workspace.create", { path: cwd })).workspace;
     // Reuse ANY bound, non-archived session (blank included): previously we
@@ -786,7 +957,7 @@ export class DshServerManager extends EventEmitter {
   async listWorkspaceSessions(
     cwd: string
   ): Promise<{ items: SessionSummary[]; archivedItems: SessionSummary[] }> {
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     if (!target) return { items: [], archivedItems: [] };
     const ids = new Set<string>(target.sessionIds ?? []);
@@ -824,7 +995,7 @@ export class DshServerManager extends EventEmitter {
 
   /** Workspace id for `cwd`, creating the workspace when missing. */
   async workspaceIdFor(cwd: string): Promise<string> {
-    const ws = await this.api("workspace.list", {});
+    const ws = await this.workspaceBaseline();
     const target = (ws.items ?? []).find((w: any) => sameFsPath(w.path, cwd));
     if (target) return target.workspaceId;
     const created = await this.api("workspace.create", { path: cwd });
