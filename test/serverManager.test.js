@@ -172,11 +172,14 @@ test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t
 
 test("spawnSpec runs JS entry files under Node, never VS Code/Electron", () => {
   const jsBin = "C:\\src\\deepseek-harness\\apps\\cli\\lib\\bin.js";
-  // Minimal env with no Node on PATH so the bare-name fallback is exercised
-  // deterministically instead of depending on the host's own Node install.
+  // Minimal env with no Node on PATH; the resolver may still find a Node at
+  // a standard install location (e.g. C:\Program Files\nodejs on CI images),
+  // so assert the contract — a Node executable, never Code.exe — not the
+  // exact fallback string.
   const noNodeEnv = { PATH: "C:\\Windows\\System32" };
   const spec = spawnSpec(jsBin, "win32", "C:\\Program Files\\Microsoft VS Code\\Code.exe", undefined, noNodeEnv);
-  assert.equal(spec.command, "node.exe");
+  assert.notEqual(spec.command, "C:\\Program Files\\Microsoft VS Code\\Code.exe");
+  assert.equal(path.win32.basename(spec.command), "node.exe");
   assert.deepEqual(spec.args, [jsBin]);
   assert.equal(spec.shell, false);
   // Reuse a genuine Node executable instead of doing another PATH lookup.
@@ -242,10 +245,14 @@ test("spawnSpec keeps plain binaries as-is (shell only on Windows)", () => {
   assert.deepEqual(posix.args, []);
   assert.equal(posix.shell, false);
   // A .js path is always launched through Node, independent of executable bits.
-  // The host's own Node is reused when its basename is node/node.exe, so
-  // assert the executable name, not the exact process.execPath string.
+  // The resolved executable depends on the host (its own Node is reused when
+  // recognized, otherwise the simulated platform's bare fallback name is
+  // used), so assert the executable name, not the exact path.
   const posixJs = spawnSpec("/src/apps/cli/lib/bin.js", "linux");
-  assert.equal(path.basename(posixJs.command), process.platform === "win32" ? "node.exe" : "node");
+  assert.ok(
+    ["node", "node.exe"].includes(path.basename(posixJs.command)),
+    `command ${posixJs.command} is not a Node executable`
+  );
   assert.deepEqual(posixJs.args, ["/src/apps/cli/lib/bin.js"]);
   assert.equal(posixJs.shell, false);
 });
