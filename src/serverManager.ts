@@ -64,7 +64,9 @@ export interface SessionSummary {
 // (`dsh web: http://127.0.0.1:<port>/?token=<base64url>`); pre-auth DSH
 // prints the bare origin. Capture the full URL so the token survives parsing.
 const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
-const DEFAULT_READY_TIMEOUT_MS = 10_000;
+// Source checkouts and cold starts can spend several seconds resolving
+// packages and loading native modules before printing the ready URL.
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
 
 /** Extract the launch URL from one dsh stdout line, or null. */

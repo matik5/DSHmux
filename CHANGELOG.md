@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Increased the default DSH startup readiness timeout from 10 seconds to 30 seconds for slower cold starts and custom source checkouts.
 - Fixed Windows and macOS desktop startup for custom source checkouts: DSHmux now resolves the user's real Node installation even when VS Code's GUI extension host has a minimal `PATH`, keeps that Node toolchain on `PATH` for DSH subprocesses, runs configured `.js`, `.cjs`, and `.mjs` entries through it instead of VS Code/Electron, prefers the runnable Windows npm `.cmd` shim, checks `%APPDATA%\npm`, and includes DSH stderr in early launch errors.
 - Fixed embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
 - Fixed Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.

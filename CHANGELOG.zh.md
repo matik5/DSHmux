@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 将 DSH 默认启动就绪超时从 10 秒延长到 30 秒，以适应较慢的冷启动和自定义源码检出。
 - 修复 Windows 与 macOS 桌面端自定义源码检出的启动问题：即使 VS Code GUI 扩展宿主的 `PATH` 很精简，DSHmux 也会解析用户实际安装的 Node，并让 DSH 子进程继续使用同一套 Node 工具链；配置的 `.js`、`.cjs` 和 `.mjs` 入口不会再误用 VS Code/Electron；Windows 还会优先使用可运行的 npm `.cmd` shim、检查 `%APPDATA%\npm`，并在过早退出时显示 DSH stderr。
 - 修复 Remote SSH、WSL 和开发容器窗口中的内嵌插件加载：现在会将 webview 中的 DSH 回环 HTTP 端口映射到远程扩展宿主。
 - 修复 Remote SSH、WSL 和开发容器中的启动问题：DSHmux 现在在工作区主机上运行；若配置的 `dshPath` 在该主机上不可用，则忽略该路径并在该主机上查找 DSH。`dshPath` 可在远程设置或工作区设置中覆盖。
