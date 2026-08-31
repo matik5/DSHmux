@@ -8,7 +8,12 @@ import { assembleDocument } from "./documentAssembly.js";
 import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
-import { affectsDshmuxConfiguration, dshmuxConfiguration } from "./configuration.js";
+import {
+  affectsDshmuxConfiguration,
+  affectsAnySoundSetting,
+  dshmuxConfiguration,
+  soundSettings,
+} from "./configuration.js";
 import { dshWebviewPortMappings } from "./webviewPortMapping.js";
 
 const DIST_DIR_NAME = "dsh-dist";
@@ -17,11 +22,6 @@ const PANEL_TITLE = "DSHmux";
 function isDarkTheme(): boolean {
   const k = vscode.window.activeColorTheme.kind;
   return k === vscode.ColorThemeKind.Dark || k === vscode.ColorThemeKind.HighContrast;
-}
-
-/** dshmux.completionSound (default on), with legacy-setting fallback. */
-function completionSoundEnabled(): boolean {
-  return dshmuxConfiguration("completionSound", true);
 }
 
 /** dshmux.frameFontScale (default 0.9), with legacy-setting fallback. */
@@ -120,12 +120,19 @@ export class DshPanel {
         this.panel?.webview.postMessage({ type: "theme-preference", dark });
       })
     );
-    // Live completion-sound toggle: push the new value to the webview so the
+    // Live sound toggle: push the full sound state to the webview so the
     // bridge-client detector picks it up without a page reload.
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (affectsDshmuxConfiguration(e, "completionSound")) {
-          this.panel?.webview.postMessage({ type: "completion-sound", enabled: completionSoundEnabled() });
+        if (affectsAnySoundSetting(e)) {
+          const s = soundSettings();
+          this.panel?.webview.postMessage({
+            type: "completion-sound",
+            completionSound: s.completionSound,
+            soundStart: s.soundStart,
+            soundDone: s.soundDone,
+            soundAsk: s.soundAsk,
+          });
         }
         if (affectsDshmuxConfiguration(e, "frameFontScale")) {
           // The scale is baked into the assembled document, so re-assemble.
@@ -249,7 +256,7 @@ export class DshPanel {
         bridgeClientJs: bridgeJs,
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
-        completionSound: completionSoundEnabled(),
+        ...soundSettings(),
         frameFontScale: frameFontScaleValue(),
         sessionPreset: this.pendingPreset,
         chromeHtml: statusChromeHtml(),

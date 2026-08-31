@@ -25,11 +25,17 @@ export interface AssembleOptions {
   cspSource: string;
   /** VS Code dark-mode hint, injected into __DSH_BRIDGE__ for the matchMedia shim. */
   themeDark?: boolean;
-  /** dshmux.completionSound: play a chime when a session's task ends.
-   *  Injected into __DSH_BRIDGE__ so the bridge-client completion detector has
-   *  the initial value at boot (runtime changes arrive via a "completion-sound"
+  /** dshmux.completionSound: master toggle for all session sounds.
+   *  Injected into __DSH_BRIDGE__ so the bridge-client sound detector has the
+   *  initial value at boot (runtime changes arrive via a "completion-sound"
    *  postMessage). */
   completionSound?: boolean;
+  /** dshmux.soundStart: play the "task started" sound (gated by the master). */
+  soundStart?: boolean;
+  /** dshmux.soundDone: play the "task finished" sound (gated by the master). */
+  soundDone?: boolean;
+  /** dshmux.soundAsk: play the "harness is asking" sound (gated by the master). */
+  soundAsk?: boolean;
   /** Content zoom for the embedded DSH frame (1 = upstream size). The DSH app
    *  is px-based (no rem), so a root font-size scale would be a no-op; zoom
    *  scales fonts, spacing, and layout uniformly. No height compensation is
@@ -191,7 +197,7 @@ let distDownloadInFlight: Promise<void> | undefined;
  * fresh download; an unchanged rev reuses the cached tree.
  */
 export async function assembleDocument(opts: AssembleOptions): Promise<Assembled> {
-  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, cspSource, themeDark, completionSound, frameFontScale, chromeHtml, log } = opts;
+  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, cspSource, themeDark, completionSound, soundStart, soundDone, soundAsk, frameFontScale, chromeHtml, log } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const logf = log ?? (() => {});
 
@@ -245,8 +251,16 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
   html = rewriteBootPluginUrls(html, serverBase);
   html = rewriteBootPluginPreloads(html, serverBase);
 
+  const bridgeInit = {
+    serverBase,
+    ...(themeDark !== undefined ? { dark: themeDark } : {}),
+    ...(completionSound !== undefined ? { completionSound } : {}),
+    ...(soundStart !== undefined ? { soundStart } : {}),
+    ...(soundDone !== undefined ? { soundDone } : {}),
+    ...(soundAsk !== undefined ? { soundAsk } : {}),
+  };
   const bootScript =
-    `<script>window.__DSH_BRIDGE__ = ${JSON.stringify({ serverBase, ...(themeDark !== undefined ? { dark: themeDark } : {}), ...(completionSound !== undefined ? { completionSound } : {}) })}<\/script>` +
+    `<script>window.__DSH_BRIDGE__ = ${JSON.stringify(bridgeInit)}<\/script>` +
     (frameFontScale !== undefined
       ? `<style id="dshmux-frame-font-scale">#root { zoom: ${frameFontScale}; }<\/style>`
       : "") +

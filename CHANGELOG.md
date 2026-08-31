@@ -2,19 +2,28 @@
 
 ## Unreleased
 
-- Added an explicit DSH compatibility marker in the launcher header. DSHmux 0.4.0 is tested against dsh `0.1.2-alpha.2`; older, newer, or unrecognized versions keep running but show “Compatibility not tested” together with the tested version.
-- Fixed the sidebar session list with DSH 0.1.2: DSHmux now reads the `workspace/follow` baseline stream and uses slash-style Remote RPC endpoints with their named-argument envelopes, while retaining compatibility with older dot-style DSH APIs.
+## [0.4.0] - 2026-08-31
+
+### Added
+- An explicit DSH compatibility marker in the launcher header. DSHmux 0.4.0 is tested against dsh `0.1.2-alpha.2`; older, newer, or unrecognized versions keep running but show “Compatibility not tested” together with the tested version.
+- A `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
+- An immediate dimmed loading overlay and progress bar while switching the side-panel chat to another DSH session.
+- A `dshmux.frameFontScale` setting (default `0.9`, range 0.5–1.5) that zooms the embedded side-panel DSH frame; the editor-tab view keeps the upstream size.
+- Per-sound toggles (`dshmux.soundStart`, `dshmux.soundDone`, `dshmux.soundAsk`, all default `true`) so each session sound can be muted independently; `dshmux.completionSound` remains the master switch.
+
+### Fixed
+- The sidebar session list with DSH 0.1.2: DSHmux now reads the `workspace/follow` baseline stream and uses slash-style Remote RPC endpoints with their named-argument envelopes, while retaining compatibility with older dot-style DSH APIs.
+- Windows and macOS desktop startup for custom source checkouts: DSHmux now resolves the user's real Node installation even when VS Code's GUI extension host has a minimal `PATH`, keeps that Node toolchain on `PATH` for DSH subprocesses, runs configured `.js`, `.cjs`, and `.mjs` entries through it instead of VS Code/Electron, prefers the runnable Windows npm `.cmd` shim, checks `%APPDATA%\npm`, and includes DSH stderr in early launch errors.
+- Embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
+- Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.
+- Zoomed embedded content overflowing the viewport and breaking the sticky chat composer.
+- Web Audio cues in suspended Chromium webviews, added `turn/end`, `question/requested`, and `approval/requested` (elevation/permission prompt) protocol fallbacks, and prevented duplicate fallback sounds.
+- Session sounds going silent on DSH 0.1.2: the webview now reads the new multiplexed `/api/remote.mux` item frames (`api-session/status`, `user-questions/request`, `approval/request`, and follow `turn/start` / `turn/end` / `tool/call` events) while keeping the older `payload` frames as a fallback. Sounds stay local to the webview (Web Audio), so a remote DSH server never plays them.
+
+### Changed
 - Increased the default DSH startup readiness timeout from 10 seconds to 30 seconds for slower cold starts and custom source checkouts.
-- Fixed Windows and macOS desktop startup for custom source checkouts: DSHmux now resolves the user's real Node installation even when VS Code's GUI extension host has a minimal `PATH`, keeps that Node toolchain on `PATH` for DSH subprocesses, runs configured `.js`, `.cjs`, and `.mjs` entries through it instead of VS Code/Electron, prefers the runnable Windows npm `.cmd` shim, checks `%APPDATA%\npm`, and includes DSH stderr in early launch errors.
-- Fixed embedded plugin loading in Remote SSH, WSL, and dev-container windows by mapping DSH's loopback HTTP port from the webview to the remote extension host.
-- Fixed Remote SSH, WSL, and dev-container startup: DSHmux now runs on the workspace host, ignores a configured `dshPath` that is unavailable there, and discovers DSH on that host. `dshPath` can be overridden in Remote or workspace settings.
-- Added a `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
-- Fixed zoomed embedded content overflowing the viewport and breaking the sticky chat composer.
 - Renamed the project, extension identity, views, commands, and settings to **DSHmux** (`matik5.dshmux`; repository `matik5/DSHmux`). Legacy `deepseekHarness.*` setting values remain readable for compatibility.
 - Renamed the primary side view to **DSHmux Chat** and reveal it automatically after VS Code or the extension host restarts.
-- Added an immediate dimmed loading overlay and progress bar while switching the side-panel chat to another DSH session.
-- Fixed Web Audio cues in suspended Chromium webviews, added `turn/end`, `question/requested`, and `approval/requested` (elevation/permission prompt) protocol fallbacks, and prevented duplicate fallback sounds.
-- Added a `dshmux.frameFontScale` setting (default `0.9`, range 0.5–1.5) that zooms the embedded side-panel DSH frame; the editor-tab view keeps the upstream size.
 
 **English** | [中文](CHANGELOG.zh.md)
 

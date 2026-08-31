@@ -157,22 +157,38 @@
   window.WebSocket = BridgeWebSocket;
 
   // ------------------------------------------------- session sounds (Web Audio)
-  // DSH streams three frame kinds over the bridged WebSocket downlink, all
-  // observed in the ws-frame handler below (see observeFrame):
-  //   * host/session-status ({ type, sessionId, running }) on /api/events.host —
-  //     a running true->false edge means the task is DONE; turn/end is the
-  //     mux-stream fallback when the webview missed the preceding true frame.
-  //   * session/event       ({ type, sessionId, event }) on /api/events.mux —
-  //     event.type "turn/start" means a task was picked up and started; a
-  //     "tool/call" whose data.name is "ask_user_question" means the harness
-  //     is asking for an answer.
-  //   * question/requested  ({ type, sessionId, ... }) and approval/requested
-  //     ({ type, sessionId, approvalId, toolName, ... }) on /api/events.mux —
-  //     the authoritative "harness is asking for your response" frames: a
-  //     question, or an elevation/permission prompt awaiting approval.
-  // Each plays a distinct short sound (Web Audio API, no audio file), all gated
-  // by the single dshmux.completionSound master toggle.
-  var completionSoundEnabled = bridge.completionSound !== false; // default on
+  // DSH streams sound-worthy frames over the bridged WebSocket downlink, all
+  // observed in the ws-frame handler below (see observeFrame). Two wire
+  // contracts are recognized, so the detector works on both pre-0.1.2 DSH and
+  // DSH >= 0.1.2:
+  //
+  //   * DSH >= 0.1.2 — one multiplexed stream at /api/remote.mux. Every
+  //     downlink frame is an envelope { type:'item', streamId, value } and the
+  //     sound-worthy meaning lives in value:
+  //       - value { type:'emit', event:'api-session/status', args:[agentId,
+  //         running] } — a running true->false edge means the task is DONE.
+  //       - value { type:'waterfall', event:'user-questions/request' |
+  //         'approval/request', agentId } — the harness is asking for your
+  //         response (a question, or an elevation/permission prompt).
+  //       - value { type:'event', event } on a session/follow stream —
+  //         event.type "turn/start" means a task was picked up and started;
+  //         "turn/end" is the DONE fallback; a "tool/call" whose data.name is
+  //         "ask_user_question" means the harness is asking for an answer.
+  //         (A follow stream's opening { type:'snapshot' } history burst and
+  //         { type:'chunks' } are ignored so reopening a session stays quiet.)
+  //
+  //   * pre-0.1.2 DSH — per-endpoint frames with a payload
+  //     (host/session-status, session/event, question/requested,
+  //     approval/requested). Kept so older DSH releases still chime.
+  //
+  // Each plays a distinct short sound (Web Audio API, no audio file). Every
+  // sound is gated by the dshmux.completionSound master toggle AND its own
+  // per-sound toggle (dshmux.soundStart / soundDone / soundAsk).
+  var soundEnabled = {
+    start: bridge.completionSound !== false && bridge.soundStart !== false, // default on
+    done: bridge.completionSound !== false && bridge.soundDone !== false, // default on
+    ask: bridge.completionSound !== false && bridge.soundAsk !== false, // default on
+  };
   var runningBySession = {}; // sessionId -> last seen running bit
   var lastSoundAt = {}; // "kind:sessionId" -> timestamp (dedupe fallback frames)
   var audioCtx = null;
@@ -190,8 +206,11 @@
   // Chromium autoplay policy: an AudioContext created before any user gesture
   // starts "suspended". Prime it on the first gesture so later completions can
   // sound even when the user is not actively clicking (e.g. switched windows).
+  function anySoundEnabled() {
+    return soundEnabled.start || soundEnabled.done || soundEnabled.ask;
+  }
   function primeAudio() {
-    if (!completionSoundEnabled) {
+    if (!anySoundEnabled()) {
       pendingSoundKind = null;
       return;
     }
@@ -224,7 +243,8 @@
   window.addEventListener("keydown", primeAudio, { capture: true });
   window.addEventListener("touchstart", primeAudio, { passive: true, capture: true });
 
-  // Distinct short sounds, all sine, all gated by the completionSound toggle.
+  // Distinct short sounds, all sine, each gated by the master toggle and its
+  // own per-sound toggle (see soundEnabled above).
   // "done"  — task finished: two-tone ding-dong A5->D6 (most prominent).
   // "ask"   — harness asks for your answer: rising two-tone C5->G5.
   // "start" — a task is picked up / starts: one soft low "thock" (shortest).
@@ -267,7 +287,7 @@
     var ctx = ensureAudioCtx();
     if (!ctx) return;
     function playWhenRunning() {
-      if (!completionSoundEnabled) {
+      if (!soundEnabled[kind]) {
         if (pendingSoundKind === kind) pendingSoundKind = null;
         return;
       }
@@ -294,7 +314,7 @@
   }
 
   function playSoundOnce(kind, sessionId) {
-    if (!completionSoundEnabled) return;
+    if (!soundEnabled[kind]) return;
     var key = kind + ":" + String(sessionId == null ? "" : sessionId);
     var now = Date.now();
     if (lastSoundAt[key] && now - lastSoundAt[key] < 2000) return;
@@ -302,11 +322,10 @@
     playSound(kind);
   }
 
-  // Observe one bridged WebSocket frame for sound-worthy transitions:
-  //   * host/session-status running true->false  -> "done"
-  //   * session/event turn/start                 -> "start"
-  //   * session/event tool/call ask_user_question-> "ask"
-  //   * question/requested or approval/requested -> "ask" (elevation prompt)
+  // Observe one bridged WebSocket frame for sound-worthy transitions. Two wire
+  // contracts are recognized (see the block at the top of this section):
+  //   * DSH >= 0.1.2: { type:'item', streamId, value } — meaning lives in value.
+  //   * pre-0.1.2:    { ..., payload }                 — meaning lives in payload.
   function observeFrame(data) {
     var parsed;
     try {
@@ -314,7 +333,16 @@
     } catch (_e) {
       return; // not a JSON frame (or malformed) — ignore
     }
-    var payload = parsed && parsed.payload;
+    if (!parsed || typeof parsed !== "object") return;
+
+    // DSH >= 0.1.2 multiplexed stream: { type:'item', streamId, value }.
+    if (parsed.type === "item") {
+      observeItemValue(parsed.value);
+      return;
+    }
+
+    // pre-0.1.2 per-endpoint frames: meaning lives in payload.
+    var payload = parsed.payload;
     if (!payload) return;
 
     if (payload.type === "host/session-status") {
@@ -349,6 +377,57 @@
         playSoundOnce("done", payload.sessionId);
       } else if (ev.type === "tool/call" && ev.data && ev.data.name === "ask_user_question") {
         playSoundOnce("ask", payload.sessionId);
+      }
+    }
+  }
+
+  // DSH >= 0.1.2: the sound-worthy meaning of one multiplexed item value. The
+  // value is self-identifying, so no streamId -> endpoint mapping is needed.
+  //   * emit    api-session/status [agentId, running] true->false edge -> "done"
+  //   * waterfall user-questions/request | approval/request            -> "ask"
+  //   * event   turn/start -> "start", turn/end -> "done",
+  //             tool/call ask_user_question -> "ask"
+  // A follow stream's opening { type:'snapshot' } history burst and
+  // { type:'chunks' } are ignored so reopening a session stays quiet.
+  function observeItemValue(value) {
+    if (!value || typeof value !== "object") return;
+
+    // $events stream: { type:'emit', event, args }.
+    if (value.type === "emit") {
+      if (value.event === "api-session/status" && Array.isArray(value.args)) {
+        var sid = value.args[0];
+        if (sid === void 0 || sid === null) return;
+        var running = value.args[1] === true;
+        var prev = runningBySession[sid];
+        runningBySession[sid] = running;
+        if (prev === true && running === false) playSoundOnce("done", sid);
+      }
+      return;
+    }
+
+    // $events stream: { type:'waterfall', event, agentId, ... }. A question or
+    // an elevation/permission prompt is "the harness is asking for your
+    // response", so both share the "ask" sound.
+    if (value.type === "waterfall") {
+      if (value.event === "user-questions/request" || value.event === "approval/request") {
+        playSoundOnce("ask", value.agentId);
+      }
+      return;
+    }
+
+    // session/follow stream: { type:'event', event }. The follow stream is
+    // per-session, so the event carries no sessionId — dedupe falls back to the
+    // "global" window. Live events only: the opening snapshot is a separate
+    // { type:'snapshot' } frame and is never matched here.
+    if (value.type === "event") {
+      var ev = value.event;
+      if (!ev || !ev.type) return;
+      if (ev.type === "turn/start") {
+        playSoundOnce("start", undefined);
+      } else if (ev.type === "turn/end") {
+        playSoundOnce("done", undefined);
+      } else if (ev.type === "tool/call" && ev.data && ev.data.name === "ask_user_question") {
+        playSoundOnce("ask", undefined);
       }
     }
   }
@@ -444,8 +523,13 @@
         break;
       }
       case "completion-sound": {
-        completionSoundEnabled = !!msg.enabled;
-        if (!completionSoundEnabled) pendingSoundKind = null;
+        // Full state (completionSound master + per-sound toggles), or the
+        // legacy { enabled } shape. A missing per-sound flag defaults to on.
+        var master = msg.completionSound !== undefined ? !!msg.completionSound : !!msg.enabled;
+        soundEnabled.start = master && msg.soundStart !== false;
+        soundEnabled.done = master && msg.soundDone !== false;
+        soundEnabled.ask = master && msg.soundAsk !== false;
+        if (!anySoundEnabled()) pendingSoundKind = null;
         break;
       }
       default:

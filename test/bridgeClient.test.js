@@ -233,6 +233,13 @@ function fireApproval(h, id, sessionId) {
   h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
 }
 
+// DSH >= 0.1.2 multiplexed stream: one downlink frame is
+// { type:'item', streamId, value } and the sound-worthy meaning lives in value.
+function fireItem(h, id, value) {
+  const frame = JSON.stringify({ type: "item", streamId: "st1", value });
+  h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
+}
+
 test("completion: running true->false edge plays the chime", () => {
   const h = loadBridge({ serverBase: "http://x", completionSound: true });
   const { StubCtx, calls } = makeAudioStub();
@@ -424,4 +431,154 @@ test("disabling sounds cancels a pending sound while AudioContext resumes", asyn
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(calls.oscillators, 0);
+});
+
+// --- DSH >= 0.1.2 multiplexed stream frames ({type:'item', streamId, value}) ---
+
+test("0.1.2: api-session/status emit true->false edge plays the done chime", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", true] });
+  assert.equal(calls.oscillators, 0);
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", false] });
+  assert.equal(calls.oscillators, 2); // one chime = two notes
+});
+
+test("0.1.2: user-questions/request waterfall plays the ask sound", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "a1", request: {} });
+  assert.equal(calls.oscillators, 2);
+});
+
+test("0.1.2: approval/request waterfall plays the ask sound", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "waterfall", event: "approval/request", eventId: "e2", agentId: "a1", request: {} });
+  assert.equal(calls.oscillators, 2);
+});
+
+test("0.1.2: follow turn/start event plays the start sound", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "event", event: { type: "turn/start", seq: 1, time: 0, data: {} } });
+  assert.equal(calls.oscillators, 1);
+});
+
+test("0.1.2: follow turn/end event plays the done chime", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "event", event: { type: "turn/end", seq: 2, time: 0, data: { turn: 1 } } });
+  assert.equal(calls.oscillators, 2);
+});
+
+test("0.1.2: follow tool/call ask_user_question plays the ask sound", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "event", event: { type: "tool/call", seq: 3, time: 0, data: { name: "ask_user_question", args: {} } } });
+  assert.equal(calls.oscillators, 2);
+});
+
+test("0.1.2: snapshot and chunks frames are ignored (no history burst)", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "snapshot", records: [{ type: "event", event: { type: "turn/end", seq: 9, time: 0, data: {} } }] });
+  fireItem(h, id, { type: "chunks", chunks: [] });
+  fireItem(h, id, { type: "ready", streamId: "st1" });
+  fireItem(h, id, { type: "cancel", streamId: "st1" });
+  assert.equal(calls.oscillators, 0);
+});
+
+// --- Per-sound toggles (master + soundStart/soundDone/soundAsk) ---
+
+test("soundDone: false silences the done chime but not the ask sound", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true, soundDone: false });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", true] });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", false] });
+  assert.equal(calls.oscillators, 0, "done is muted by soundDone:false");
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "a1", request: {} });
+  assert.equal(calls.oscillators, 2, "ask still plays");
+});
+
+test("soundStart: false silences the start sound but not the done chime", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true, soundStart: false });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "event", event: { type: "turn/start", seq: 1, time: 0, data: {} } });
+  assert.equal(calls.oscillators, 0, "start is muted by soundStart:false");
+  fireItem(h, id, { type: "event", event: { type: "turn/end", seq: 2, time: 0, data: { turn: 1 } } });
+  assert.equal(calls.oscillators, 2, "done still plays");
+});
+
+test("soundAsk: false silences the ask sound but not the done chime", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true, soundAsk: false });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "a1", request: {} });
+  assert.equal(calls.oscillators, 0, "ask is muted by soundAsk:false");
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", true] });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", false] });
+  assert.equal(calls.oscillators, 2, "done still plays");
+});
+
+test("master completionSound:false silences every sound even when per-sound toggles are on", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: false, soundStart: true, soundDone: true, soundAsk: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "event", event: { type: "turn/start", seq: 1, time: 0, data: {} } });
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "a1", request: {} });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", true] });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", false] });
+  assert.equal(calls.oscillators, 0);
+});
+
+test("completion-sound message carries the full sound state and toggles live", () => {
+  const h = loadBridge({ serverBase: "http://x", completionSound: true });
+  const { StubCtx, calls } = makeAudioStub();
+  h.window.AudioContext = StubCtx;
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  // Mute just the done sound at runtime; ask must still play.
+  h.listeners.message.forEach((fn) => fn({ data: { type: "completion-sound", completionSound: true, soundStart: true, soundDone: false, soundAsk: true } }));
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", true] });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a1", false] });
+  assert.equal(calls.oscillators, 0, "done muted live");
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "a1", request: {} });
+  assert.equal(calls.oscillators, 2, "ask still plays");
+  // Re-enable done; a fresh edge sounds again.
+  h.listeners.message.forEach((fn) => fn({ data: { type: "completion-sound", completionSound: true, soundStart: true, soundDone: true, soundAsk: true } }));
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a2", true] });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a2", false] });
+  assert.equal(calls.oscillators, 4, "done plays again after re-enable");
 });
