@@ -87,6 +87,21 @@
           "default": true,
           "description": "%setting.completionSound.description%"
         },
+        "dshmux.soundStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "%setting.soundStart.description%"
+        },
+        "dshmux.soundDone": {
+          "type": "boolean",
+          "default": true,
+          "description": "%setting.soundDone.description%"
+        },
+        "dshmux.soundAsk": {
+          "type": "boolean",
+          "default": true,
+          "description": "%setting.soundAsk.description%"
+        },
         "dshmux.frameFontScale": {
           "type": "number",
           "default": 0.9,

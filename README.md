@@ -30,7 +30,7 @@
 - **Auto-start from the icon** — clicking the activity-bar icon starts dsh for you when it is not running.
 - **dsh compatibility + easy upgrade** — the launcher shows the running dsh version and warns when it differs from the exact version tested with this DSHmux release (including the tested version in the warning). When a registry update exists, one click offers the right upgrade command for your install method (npx / npm global / nvm) prefilled into a terminal (24h check gate, offline-safe).
 - **Clipboard works** — copy/paste in the embedded UI goes through a transport bridge (VS Code webviews block clipboard inside iframes; the bridge routes it via `vscode.env.clipboard`).
-- **Event sounds** — distinct Web Audio cues announce task start, task completion, and requests for user input (`dshmux.completionSound`, default `true`).
+- **Event sounds** — distinct Web Audio cues announce task start, task completion, and requests for user input. A master switch (`dshmux.completionSound`, default `true`) plus per-sound toggles (`dshmux.soundStart`, `dshmux.soundDone`, `dshmux.soundAsk`, all default `true`) let you mute any of them independently.
 - **Compact side-panel typography** — the sidebar frame is zoomed to 90% by default (`dshmux.frameFontScale`, range 0.5–1.5); the editor-tab view keeps the upstream size.
 - **Theme follows VS Code** — the embedded UI follows your editor color theme (dark/light), live on switch (`dshmux.themeSync`, default `follow`).
 - **Cross-platform** — macOS, Linux and Windows, verified end-to-end by CI (unit tests + a real `dsh` spawn smoke test on all three).
@@ -61,7 +61,10 @@ To make DSH use your project as its default workspace, open that folder in the w
 |---|---|---|
 | `dshmux.dshPath` | empty | Absolute path to DSH on the host where this VS Code window's workspace extension runs. In Remote SSH/WSL/container windows, set it under **Remote Settings**. An unavailable path is ignored and DSH is discovered on that host. For a source checkout, point to its built `apps/cli/lib/bin.js`; Node.js must be installed on that host. Restart DSH after changing it. |
 | `dshmux.themeSync` | `follow` | Follow the VS Code color theme into the embedded DSH UI; `off` leaves DSH's own appearance untouched. |
-| `dshmux.completionSound` | `true` | Play sounds for task start, completion, and user-input requests. |
+| `dshmux.completionSound` | `true` | Master switch for all session sounds; when off, no session sound plays. |
+| `dshmux.soundStart` | `true` | Play a sound when a task starts (requires the master switch). |
+| `dshmux.soundDone` | `true` | Play a sound when a task finishes (requires the master switch). |
+| `dshmux.soundAsk` | `true` | Play a sound when the harness asks for your input, such as a question or approval prompt (requires the master switch). |
 | `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |
 
 ## Development

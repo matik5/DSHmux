@@ -29,8 +29,10 @@ Module._load = function (request, _parent, _isMain) {
 
 const {
   affectsDshmuxConfiguration,
+  affectsAnySoundSetting,
   configuredDshBin,
   dshmuxConfiguration,
+  soundSettings,
 } = require("../out/configuration.js");
 
 test.after(() => {
@@ -64,4 +66,35 @@ test("configuration change matching accepts current and legacy keys", () => {
   const legacy = { affectsConfiguration: (key) => key === "deepseekHarness.completionSound" };
   assert.equal(affectsDshmuxConfiguration(current, "completionSound"), true);
   assert.equal(affectsDshmuxConfiguration(legacy, "completionSound"), true);
+});
+
+test("soundSettings reads all four toggles, defaulting to on", () => {
+  assert.deepEqual(soundSettings(), {
+    completionSound: true,
+    soundStart: true,
+    soundDone: true,
+    soundAsk: true,
+  });
+  values.dshmux.completionSound = false;
+  values.dshmux.soundStart = false;
+  assert.deepEqual(soundSettings(), {
+    completionSound: false,
+    soundStart: false,
+    soundDone: true,
+    soundAsk: true,
+  });
+});
+
+test("soundSettings falls back to legacy keys", () => {
+  values.deepseekHarness.soundDone = false;
+  assert.equal(soundSettings().soundDone, false);
+});
+
+test("affectsAnySoundSetting matches any of the four sound keys", () => {
+  const ask = { affectsConfiguration: (key) => key === "dshmux.soundAsk" };
+  const master = { affectsConfiguration: (key) => key === "dshmux.completionSound" };
+  const other = { affectsConfiguration: (key) => key === "dshmux.frameFontScale" };
+  assert.equal(affectsAnySoundSetting(ask), true);
+  assert.equal(affectsAnySoundSetting(master), true);
+  assert.equal(affectsAnySoundSetting(other), false);
 });
