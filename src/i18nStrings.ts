@@ -84,6 +84,17 @@ export const STRINGS = {
     fr: "dsh {version}",
     de: "dsh {version}",
   },
+  "launcher.compatibilityUntested": {
+    en: "Compatibility not tested (tested: dsh {version})",
+    zh: "兼容性未经测试（已测试：dsh {version}）",
+    ja: "互換性未検証（検証済み: dsh {version}）",
+    ko: "호환성 테스트 안 됨(테스트됨: dsh {version})",
+    ru: "Совместимость не проверена (проверено: dsh {version})",
+    es: "Compatibilidad no probada (probado: dsh {version})",
+    pt: "Compatibilidade não testada (testado: dsh {version})",
+    fr: "Compatibilité non testée (testé : dsh {version})",
+    de: "Kompatibilität nicht getestet (getestet: dsh {version})",
+  },
   "launcher.error": {
     en: "Error: {message}",
     zh: "错误：{message}",

@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 启动器顶部新增明确的 DSH 兼容性标记。DSHmux 0.4.0 已针对 dsh `0.1.2-alpha.2` 测试；更旧、更新或无法识别的版本仍可运行，但会显示“兼容性未经测试”，并同时注明已测试版本。
 - 修复 DSH 0.1.2 下的侧边栏会话列表：DSHmux 现在读取 `workspace/follow` 基线流，并使用带命名参数封装的斜杠式 Remote RPC 端点，同时继续兼容旧版 DSH 的点式 API。
 - 将 DSH 默认启动就绪超时从 10 秒延长到 30 秒，以适应较慢的冷启动和自定义源码检出。
 - 修复 Windows 与 macOS 桌面端自定义源码检出的启动问题：即使 VS Code GUI 扩展宿主的 `PATH` 很精简，DSHmux 也会解析用户实际安装的 Node，并让 DSH 子进程继续使用同一套 Node 工具链；配置的 `.js`、`.cjs` 和 `.mjs` 入口不会再误用 VS Code/Electron；Windows 还会优先使用可运行的 npm `.cmd` shim、检查 `%APPDATA%\npm`，并在过早退出时显示 DSH stderr。

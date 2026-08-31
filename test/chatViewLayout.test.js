@@ -13,6 +13,7 @@ const here = __dirname;
 const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8"));
 const nls = JSON.parse(fs.readFileSync(path.join(here, "..", "package.nls.json"), "utf8"));
 const extensionSource = fs.readFileSync(path.join(here, "..", "src", "extension.ts"), "utf8");
+const launcherSource = fs.readFileSync(path.join(here, "..", "src", "launcherView.ts"), "utf8");
 
 const VIEWS = pkg.contributes?.views?.dshmux ?? [];
 
@@ -69,6 +70,12 @@ test("custom DSH executable is host-overridable and safe in remote workspaces", 
     pkg.capabilities?.untrustedWorkspaces?.restrictedConfigurations?.includes("dshmux.dshPath"),
     "workspace overrides that execute a binary must require workspace trust"
   );
+});
+
+test("launcher warns when the running DSH version is outside the tested build", () => {
+  assert.match(launcherSource, /id="compatibilityWarning"/);
+  assert.match(launcherSource, /dshCompatibility\(init\.version\) !== "tested"/);
+  assert.match(launcherSource, /setCompatibility\(m\.version\)/);
 });
 
 test("activation reveals the DSHmux chat after registering its provider", () => {

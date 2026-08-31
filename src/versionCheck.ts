@@ -3,23 +3,39 @@
 // from the resolved binary path, and the 24h check-frequency gate.
 
 /**
+ * Exact DSH build covered by this DSHmux release's integration tests. Bump
+ * only after the launcher, session RPCs, and embedded client are verified
+ * against that build.
+ */
+export const TESTED_DSH_VERSION = "0.1.2-alpha.2";
+
+export type DshCompatibility = "tested" | "older" | "newer" | "unknown";
+
+interface ParsedVersion {
+  core: number[];
+  pre: Array<number | string> | null;
+}
+
+function parseVersion(version: string): ParsedVersion | null {
+  const m = version.trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
+  if (!m) return null;
+  return {
+    core: [Number(m[1]), Number(m[2]), Number(m[3])],
+    pre: m[4]
+      ? m[4].split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : part))
+      : null,
+  };
+}
+
+/**
  * Compare two dsh version strings like "0.1.0-rc.6". Supports optional
  * `-rc.N` / `-beta.N` prerelease suffixes: rc.6 < rc.7 < 0.1.0 (a release
  * beats any prerelease of the same core). Returns negative/0/positive.
  * Unparseable strings sort as older than any parseable one.
  */
 export function compareVersions(a: string, b: string): number {
-  const parse = (v: string): { core: number[]; pre: Array<number | string> | null } | null => {
-    const m = v.trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
-    if (!m) return null;
-    const core = [Number(m[1]), Number(m[2]), Number(m[3])];
-    const pre = m[4]
-      ? m[4].split(".").map((s) => (/^\d+$/.test(s) ? Number(s) : s))
-      : null;
-    return { core, pre };
-  };
-  const pa = parse(a);
-  const pb = parse(b);
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
   if (!pa && !pb) return 0;
   if (!pa) return -1;
   if (!pb) return 1;
@@ -48,13 +64,23 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Compare the running DSH with the exact build verified for this DSHmux
+ * release. This is informational only: untested versions are not blocked.
+ */
+export function dshCompatibility(version: string | undefined): DshCompatibility {
+  if (!version || !parseVersion(version)) return "unknown";
+  const comparison = compareVersions(version, TESTED_DSH_VERSION);
+  if (comparison === 0) return "tested";
+  return comparison < 0 ? "older" : "newer";
+}
+
 /** Is `current` strictly older than `latest`? Unparseable → false (don't nag). */
 export function isUpdateAvailable(current: string | undefined, latest: string | undefined): boolean {
   if (!current || !latest) return false;
   // Only consider updates when BOTH versions parse — an unparseable current
   // (dev build, unknown scheme) must never trigger an upgrade prompt.
-  const re = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-  if (!re.test(current.trim()) || !re.test(latest.trim())) return false;
+  if (!parseVersion(current) || !parseVersion(latest)) return false;
   return compareVersions(current, latest) < 0;
 }
 
@@ -98,9 +124,7 @@ export function upgradeCommandFor(
  * unknown versions → false (conservative: never break startup).
  */
 export function shouldPassNoOpen(version: string | undefined): boolean {
-  if (!version) return false;
-  const re = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-  if (!re.test(version.trim())) return false;
+  if (!version || !parseVersion(version)) return false;
   return compareVersions(version, "0.1.0-rc.8") >= 0;
 }
 

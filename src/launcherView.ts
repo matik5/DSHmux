@@ -8,7 +8,11 @@ import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
 import { sessionTitleOf } from "./workspaceTracker.js";
 import { upgradeInfo, type UpgradeChannel } from "./versionCheckService.js";
-import { isUpdateAvailable } from "./versionCheck.js";
+import {
+  dshCompatibility,
+  isUpdateAvailable,
+  TESTED_DSH_VERSION,
+} from "./versionCheck.js";
 
 /** Session-list polling interval while the launcher is visible and ready. */
 const SESSIONS_POLL_MS = 5_000;
@@ -57,6 +61,10 @@ function launcherHtml(init: LauncherInit): string {
     init.state === "ready" && init.nextVersion
       ? t("upgrade.availableNext", { next: init.nextVersion })
       : "";
+  const compatibilityText =
+    init.state === "ready" && dshCompatibility(init.version) !== "tested"
+      ? t("launcher.compatibilityUntested", { version: TESTED_DSH_VERSION })
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="${langCode()}">
@@ -90,6 +98,10 @@ body {
 .status-inline {
   font-size: 12.5px; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;
+}
+.compatibility-warning {
+  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
+  font-size: 11.5px; line-height: 1.4;
 }
 /* Compact action buttons on the header row (ready state). */
 .status-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
@@ -161,6 +173,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
     </div>
     <span class="dot ${dotClass}" id="dot"></span>
     <span class="status-inline" id="status">${statusText}</span>
+    <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "inline" : "none"}">⚠ ${compatibilityText}</span>
     <div class="status-actions" id="statusActions" style="display:${showReady ? "flex" : "none"}">
       <button class="mini secondary" id="newSession">${t("sessions.new")}</button>
       <button class="mini secondary" id="stop">${t("button.stop")}</button>
@@ -205,6 +218,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   vscode.postMessage({ type: "view-ready" });
   var dot = document.getElementById("dot");
   var status = document.getElementById("status");
+  var compatibilityWarning = document.getElementById("compatibilityWarning");
   var start = document.getElementById("start");
   var actions = document.getElementById("actions");
   var statusActions = document.getElementById("statusActions");
@@ -386,6 +400,14 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
     status.textContent = text;
     actions.style.display = state === "stopped" || state === "error" ? "flex" : "none";
     statusActions.style.display = state === "ready" ? "flex" : "none";
+    if (state !== "ready") compatibilityWarning.style.display = "none";
+  }
+  function setCompatibility(version) {
+    var tested = typeof version === "string" && version.trim() === ${JSON.stringify(TESTED_DSH_VERSION)};
+    compatibilityWarning.style.display = tested ? "none" : "inline";
+    compatibilityWarning.textContent = "⚠ " + ${JSON.stringify(
+      t("launcher.compatibilityUntested", { version: TESTED_DSH_VERSION })
+    )};
   }
   function setUpgrade(latest, next) {
     var ltxt = latest
@@ -428,6 +450,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
         ? ${JSON.stringify(t("launcher.readyVersion", { version: "{version}" }))}.replace("{version}", m.version)
         : ${JSON.stringify(t("launcher.ready"))};
       set("ready", readyText);
+      setCompatibility(m.version);
       setUpgrade(m.latestVersion, m.nextVersion);
     }
     else if (m.state === "error") set("error", ${JSON.stringify(t("launcher.error", { message: "{message}" }))}.replace("{message}", m.message || "unknown"));
