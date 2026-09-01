@@ -19,11 +19,14 @@ const SCRIPT = require("node:fs").readFileSync(
 );
 
 /** Install browser globals, run the bridge script, return a probe handle. */
-function loadBridge(bridgeInit) {
+function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   const posted = [];
   const nativeFetchCalls = [];
   const listeners = {};
   const listenerOptions = {};
+  const documentListeners = {};
+  const themeProperties = new Map();
+  const themeAttributes = new Set();
 
   const window = {
     fetch: (input, init) => {
@@ -48,6 +51,18 @@ function loadBridge(bridgeInit) {
       }
     },
   };
+  const themeBody = {
+    style: { setProperty: (name, value) => themeProperties.set(name, value) },
+    toggleAttribute(name, force) {
+      if (force) themeAttributes.add(name);
+      else themeAttributes.delete(name);
+    },
+  };
+  const document = {
+    documentElement: { style: {} },
+    body: deferDocumentBody ? null : themeBody,
+    addEventListener: (type, fn) => { documentListeners[type] = fn; },
+  };
   const acquireVsCodeApi = () => ({ postMessage: (msg) => posted.push(msg) });
   const location = { href: WEBVIEW_ORIGIN + "/", origin: WEBVIEW_ORIGIN };
   // Node ≥21 exposes a read-only global navigator; the bridge only adds a
@@ -64,6 +79,7 @@ function loadBridge(bridgeInit) {
     "window",
     "location",
     "navigator",
+    "document",
     "acquireVsCodeApi",
     "URL",
     "Headers",
@@ -71,9 +87,9 @@ function loadBridge(bridgeInit) {
     "DOMException",
     SCRIPT
   );
-  run(window, location, navigator, acquireVsCodeApi, URL, Headers, Response, DOMException);
+  run(window, location, navigator, document, acquireVsCodeApi, URL, Headers, Response, DOMException);
 
-  return { posted, nativeFetchCalls, window, listeners, listenerOptions };
+  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes };
 }
 
 test("fetch with a URL object relays the correct path (regression: /undefined)", async () => {
@@ -152,6 +168,38 @@ test("matchMedia shim follows __DSH_BRIDGE__.dark and theme-preference messages"
   h.listeners.message.forEach((fn) => fn({ data: { type: "theme-preference", dark: false } }));
   assert.equal(darkMql.matches, false);
   assert.deepEqual(seen, [false]);
+  assert.equal(h.document.documentElement.style.colorScheme, "light");
+  assert.equal(h.themeAttributes.has("data-ds-dark-theme"), false);
+});
+
+test("DSH palette points at live VS Code theme variables", () => {
+  const h = loadBridge({ serverBase: "http://x", dark: true });
+  assert.equal(
+    h.themeProperties.get("--dsw-alias-bg-base"),
+    "var(--vscode-editor-background)"
+  );
+  assert.equal(
+    h.themeProperties.get("--dsw-alias-label-primary"),
+    "var(--vscode-editor-foreground, var(--vscode-foreground))"
+  );
+  assert.equal(
+    h.themeProperties.get("--dsw-specific-sidebar-fill"),
+    "var(--vscode-sideBar-background, var(--vscode-editor-background))"
+  );
+  assert.equal(h.document.documentElement.style.colorScheme, "dark");
+  assert.equal(h.themeAttributes.has("data-ds-dark-theme"), true);
+});
+
+test("DSH palette installs after body creation when the bridge runs in head", () => {
+  const h = loadBridge({ serverBase: "http://x", dark: true }, { deferDocumentBody: true });
+  assert.equal(h.themeProperties.size, 0);
+  h.document.body = h.themeBody;
+  h.documentListeners.DOMContentLoaded();
+  assert.equal(
+    h.themeProperties.get("--dsw-alias-bg-base"),
+    "var(--vscode-editor-background)"
+  );
+  assert.equal(h.themeAttributes.has("data-ds-dark-theme"), true);
 });
 
 // ---------------------------------------------------------------- completion sound
