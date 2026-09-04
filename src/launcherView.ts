@@ -63,7 +63,7 @@ function launcherHtml(init: LauncherInit): string {
       : "";
   const compatibilityText =
     init.state === "ready" && dshCompatibility(init.version) !== "tested"
-      ? t("launcher.compatibilityUntested", { version: TESTED_DSH_VERSION })
+      ? t("launcher.compatibilityUntested")
       : "";
 
   return `<!DOCTYPE html>
@@ -106,6 +106,9 @@ body {
   color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
   font-size: 11.5px; line-height: 1.4;
 }
+/* Two stacked lines (message / tested version) so the warning never
+   competes with the version row or the action buttons for width. */
+.compatibility-warning span { display: block; }
 /* Compact action buttons on the header row (ready state). */
 .status-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 button.mini {
@@ -179,7 +182,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
         <span class="dot ${dotClass}" id="dot"></span>
         <span class="status-inline" id="status">${statusText}</span>
       </div>
-      <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "block" : "none"}">⚠ ${compatibilityText}</span>
+      <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "block" : "none"}"><span id="compatibilityLine1">⚠ ${compatibilityText}</span><span id="compatibilityLine2">${t("launcher.compatibilityTestedVersion", { version: TESTED_DSH_VERSION })}</span></span>
     </div>
     <div class="status-actions" id="statusActions" style="display:${showReady ? "flex" : "none"}">
       <button class="mini secondary" id="newSession">${t("sessions.new")}</button>
@@ -226,6 +229,8 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   var dot = document.getElementById("dot");
   var status = document.getElementById("status");
   var compatibilityWarning = document.getElementById("compatibilityWarning");
+  var compatibilityLine1 = document.getElementById("compatibilityLine1");
+  var compatibilityLine2 = document.getElementById("compatibilityLine2");
   var start = document.getElementById("start");
   var actions = document.getElementById("actions");
   var statusActions = document.getElementById("statusActions");
@@ -412,8 +417,11 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   function setCompatibility(version) {
     var tested = typeof version === "string" && version.trim() === ${JSON.stringify(TESTED_DSH_VERSION)};
     compatibilityWarning.style.display = tested ? "none" : "block";
-    compatibilityWarning.textContent = "⚠ " + ${JSON.stringify(
-      t("launcher.compatibilityUntested", { version: TESTED_DSH_VERSION })
+    // Two child lines (message / tested version); textContent on the wrapper
+    // would destroy both spans.
+    compatibilityLine1.textContent = "⚠ " + ${JSON.stringify(t("launcher.compatibilityUntested"))};
+    compatibilityLine2.textContent = ${JSON.stringify(
+      t("launcher.compatibilityTestedVersion", { version: TESTED_DSH_VERSION })
     )};
   }
   function setUpgrade(latest, next) {
