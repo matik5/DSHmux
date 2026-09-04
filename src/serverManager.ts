@@ -71,6 +71,11 @@ const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
 const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
 
+/** Resolve after `ms` milliseconds (retry backoff for the restore path). */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 type ApiProtocol = "legacy" | "remote";
 
 /** HTTP failure from one DSH RPC carrier attempt. */
@@ -946,6 +951,43 @@ export class DshServerManager extends EventEmitter {
     if (bound) return bound.sessionId;
     // 2. No usable session yet — create one bound to this workspace.
     return (await this.api("session.create", { workspaceId: workspace.workspaceId })).sessionId;
+  }
+
+  /**
+   * `ensureWorkspaceSession` with bounded retries, for the startup-restore path.
+   *
+   * A full VS Code restart boots one `dsh web` child per window, all against the
+   * shared ~/.dsh. While the co-booting servers settle (and contend on the shared
+   * state files), workspace queries can transiently fail — both the
+   * workspace/follow stream (5 s baseline timeout) and the legacy workspace.list.
+   * A single failed attempt skips the `dsh.sessions.current` preset, and the DSH
+   * frontend then falls back to the GLOBAL most-recent workspace: the wrong
+   * session in the wrong window. Retrying a few times lets the server settle so
+   * the preset is baked.
+   *
+   * Stops early when the server leaves "ready" (window closed / dsh stopped).
+   * Throws the last error when every attempt fails; the caller then degrades to
+   * the no-preset default.
+   */
+  async ensureWorkspaceSessionResilient(
+    cwd: string,
+    opts: { attempts?: number; delayMs?: number } = {}
+  ): Promise<string> {
+    const attempts = Math.max(1, opts.attempts ?? 3);
+    const delayMs = Math.max(0, opts.delayMs ?? 1500);
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) {
+        await sleep(delayMs);
+        if (this.state !== "ready") break; // server stopped mid-retry
+      }
+      try {
+        return await this.ensureWorkspaceSession(cwd);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 
   /**

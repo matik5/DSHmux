@@ -936,6 +936,113 @@ test("ensureWorkspaceSession skips archived sessions and creates a fresh one", a
   }
 });
 
+// Shared mock: `workspace.list` fails for the first `failTimes` calls (a
+// co-booting dsh server still settling on the shared ~/.dsh), then returns a
+// workspace bound to /ws/a with one blank session s1.
+function resilientMock(failTimes) {
+  let workspaceListCalls = 0;
+  const restore = mockFetch((req) => {
+    if (req.method === "workspace.list") {
+      workspaceListCalls++;
+      if (workspaceListCalls <= failTimes) {
+        return { result: { ok: false, error: { message: "transient: server settling" } } };
+      }
+      return {
+        result: {
+          ok: true,
+          value: {
+            items: [{ workspaceId: "w1", path: "/ws/a", sessionIds: ["s1"] }],
+            archivedSessionIds: [],
+          },
+        },
+      };
+    }
+    if (req.method === "session.list") {
+      return {
+        result: {
+          ok: true,
+          value: {
+            items: [
+              { sessionId: "s1", updatedAt: 1, running: false, blank: true, cwd: "/ws/a", projections: { values: { title: null } } },
+            ],
+          },
+        },
+      };
+    }
+    return { result: { ok: false, error: { message: "unexpected " + req.method } } };
+  });
+  return { restore, calls: () => workspaceListCalls };
+}
+
+test("ensureWorkspaceSessionResilient succeeds on the first attempt", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(0);
+  try {
+    const id = await manager.ensureWorkspaceSessionResilient("/ws/a", { delayMs: 1 });
+    assert.equal(id, "s1");
+    assert.equal(calls(), 1, "must not retry on first-attempt success");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient retries transient failures then succeeds", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(2); // fail twice, succeed on the 3rd
+  try {
+    const id = await manager.ensureWorkspaceSessionResilient("/ws/a", { delayMs: 1 });
+    assert.equal(id, "s1");
+    assert.equal(calls(), 3, "must retry until the co-booting server settles");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient throws after every attempt fails", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(Infinity); // never settles
+  try {
+    await assert.rejects(
+      manager.ensureWorkspaceSessionResilient("/ws/a", { attempts: 3, delayMs: 1 }),
+      (err) => {
+        assert.match(err.message, /transient: server settling/);
+        return true;
+      }
+    );
+    assert.equal(calls(), 3, "must stop after the configured attempt count");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient stops early when the server leaves ready", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  let workspaceListCalls = 0;
+  const restore = mockFetch((req) => {
+    if (req.method === "workspace.list") {
+      workspaceListCalls++;
+      // The window is closed / dsh stops right after the first failed attempt.
+      manager._state = "stopped";
+      return { result: { ok: false, error: { message: "transient: server settling" } } };
+    }
+    return { result: { ok: false, error: { message: "unexpected " + req.method } } };
+  });
+  try {
+    await assert.rejects(
+      manager.ensureWorkspaceSessionResilient("/ws/a", { attempts: 3, delayMs: 1 })
+    );
+    // The first attempt runs while ready; the non-ready check before the next
+    // retry breaks the loop, so no second attempt is made against a dead server.
+    assert.equal(workspaceListCalls, 1, "must not keep retrying a stopped server");
+  } finally {
+    restore();
+  }
+});
+
 test("sameFsPath matches normalized and realpath forms", (t) => {
   assert.equal(sameFsPath("/a/b", "/a/b/"), true);
   assert.equal(sameFsPath("/a/b", "/a/c"), false);

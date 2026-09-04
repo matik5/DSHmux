@@ -76,6 +76,12 @@ test("launcher warns when the running DSH version is outside the tested build", 
   assert.match(launcherSource, /id="compatibilityWarning"/);
   assert.match(launcherSource, /dshCompatibility\(init\.version\) !== "tested"/);
   assert.match(launcherSource, /setCompatibility\(m\.version\)/);
+  assert.match(
+    launcherSource,
+    /class="status-main">[\s\S]*id="status">\$\{statusText\}<\/span>[\s\S]*<\/div>[\s\S]*id="compatibilityWarning"/,
+    "compatibility warning must be rendered below the DSH version row"
+  );
+  assert.match(launcherSource, /compatibilityWarning\.style\.display = tested \? "none" : "block"/);
 });
 
 test("activation reveals the DSHmux chat after registering its provider", () => {

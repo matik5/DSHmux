@@ -15,6 +15,7 @@ import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates, showUpgradeOptions, type UpgradeChannel } from "./versionCheckService.js";
 import { configuredDshBin } from "./configuration.js";
+import { diag } from "./diag.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -73,17 +74,29 @@ export function activate(context: vscode.ExtensionContext): void {
   const m = manager;
   m.on("state", async (info) => {
     if (info.state !== "ready") return;
+    const gsp = context.globalStorageUri.fsPath;
+    const root = workspaceRoot();
+    diag(gsp, "ready-handler-start", { root });
     await theme.syncNow();
     let wsSessionId: string | undefined;
     try {
-      wsSessionId = await m.ensureWorkspaceSession(workspaceRoot());
+      // Resilient variant: a full restart boots one dsh child per window against
+      // the shared ~/.dsh, so the first workspace query can transiently fail
+      // while the co-booting servers settle. Without a retry the preset is
+      // skipped and the DSH frontend falls back to the GLOBAL most-recent
+      // workspace — the wrong session in the wrong window.
+      wsSessionId = await m.ensureWorkspaceSessionResilient(root);
+      diag(gsp, "ready-handler-resolved", { root, wsSessionId });
     } catch (err) {
-      console.log("[dsh] workspace-session preset skipped:", err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log("[dsh] workspace-session preset skipped after retries:", msg);
+      diag(gsp, "ready-handler-resolve-threw", { root, error: msg });
     }
     // Primary surface (2026-08-23): the side-panel chat view shows ONE session
     // at a time (Copilot-style). Load the IDE-workspace session into it. The
     // editor-tab panels are now a SECONDARY surface — no longer auto-opened on
     // (re)start; they open on demand via "Open Panel" / "open in editor".
+    diag(gsp, "ready-handler-loadSession", { root, load: wsSessionId ?? "" , chatViewDefined: chatView !== undefined });
     chatView?.loadSession(wsSessionId ?? "");
     // G-03: background version check (24h gate) — never blocks, offline-safe.
     // onResult refreshes the launcher once the fetch settles (it may finish

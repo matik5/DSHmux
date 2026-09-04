@@ -99,7 +99,10 @@ body {
   font-size: 12.5px; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;
 }
+.status-block { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.status-main { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .compatibility-warning {
+  display: block;
   color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
   font-size: 11.5px; line-height: 1.4;
 }
@@ -171,9 +174,13 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
       <div class="title">DSHmux</div>
       ${init.extVersion ? `<div class="subtitle">extension v${init.extVersion}</div>` : ""}
     </div>
-    <span class="dot ${dotClass}" id="dot"></span>
-    <span class="status-inline" id="status">${statusText}</span>
-    <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "inline" : "none"}">⚠ ${compatibilityText}</span>
+    <div class="status-block">
+      <div class="status-main">
+        <span class="dot ${dotClass}" id="dot"></span>
+        <span class="status-inline" id="status">${statusText}</span>
+      </div>
+      <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "block" : "none"}">⚠ ${compatibilityText}</span>
+    </div>
     <div class="status-actions" id="statusActions" style="display:${showReady ? "flex" : "none"}">
       <button class="mini secondary" id="newSession">${t("sessions.new")}</button>
       <button class="mini secondary" id="stop">${t("button.stop")}</button>
@@ -404,7 +411,7 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
   }
   function setCompatibility(version) {
     var tested = typeof version === "string" && version.trim() === ${JSON.stringify(TESTED_DSH_VERSION)};
-    compatibilityWarning.style.display = tested ? "none" : "inline";
+    compatibilityWarning.style.display = tested ? "none" : "block";
     compatibilityWarning.textContent = "⚠ " + ${JSON.stringify(
       t("launcher.compatibilityUntested", { version: TESTED_DSH_VERSION })
     )};
