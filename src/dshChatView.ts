@@ -25,7 +25,6 @@ import {
   soundSettings,
 } from "./configuration.js";
 import { dshWebviewPortMappings } from "./webviewPortMapping.js";
-import { diag } from "./diag.js";
 
 const DIST_DIR_NAME = "dsh-dist";
 
@@ -217,10 +216,6 @@ export class DshChatView implements vscode.WebviewViewProvider {
     manager.on("state", (info: ServerInfo) => {
       this.postStatus(info);
       if (info.state === "ready" && !this.assembled && this.view) {
-        diag(this.context.globalStorageUri.fsPath, "ctor-state-ready-refresh", {
-          currentSessionId: this.currentSessionId ?? null,
-          assembled: this.assembled,
-        });
         void this.refresh();
       }
     });
@@ -290,11 +285,6 @@ export class DshChatView implements vscode.WebviewViewProvider {
     webviewView.webview.html = placeholderHtml();
     this.assembled = false;
     this.postStatus({ state: this.manager.state, url: this.manager.serverUrl });
-    diag(this.context.globalStorageUri.fsPath, "resolveWebviewView", {
-      state: this.manager.state,
-      currentSessionId: this.currentSessionId ?? null,
-      willRefresh: this.manager.state === "ready",
-    });
     if (this.manager.state === "ready") void this.refresh();
   }
 
@@ -311,10 +301,8 @@ export class DshChatView implements vscode.WebviewViewProvider {
     // No-op when the view is already showing this exact session (avoids a
     // pointless re-assembly + flicker on re-click).
     if (sessionId && sessionId === this.currentSessionId && this.assembled) {
-      diag(this.context.globalStorageUri.fsPath, "loadSession-noop", { sessionId });
       return;
     }
-    diag(this.context.globalStorageUri.fsPath, "loadSession", { sessionId: sessionId || null, viewDefined: this.view !== undefined });
     // Dim the currently rendered session immediately. The replacement document
     // starts with the same overlay, so feedback remains visible across the
     // asynchronous re-assembly and DSH frontend boot phases.
@@ -342,9 +330,6 @@ export class DshChatView implements vscode.WebviewViewProvider {
     const url = this.manager.serverUrl;
     if (!url || !this.view) return;
     const seq = ++this.refreshSeq;
-    const gsp = this.context.globalStorageUri.fsPath;
-    const presetSession = this.currentSessionId ?? null;
-    diag(gsp, "refresh-start", { seq, presetSession });
     try {
       const bridgeJs = fs.readFileSync(
         path.join(this.context.extensionUri.fsPath, "media", "bridge-client.js"),
@@ -381,12 +366,14 @@ export class DshChatView implements vscode.WebviewViewProvider {
       // A newer refresh superseded this one (e.g. loadSession raced the
       // ready-handler refresh): drop the stale result so the latest preset wins.
       if (seq !== this.refreshSeq) {
-        diag(gsp, "refresh-dropped-stale", { seq, currentSeq: this.refreshSeq, presetSession });
         return;
       }
+      // The outgoing page's sockets must not survive the document swap: the
+      // old world dies without ws-close, and its leaked ids would block the
+      // new world's stream socket (empty DSH UI after a session switch).
+      this.bridge?.resetSockets();
       this.view.webview.html = html;
       this.assembled = true;
-      diag(gsp, "refresh-wrote-html", { seq, presetSession });
     } catch (err) {
       if (seq !== this.refreshSeq) return;
       const msg = err instanceof Error ? err.message : String(err);

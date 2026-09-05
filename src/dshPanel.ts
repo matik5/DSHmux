@@ -265,6 +265,8 @@ export class DshPanel {
         cookieProvider: () => this.manager.authCookie,
         log: (m) => console.log("[dsh] " + m),
       });
+      // Same document-swap socket hygiene as the side-panel chat view.
+      this.bridge?.resetSockets();
       this.panel.webview.html = html;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

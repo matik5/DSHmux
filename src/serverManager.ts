@@ -70,6 +70,10 @@ const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
 const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
+// Bound for a single /api request. Without it a stale keep-alive socket in a
+// long-lived extension host can hang the fetch forever: apiOnce never rejects,
+// so a click (e.g. "+ New session") silently does nothing — no toast, no log.
+const API_REQUEST_TIMEOUT_MS = 15_000;
 
 /** Resolve after `ms` milliseconds (retry backoff for the restore path). */
 function sleep(ms: number): Promise<void> {
@@ -783,6 +787,10 @@ export class DshServerManager extends EventEmitter {
         method: wireMethod,
         payload: wirePayload,
       }),
+      // A stale pooled socket must not hang the caller forever; time out so the
+      // promise rejects (visible error) instead of deadlocking the UI. A timeout
+      // is not a 404, so api() will not retry a mutating RPC after it.
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
     });
     const text = await res.text();
     if (!res.ok) {
