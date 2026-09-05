@@ -442,11 +442,33 @@ export function resolveDshPath(
   };
 }
 
+/** CLI entry inside a source checkout (built with `pnpm build`). */
+export const CHECKOUT_BIN_REL = "apps/cli/lib/bin.js";
+
+/**
+ * Resolve a configured `dshPath` that points at a source-checkout DIRECTORY
+ * to its built CLI entry (`<dir>/apps/cli/lib/bin.js`) (04-install R10).
+ * Anything else — file paths, unbuilt checkouts, missing paths — is returned
+ * unchanged so callers apply their existing exists/discovery handling.
+ */
+export function resolveConfiguredDshPath(p: string): string {
+  try {
+    if (fs.statSync(p).isDirectory()) {
+      const bin = path.join(p, CHECKOUT_BIN_REL);
+      if (fs.existsSync(bin)) return bin;
+    }
+  } catch {
+    /* not stat-able (missing, permissions) — treat as a plain file path */
+  }
+  return p;
+}
+
 /**
  * Choose which binary to spawn for a start. An explicit `opts.dshBin` is
  * authoritative (used as-is, even if missing). The configured `dshPath` is
- * best-effort: if it does not exist on this host — e.g. a local path carried
- * onto a remote via synced or workspace settings — it is ignored and
+ * best-effort: a source-checkout directory is resolved to its built CLI
+ * entry; if the result does not exist on this host — e.g. a local path
+ * carried onto a remote via synced or workspace settings — it is ignored and
  * auto-discovery runs instead, so a stale setting can never break startup.
  */
 export function resolveStartBin(
@@ -456,8 +478,10 @@ export function resolveStartBin(
   platform: NodeJS.Platform = process.platform
 ): { path: string | null; tried: string[] } {
   const explicitBin = opts.dshBin?.trim();
-  const configuredValid = configuredBin !== undefined && fs.existsSync(configuredBin);
-  const preferredBin = explicitBin ?? (configuredValid ? configuredBin : undefined);
+  const configuredPath =
+    configuredBin !== undefined ? resolveConfiguredDshPath(configuredBin) : undefined;
+  const configuredValid = configuredPath !== undefined && fs.existsSync(configuredPath);
+  const preferredBin = explicitBin ?? (configuredValid ? configuredPath : undefined);
   return preferredBin
     ? { path: preferredBin, tried: [preferredBin] }
     : resolveDshPath(home, platform);

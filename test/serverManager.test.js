@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
-const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, resolveConfiguredDshPath, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -439,6 +439,52 @@ test("resolveStartBin ignores a configured dshPath missing on this host (falls b
     assert.equal(explicit.path, stale);
   } finally {
     fs.rmSync(emptyHome, { recursive: true, force: true });
+  }
+});
+
+test("resolveConfiguredDshPath resolves a source-checkout directory to its built CLI", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-checkout-"));
+  try {
+    // A plain file path is returned unchanged.
+    const file = path.join(home, "bin");
+    fs.writeFileSync(file, "#!/bin/sh\n");
+    assert.equal(resolveConfiguredDshPath(file), file);
+
+    // A missing path is returned unchanged (caller applies discovery).
+    const missing = path.join(home, "nope");
+    assert.equal(resolveConfiguredDshPath(missing), missing);
+
+    // A checkout directory WITHOUT a built bin.js is returned unchanged.
+    const unbuilt = path.join(home, "checkout-unbuilt");
+    fs.mkdirSync(unbuilt, { recursive: true });
+    assert.equal(resolveConfiguredDshPath(unbuilt), unbuilt);
+
+    // A checkout directory WITH apps/cli/lib/bin.js resolves to that file.
+    const checkout = path.join(home, "checkout");
+    const bin = path.join(checkout, "apps", "cli", "lib", "bin.js");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/usr/bin/env node\n");
+    assert.equal(resolveConfiguredDshPath(checkout), bin);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveStartBin spawns a source-checkout directory's built CLI", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-checkout-start-"));
+  try {
+    const checkout = path.join(home, "deepseek-harness");
+    const bin = path.join(checkout, "apps", "cli", "lib", "bin.js");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/usr/bin/env node\n");
+    // Configured path is the checkout directory -> resolves to the built bin.
+    assert.equal(resolveStartBin({}, checkout, home, "linux").path, bin);
+    // A configured directory without a built bin is not invented out of thin air.
+    const unbuilt = path.join(home, "checkout-unbuilt");
+    fs.mkdirSync(unbuilt, { recursive: true });
+    assert.equal(resolveStartBin({}, unbuilt, home, "linux").path, unbuilt);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { spawnSync } from "node:child_process";
 import {
+  resolveConfiguredDshPath,
   resolveDshPath,
   resolveDshVersion,
   resolveNodeExecutable,
@@ -50,7 +51,10 @@ export interface DoctorReport {
   /** Required for the primary (patched source clone) install path. */
   pnpm: ToolInfo;
   dsh: {
-    /** `dshmux.dshPath` as configured (empty/missing → undefined). */
+    /**
+     * `dshmux.dshPath` as configured (empty/missing → undefined); a
+     * source-checkout directory is shown resolved to its built CLI entry.
+     */
     configuredPath: string | undefined;
     /** Whether the configured path exists on THIS host (false = stale). */
     configuredValid: boolean;
@@ -244,16 +248,20 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
 
   // --- DSH (reuse the single discovery algorithm) ------------------------------
   const configured = probe.configuredDshPath?.trim() || undefined;
-  const configuredValid = configured !== undefined && probe.exists(configured);
+  // A source-checkout directory is resolved to its built CLI entry — the same
+  // rule as the launch path (resolveStartBin → resolveConfiguredDshPath).
+  const configuredPath =
+    configured !== undefined ? resolveConfiguredDshPath(configured) : undefined;
+  const configuredValid = configuredPath !== undefined && probe.exists(configuredPath);
   const resolved = configuredValid
-    ? { path: configured, tried: [configured] }
+    ? { path: configuredPath, tried: [configuredPath] }
     : probe.resolveDsh(probe.home, probe.platform);
-  if (configured !== undefined && !configuredValid && resolved.path !== configured) {
+  if (configured !== undefined && !configuredValid && resolved.path !== configuredPath) {
     warnings.push("stale-configured-path");
   }
   const version = resolved.path ? probe.dshVersion(resolved.path) : null;
   const dsh: DoctorReport["dsh"] = {
-    configuredPath: configured,
+    configuredPath: configuredPath,
     configuredValid,
     resolvedPath: resolved.path,
     tried: resolved.tried.map((t) => redactPath(t, probe.home)),

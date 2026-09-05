@@ -340,6 +340,39 @@ Acceptance criteria:
    UI in that language (resolver mapping verified by the parity/resolver
    tests; manual smoke optional).
 
+## R10 — Source-checkout directory auto-resolved in `dshmux.dshPath` (2026-09-05, user)
+
+During the manual smoke of the install feature the user pointed
+`dshmux.dshPath` at a source-checkout **folder** (set via the Settings UI)
+and DSH failed to start: a directory is not an executable. The correct entry
+is the built `apps/cli/lib/bin.js` inside the checkout.
+
+Requirements:
+
+- When the configured `dshmux.dshPath` is a directory on the running host
+  that contains a built `apps/cli/lib/bin.js`, DSHmux resolves it to that
+  CLI entry for **both** the start path and the Doctor report (configured
+  path shown resolved, `configuredValid`, `resolvedPath = <bin>`, install
+  type `source`, `ready` when the version runs).
+- Existing behavior for all other values is unchanged: file paths are used
+  as-is; a path missing on the host is ignored in favor of auto-discovery
+  (a stale local setting must never break start); a directory without the
+  built entry is not invented out of thin air.
+- There is exactly one shared resolution rule (one helper in
+  `src/serverManager.ts`) used by both start and Doctor — no second copy.
+- The `dshPath` setting description (EN + ZH) notes that a checkout folder
+  is resolved to the built entry automatically.
+
+Acceptance criteria:
+
+1. A checkout directory with a built `apps/cli/lib/bin.js` resolves to that
+   file on start (the spawn path is the bin) and the Doctor reports it
+   valid and `source`-typed.
+2. A file path, a missing path, and an unbuilt checkout directory behave
+   exactly as before (no regression).
+3. Unit tests cover the resolution matrix for both the start resolver and
+   the Doctor.
+
 ## R4 — Portable user setup bundles (roadmap I4) — DEFERRED (⏭️)
 
 **Decision (2026-09-01, user)**: R4 is explicitly deferred out of this round;

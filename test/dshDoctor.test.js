@@ -2,6 +2,9 @@
 // an injected probe — no real spawns, no filesystem, deterministic.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { runDoctor, classifyInstallType, redactPath } from "../out/dshDoctor.js";
 
 const HOME = "/home/user";
@@ -225,6 +228,43 @@ test("configured path valid: used as-is, discovery not consulted", () => {
   assert.equal(report.dsh.installType, "source");
   assert.equal(discoveryCalled, false);
   assert.deepEqual(report.warnings, []);
+});
+
+test("configured source-checkout directory resolves to its built CLI entry (R10)", () => {
+  // resolveConfiguredDshPath does a real stat, so the checkout dir must exist.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-doctor-checkout-"));
+  try {
+    const bin = path.join(dir, "apps", "cli", "lib", "bin.js");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/usr/bin/env node\n");
+    const t = new Map();
+    nodeWorks(t);
+    t.set("git --version", { ok: true, stdout: "git version 2.45.0" });
+    t.set("pnpm --version", { ok: true, stdout: "9.15.0" });
+    let discoveryCalled = false;
+    const probe = makeProbe(
+      {
+        configuredDshPath: dir,
+        existsEntries: [[NODE, true], [dir, true], [bin, true]],
+        dshVersions: { [bin]: "0.1.2-rc.1" },
+      },
+      t
+    );
+    probe.resolveDsh = () => {
+      discoveryCalled = true;
+      return { path: "/should/not/be/used", tried: [] };
+    };
+    const report = runDoctor(probe);
+    assert.equal(report.state, "ready");
+    assert.equal(report.dsh.configuredPath, bin);
+    assert.equal(report.dsh.configuredValid, true);
+    assert.equal(report.dsh.resolvedPath, bin);
+    assert.equal(report.dsh.installType, "source");
+    assert.equal(discoveryCalled, false);
+    assert.deepEqual(report.warnings, []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("source install type: CLI entry under a checkout", () => {

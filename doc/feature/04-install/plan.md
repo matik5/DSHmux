@@ -26,6 +26,7 @@
 | R7: primary new-clone flow auto-runs in the setup terminal — one final modal (all commands listed), `&&`-chained single send, end toast | T12 | `test/installService.test.js` (one modal, 4 echoes + 1 chained send) + updated grep invariant |
 | R8: doctor command reachable from the DSHmux panel's "…" overflow menu only (not the title bar) | T13 | manual smoke on a fresh instance (entry in "…" menu, not title bar; opens the doctor QuickPick) |
 | R9: locale set = en, zh, ja, ko, et, es, pt, fr, de, uk (ru removed; et/uk added, all keys) | T14 | `test/i18n.test.js` parity over the 10-locale set + `grep -c "ru:"` = 0 + compile |
+| R10: checkout-directory `dshPath` resolves to the built CLI entry (start + Doctor; file/missing/unbuilt unchanged) | T15 | `test/serverManager.test.js` + `test/dshDoctor.test.js` resolution matrix |
 | Cross-cutting: 9-locale strings, EN+ZH synced | T5 | `npm test` (i18n parity test) + compile |
 
 ## Order
@@ -40,6 +41,7 @@ T7 ───────────────────> T11 (GitHub source
 T10 ──────────────────> T12 (auto-run primary flow, R7) ────> T9 (verification)
 T8 ───────────────────> T13 (doctor panel menu, R8) ─────────> T9 (verification)
 T5 ───────────────────> T14 (locale set change, R9) ─────────> T9 (verification)
+T1 ───────────────────> T15 (dshPath directory resolution, R10) > T9 (verification)
 ```
 
 T1–T5 are independent and can interleave; T6 needs T1+T3+T5; T7 needs T6; T8 needs T6+T7; T10 needs T6 (edit of the existing install service) plus T8 (wiring smoke); T11 needs T7 (setup panel HTML/JS in launcherView); T12 needs T10 (reuses the shared setup terminal + echo lines) and replaces T6's per-step confirm loop in the new-clone branch; T9 last.
@@ -204,6 +206,20 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 **Completion criteria**: `npm run compile` zero issues; `npm test` green (parity over 10 locales); `grep -c "ru:" src/i18nStrings.ts` = 0.
 
 **Verified (2026-09-05)**: `tsc -p ./` clean; `npm test` 213/213 pass incl. the new 10-locale parity + "no ru column" guard; `grep -c "ru:" src/i18nStrings.ts` = 0; `et`/`uk` columns = 110 each; no residual `ru` reference in `src/`.
+
+### T15 — Source-checkout directory auto-resolved in `dshmux.dshPath` (R10) — ✅
+
+**Files**: `src/serverManager.ts` (edit), `src/dshDoctor.ts` (edit), `src/dshInstallService.ts` (edit — constant moves), `test/serverManager.test.js` (edit), `test/dshDoctor.test.js` (edit), `test/dshInstallService.test.js` (edit — import), `package.nls.json` + `package.nls.zh-cn.json` (edit — `dshPath` description)
+
+- [x] `serverManager.ts`: `CHECKOUT_BIN_REL` constant (moved from `dshInstallService.ts` — the install service already imports serverManager, so no import cycle); `resolveConfiguredDshPath(p)` — a directory on the host containing a built `apps/cli/lib/bin.js` resolves to that entry, anything else (file, missing, unbuilt dir) returns unchanged; `resolveStartBin` resolves the configured value through it before the exists check (explicit `opts.dshBin` untouched).
+- [x] `dshDoctor.ts`: `runDoctor` resolves `probe.configuredDshPath` through the same helper; the report's `configuredPath` shows the resolved entry.
+- [x] `dshInstallService.ts` imports the constant from `serverManager.js`; `test/dshInstallService.test.js` import updated to the new home.
+- [x] Tests: resolution matrix (file / missing / unbuilt dir / built dir) for `resolveConfiguredDshPath`; `resolveStartBin` checkout-dir → bin; Doctor configured-dir → `ready`, `installType = source`, no discovery.
+- [x] `dshPath` setting description (EN + ZH synced) notes the folder auto-resolution.
+
+**Completion criteria**: `npm run compile` zero issues; `npm test` green; R10 acceptance 1–3 covered.
+
+**Verified (2026-09-05)**: `tsc -p ./` clean; `npm test` 216/216 (3 new tests: resolution matrix, start-from-checkout-dir, Doctor configured-dir).
 
 ### T9 — Verification + packaging — ⏳
 

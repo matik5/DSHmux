@@ -90,21 +90,25 @@
         "dshmux.completionSound": {
           "type": "boolean",
           "default": true,
+          "order": 30,
           "description": "%setting.completionSound.description%"
         },
         "dshmux.soundStart": {
           "type": "boolean",
           "default": true,
+          "order": 40,
           "description": "%setting.soundStart.description%"
         },
         "dshmux.soundDone": {
           "type": "boolean",
           "default": true,
+          "order": 50,
           "description": "%setting.soundDone.description%"
         },
         "dshmux.soundAsk": {
           "type": "boolean",
           "default": true,
+          "order": 60,
           "description": "%setting.soundAsk.description%"
         },
         "dshmux.frameFontScale": {

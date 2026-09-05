@@ -3,6 +3,7 @@
 // executes a command or touches the filesystem; I/O (checkout validation)
 // goes through the DoctorProbe seams from dshDoctor.ts.
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
+import { CHECKOUT_BIN_REL } from "./serverManager.js";
 import type { DoctorProbe } from "./dshDoctor.js";
 
 /**
@@ -23,9 +24,6 @@ export const TESTED_SOURCE_TREE_URL =
 export const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
 export const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
 export const PNPM_INSTALL_URL = "https://pnpm.io/installation";
-
-/** CLI entry inside a source checkout. */
-export const CHECKOUT_BIN_REL = "apps/cli/lib/bin.js";
 
 /** One prefilled terminal command with i18n label/purpose keys. */
 export interface InstallCommand {

@@ -7,7 +7,6 @@ import {
   TESTED_SOURCE_REPO,
   TESTED_SOURCE_BRANCH,
   TESTED_SOURCE_REVISION,
-  CHECKOUT_BIN_REL,
   NODE_DOWNLOAD_URL,
   GIT_DOWNLOAD_URL,
   PNPM_INSTALL_URL,
@@ -17,6 +16,7 @@ import {
   checkExistingCheckout,
 } from "../out/dshInstallService.js";
 import { TESTED_DSH_VERSION } from "../out/versionCheck.js";
+import { CHECKOUT_BIN_REL } from "../out/serverManager.js";
 
 test("tested source constants are frozen", () => {
   assert.equal(TESTED_SOURCE_REPO, "https://github.com/matik5/deepseek-harness.git");
