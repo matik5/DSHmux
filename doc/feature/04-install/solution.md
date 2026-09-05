@@ -284,6 +284,13 @@ Inbound (webview → host), new types:
     so it does not wait; it shows one notification pointing to the terminal
     and to **Check again** for re-verification. R2, the existing-checkout
     branch, and the guidance paths are untouched.
+  8. **Locale set change (R9, 2026-09-05 user addendum)**: the string-table
+     columns become en, zh, ja, ko, et, es, pt, fr, de, uk — Russian is
+     dropped, Estonian and Ukrainian are added to every key. The resolver in
+     `src/i18n.ts` gains `et`/`uk` prefix entries and loses `ru` (Russian
+     display language now falls back to English). `package.nls.*` files are
+     unaffected (they carry only the default EN + zh-cn command/setting
+     titles).
 
 ## File-change list
 
@@ -295,7 +302,7 @@ Inbound (webview → host), new types:
 | `src/launcherView.ts` | edit — `DoctorAware` init + `doctor` message in/out, setup panel HTML/JS (primary + alternative + tool links + Check again), auto-start gate (L577–581), constructor gains install-action callbacks |
 | `src/commands.ts` | edit — register `dshmux.doctor` via a new `onDoctor` parameter (kept thin: `registerCommands(context, manager, revealChat, openEditorPanel, onDoctor?)`) |
 | `src/extension.ts` | edit — construct install-service callbacks, wire to launcher + commands; Doctor hostLabel from `vscode.env.remoteName` |
-| `src/i18nStrings.ts` | edit — `doctor.*` and `install.*` keys, 9 locales, EN + ZH synced (zh/ja/ko/ru/es/pt/fr/de follow the existing 9-locale table convention) |
+| `src/i18nStrings.ts` | edit — `doctor.*` and `install.*` keys, 9 locales, EN + ZH synced (zh/ja/ko/ru/es/pt/fr/de follow the existing 9-locale table convention; R9 supersedes: final set is the 10 locales en, zh, ja, ko, et, es, pt, fr, de, uk — see behavior item 8) |
 | `package.json` | edit — `contributes.commands` += `dshmux.doctor` (`%command.doctor.title%`) |
 | `package.nls.json`, `package.nls.zh-cn.json` | edit — `command.doctor.title` |
 | `test/dshDoctor.test.js` | **new** — classification matrix (missing node / missing dsh / stale config / npm-global / npx-cache / source / Windows shim / untested / dirty-checkout / spaces-in-path) with an injected probe; read-only + no-server guarantees |

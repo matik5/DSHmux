@@ -24,7 +24,8 @@
 | R5: visible DSHmux setup terminal + echo-then-prefill order (R2 prefill stays never-auto-executed; the primary flow is superseded by R7) | T10, T12 | `test/installService.test.js` (vscode mock) + grep invariant |
 | R6: "Source on GitHub →" row on the setup panel opens the exact tested branch (URL derived from frozen constants) | T11 | `test/dshLauncher.test.js` (row in panel HTML + `openExternal` routing) |
 | R7: primary new-clone flow auto-runs in the setup terminal — one final modal (all commands listed), `&&`-chained single send, end toast | T12 | `test/installService.test.js` (one modal, 4 echoes + 1 chained send) + updated grep invariant |
-| R8: doctor command reachable from the DSHmux panel header / "…" menu | T13 | manual smoke on a fresh instance (menu entry opens the doctor QuickPick) |
+| R8: doctor command reachable from the DSHmux panel's "…" overflow menu only (not the title bar) | T13 | manual smoke on a fresh instance (entry in "…" menu, not title bar; opens the doctor QuickPick) |
+| R9: locale set = en, zh, ja, ko, et, es, pt, fr, de, uk (ru removed; et/uk added, all keys) | T14 | `test/i18n.test.js` parity over the 10-locale set + `grep -c "ru:"` = 0 + compile |
 | Cross-cutting: 9-locale strings, EN+ZH synced | T5 | `npm test` (i18n parity test) + compile |
 
 ## Order
@@ -38,6 +39,7 @@ T8 ───────────────────> T10 (setup termina
 T7 ───────────────────> T11 (GitHub source link, R6) ───────> T9 (verification)
 T10 ──────────────────> T12 (auto-run primary flow, R7) ────> T9 (verification)
 T8 ───────────────────> T13 (doctor panel menu, R8) ─────────> T9 (verification)
+T5 ───────────────────> T14 (locale set change, R9) ─────────> T9 (verification)
 ```
 
 T1–T5 are independent and can interleave; T6 needs T1+T3+T5; T7 needs T6; T8 needs T6+T7; T10 needs T6 (edit of the existing install service) plus T8 (wiring smoke); T11 needs T7 (setup panel HTML/JS in launcherView); T12 needs T10 (reuses the shared setup terminal + echo lines) and replaces T6's per-step confirm loop in the new-clone branch; T9 last.
@@ -181,14 +183,27 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 
 **Completion criteria**: `npm run compile` + `npm test` green; manual smoke: new-clone flow runs all four steps visibly in the terminal from one modal, a cancelled modal leaves the machine unchanged.
 
-### T13 — DSH Doctor in the panel header menu (R8) — ⏳
+### T13 — DSH Doctor in the panel's "…" overflow menu (R8) — ⏳
 
 **Files**: `package.json` (edit — one `view/title` menu entry)
 
-- [ ] `contributes.menus["view/title"]` += `{ "command": "dshmux.doctor", "when": "view == dshmux.view", "group": "navigation" }` — reuses the existing `dshmux.doctor` command and its nls title (`%command.doctor.title%`); no code change, no new strings.
-- [ ] Manual smoke: on a fresh instance the entry is visible in the DSHmux panel header (or the "…" overflow) and clicking it opens the doctor QuickPick — also before DSH has started.
+- [x] `contributes.menus["view/title"]` += `{ "command": "dshmux.doctor", "when": "view == dshmux.view", "icon": "$(stethoscope)" }` (NO `group: navigation`, so it renders in the "…" overflow menu only — never as a title-bar button) — reuses the existing `dshmux.doctor` command and its nls title (`%command.doctor.title%`); no code change, no new strings.
+- [ ] Manual smoke: on a fresh instance the entry appears ONLY in the DSHmux panel's "…" overflow menu (no stethoscope button in the title bar) and clicking it opens the doctor QuickPick — also before DSH has started.
 
-**Completion criteria**: `npm test` green; entry visible and functional in the restarted smoke instance.
+**Completion criteria**: `npm test` green; entry in the "…" menu (not the title bar) and functional in the restarted smoke instance.
+
+### T14 — Locale set change: drop ru, add et + uk (R9) — ✅
+
+**Files**: `src/i18nStrings.ts` (edit), `src/i18n.ts` (edit), `test/i18n.test.js` (edit)
+
+- [x] `i18nStrings.ts`: remove `ru` from `I18nRow` and from every key row; add `et` + `uk` to every key row (genuine translations, never EN-as-target); update the header comment to the 10-locale list.
+- [x] `i18n.ts`: `PREFIX_TO_LANG` — drop `["ru", "ru"]`, add `["et", "et"]` and `["uk", "uk"]` (Estonian and Ukrainian prefixes are distinct; order among them is irrelevant). `langCode()` unchanged (et/uk map to their own column).
+- [x] `test/i18n.test.js`: `LANGS` = the 10-locale set; add a guard that no `ru` column survives in `STRINGS`.
+- [x] Audit all other translation files: `package.nls.json` / `package.nls.zh-cn.json` unaffected (no ru ever); `CHANGELOG.md` entry for the release notes the locale change.
+
+**Completion criteria**: `npm run compile` zero issues; `npm test` green (parity over 10 locales); `grep -c "ru:" src/i18nStrings.ts` = 0.
+
+**Verified (2026-09-05)**: `tsc -p ./` clean; `npm test` 213/213 pass incl. the new 10-locale parity + "no ru column" guard; `grep -c "ru:" src/i18nStrings.ts` = 0; `et`/`uk` columns = 110 each; no residual `ru` reference in `src/`.
 
 ### T9 — Verification + packaging — ⏳
 

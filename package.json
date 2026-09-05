@@ -146,7 +146,6 @@
         {
           "command": "dshmux.doctor",
           "when": "view == dshmux.view",
-          "group": "navigation",
           "icon": "$(stethoscope)"
         }
       ]

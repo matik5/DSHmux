@@ -8,7 +8,7 @@ const assert = require("node:assert");
 
 const { STRINGS, interpolate } = require("../out/i18nStrings.js");
 
-const LANGS = ["en", "zh", "ja", "ko", "ru", "es", "pt", "fr", "de"];
+const LANGS = ["en", "zh", "ja", "ko", "et", "es", "pt", "fr", "de", "uk"];
 
 test("every i18n key has non-empty values for all languages", () => {
   const keys = Object.keys(STRINGS);
@@ -21,6 +21,14 @@ test("every i18n key has non-empty values for all languages", () => {
         `${key}.${lang} is empty`
       );
     }
+  }
+});
+
+test("locale columns are exactly the supported set (ru removed, et/uk added)", () => {
+  for (const key of Object.keys(STRINGS)) {
+    const cols = Object.keys(STRINGS[key]);
+    assert.deepStrictEqual(cols.sort(), [...LANGS].sort());
+    assert.strictEqual("ru" in STRINGS[key], false);
   }
 });
 

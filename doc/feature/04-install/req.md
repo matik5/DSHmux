@@ -280,27 +280,65 @@ Acceptance criteria:
 3. The R2 flow keeps `sendText(command, false)` prefill (nothing auto-executed
    there); the grep invariant in the test suite is updated to reflect R7.
 
-## R8 — DSH Doctor in the panel header menu (2026-09-05, user)
+## R8 — DSH Doctor in the panel's "…" overflow menu (2026-09-05, user)
 
 The `DSHmux: Run DSH Doctor` command is discoverable only through the command
 palette. User request (2026-09-05): expose it in the DSHmux panel's header
 ("…") menu so the doctor can be re-run manually at any time without knowing
-the command id.
+the command id. User clarification (2026-09-05): the entry must NOT appear as
+a visible button in the panel title bar — it belongs in the "…" overflow menu
+only ("i asked to add dsh Doctor to '...' menu in the right! not to the main
+panel!").
 
 Requirements:
 
-- A `view/title` menu entry shows **Run DSH Doctor** in the DSHmux launcher
-  panel header (theme icon; it overflows into the panel's "…" menu when the
-  header is narrow). It is scoped to `dshmux.view` (not the chat view).
+- A `view/title` menu entry exposes **Run DSH Doctor** in the DSHmux launcher
+  panel's "…" overflow menu only — with no `group: navigation` so it never
+  renders as a visible title-bar button. It is scoped to `dshmux.view` (not
+  the chat view).
 - Reuses the existing `dshmux.doctor` command — no new command, no new code
   path, no new user-visible strings (the nls title already exists).
 
 Acceptance criteria:
 
 1. `package.json` carries the `view/title` menu entry for `dshmux.doctor`
-   with `when: view == dshmux.view`.
-2. Manual smoke: the entry is visible in the panel header / "…" menu and
-   clicking it opens the doctor QuickPick, also before DSH has started.
+   with `when: view == dshmux.view` and no `group: navigation`.
+2. Manual smoke: the entry appears ONLY in the panel's "…" overflow menu (no
+   stethoscope button in the visible title bar) and clicking it opens the
+   doctor QuickPick, also before DSH has started.
+
+## R9 — Locale set change: drop Russian, add Estonian and Ukrainian (2026-09-05, user)
+
+User request (2026-09-05): remove the Russian translation, add Estonian and
+Ukrainian translations, and check all i18n and translation files.
+
+Requirements:
+
+- The central string table (`src/i18nStrings.ts`) supports exactly 10
+  locales: **en, zh, ja, ko, et, es, pt, fr, de, uk**. Russian (`ru`) is
+  removed from every key and from the `I18nRow` type.
+- Every key carries a genuine (non-placeholder, non-English) Estonian and
+  Ukrainian translation, including the keys added by R5–R8.
+- The VS Code language resolver (`src/i18n.ts`) maps `et*` → Estonian and
+  `uk*` → Ukrainian; no `ru` mapping remains (Russian display language
+  falls back to English).
+- The parity test enforces the new 10-locale set and fails on an empty
+  value in any column.
+- All other translation files are checked and consistent: `package.nls.json`
+  (default English) and `package.nls.zh-cn.json` are unaffected (they never
+  carried Russian); `CHANGELOG.md` notes the change in the next release
+  entry.
+
+Acceptance criteria:
+
+1. `grep -c "ru:" src/i18nStrings.ts` is 0; `et:` and `uk:` appear exactly
+   once per key (108 keys at this time — the parity test is the source of
+   truth for key count).
+2. `npm run compile` zero issues; `npm test` green, including the updated
+   i18n parity test over the 10-locale set.
+3. A VS Code window displayed in Estonian or Ukrainian shows the extension
+   UI in that language (resolver mapping verified by the parity/resolver
+   tests; manual smoke optional).
 
 ## R4 — Portable user setup bundles (roadmap I4) — DEFERRED (⏭️)
 

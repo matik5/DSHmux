@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+- The extension UI locale set is now ten locales: **en, zh, ja, ko, et, es, pt, fr, de, uk**. Russian was removed and Estonian and Ukrainian were added; a Russian display language now falls back to English.
+- The DSH Doctor command is now reachable only from the DSHmux panel's "…" overflow menu (it no longer renders as a visible title-bar button).
+
 ## [0.4.4] - 2026-09-05
 
 ### Changed
