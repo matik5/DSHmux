@@ -62,6 +62,11 @@
         "command": "dshmux.openPanel",
         "title": "%command.openPanel.title%",
         "category": "DSHmux"
+      },
+      {
+        "command": "dshmux.doctor",
+        "title": "%command.doctor.title%",
+        "category": "DSHmux"
       }
     ],
     "configuration": {
@@ -133,6 +138,16 @@
           "name": "%view.chat.name%",
           "icon": "media/icon.svg",
           "description": "%view.chat.description%"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "dshmux.doctor",
+          "when": "view == dshmux.view",
+          "group": "navigation",
+          "icon": "$(stethoscope)"
         }
       ]
     }

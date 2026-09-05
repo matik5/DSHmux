@@ -10,6 +10,7 @@
   "setting.soundAsk.description": "Play a sound when the harness asks for your input, such as a question or an approval prompt (requires the master switch to be on).",
   "setting.frameFontScale.description": "Zoom for the embedded DSH UI content (1 = default size). Lower values make the DSH interface more compact.",
   "command.openPanel.title": "Open Panel",
+  "command.doctor.title": "Run DSH Doctor",
   "view.chat.name": "DSHmux Chat",
   "view.chat.description": "DSHmux chat (side panel)"
 }

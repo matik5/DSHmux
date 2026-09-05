@@ -15,7 +15,9 @@ export function registerCommands(
   /** Primary surface: reveal/focus the side-panel chat view (2026-08-23). */
   revealChat: () => void,
   /** Secondary surface: open the editor-tab panel (kept, no longer default). */
-  openEditorPanel: () => void
+  openEditorPanel: () => void,
+  /** DSH Doctor + guided install (04-install R1); registered when provided. */
+  onDoctor?: () => void
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("dshmux.start", async () => {
@@ -48,4 +50,13 @@ export function registerCommands(
       openEditorPanel();
     })
   );
+  // dshmux.doctor (04-install R1): no manager dependency — the report works
+  // pre-start, including on a machine without DSH.
+  if (onDoctor) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand("dshmux.doctor", () => {
+        void onDoctor();
+      })
+    );
+  }
 }
