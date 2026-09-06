@@ -195,9 +195,15 @@ test("primary flow (new clone): ONE modal, 4 echoes, then ONE &&-chained auto-ru
   }
   const chain = sends[4];
   assert.ok(chain.addNewLine, "the chained plan line is auto-executed");
+  // The clone target must track the platform-aware joinPath in
+  // buildSourceClonePlan (backslash separator on win32, quoted for cmd).
+  const target =
+    process.platform === "win32"
+      ? "/tmp/dshmux-test\\deepseek-harness"
+      : "/tmp/dshmux-test/deepseek-harness";
   const plan = [
-    `git clone --branch matik/dsh-patches-0.1.2-rc.1 https://github.com/matik5/deepseek-harness.git "/tmp/dshmux-test/deepseek-harness"`,
-    `cd "/tmp/dshmux-test/deepseek-harness"`,
+    `git clone --branch matik/dsh-patches-0.1.2-rc.1 https://github.com/matik5/deepseek-harness.git "${target}"`,
+    `cd "${target}"`,
     "pnpm install",
     "pnpm build",
   ];
