@@ -12,6 +12,7 @@ const Module = require("node:module");
 
 // --- Mock the virtual `vscode` module (only exists in the extension host). ---
 const openedExternal = [];
+const executedCommands = [];
 const fakeVscode = {
   Uri: {
     file: (p) => ({ fsPath: p, toString: () => "file://" + p }),
@@ -22,6 +23,12 @@ const fakeVscode = {
     remoteName: undefined,
     openExternal: async (u) => {
       openedExternal.push(u.toString());
+    },
+  },
+  commands: {
+    executeCommand: async (id, ...args) => {
+      executedCommands.push([id, ...args]);
+      return undefined;
     },
   },
   workspace: { workspaceFolders: [{ uri: { fsPath: "/tmp/fake-ws" } }] },
@@ -370,4 +377,28 @@ test("view-ready handshake re-pushes cached doctor + status", () => {
   const newMsgs = posted.slice(afterOpen);
   assert.ok(newMsgs.some((m) => m.type === "server-status"), "status re-pushed on handshake");
   assert.ok(newMsgs.some((m) => m.type === "doctor"), "cached doctor re-pushed on handshake");
+});
+
+test("more menu: doctor entry present as last item and routed to dshmux.doctor (R8)", () => {
+  const { view, handlers } = resolveWith(makeReport("ready"));
+  const html = view.webview.html;
+  // All three items are rendered inside the panel's own "…" menu, in order.
+  const editor = html.indexOf('id="openEditor"');
+  const settings = html.indexOf('id="openSettings"');
+  const doctor = html.indexOf('id="openDoctor"');
+  assert.ok(editor !== -1 && settings !== -1 && doctor !== -1,
+    "editor, settings and doctor items all rendered in the '…' menu");
+  assert.ok(editor < settings && settings < doctor,
+    "doctor is the last item of the '…' menu");
+  // The doctor item label comes from the i18n table (doctor.title), not hardcoded.
+  const doctorItem = html.slice(doctor, html.indexOf("</div>", doctor));
+  assert.match(doctorItem, /role="menuitem"/, "doctor entry is a proper menuitem");
+  // The webview postMessage routes to the host dshmux.doctor command.
+  executedCommands.length = 0;
+  handlers[0]({ type: "open-doctor" });
+  assert.deepStrictEqual(
+    executedCommands,
+    [["dshmux.doctor"]],
+    "open-doctor posts to the host and executes dshmux.doctor"
+  );
 });

@@ -276,6 +276,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
         <div class="more-menu" id="moreMenu" role="menu" style="display:none">
           <button class="more-item" id="openEditor" role="menuitem">${t("launcher.openInEditor")}</button>
           <button class="more-item" id="openSettings" role="menuitem">${t("launcher.openSettings")}</button>
+          <button class="more-item" id="openDoctor" role="menuitem">${t("doctor.title")}</button>
         </div>
       </div>
     </div>
@@ -331,6 +332,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
   var sessionsList = document.getElementById("sessionsList");
   var openEditor = document.getElementById("openEditor");
   var openSettings = document.getElementById("openSettings");
+  var openDoctor = document.getElementById("openDoctor");
   var moreBtn = document.getElementById("moreBtn");
   var moreMenu = document.getElementById("moreMenu");
   var archExpanded = false; // survives the 5s poll re-render (archive section)
@@ -419,6 +421,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
   };
   openEditor.onclick = function(){ closeMoreMenu(); vscode.postMessage({ type: "open-in-editor" }); };
   openSettings.onclick = function(){ closeMoreMenu(); vscode.postMessage({ type: "open-settings" }); };
+  openDoctor.onclick = function(){ closeMoreMenu(); vscode.postMessage({ type: "open-doctor" }); };
   document.addEventListener("click", function(ev) {
     if (moreMenu.style.display === "block" && !moreMenu.contains(ev.target) && ev.target !== moreBtn) closeMoreMenu();
   });
@@ -796,6 +799,8 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
         this.onOpenInEditor();
       } else if (m.type === "open-settings") {
         void vscode.commands.executeCommand("workbench.action.openSettings", "@ext:matik5.dshmux");
+      } else if (m.type === "open-doctor") {
+        void vscode.commands.executeCommand("dshmux.doctor");
       } else if (m.type === "refresh-sessions") {
         this.refreshSessions();
       }

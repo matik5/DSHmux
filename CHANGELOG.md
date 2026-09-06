@@ -4,7 +4,7 @@
 
 ### Changed
 - The extension UI locale set is now ten locales: **en, zh, ja, ko, et, es, pt, fr, de, uk**. Russian was removed and Estonian and Ukrainian were added; a Russian display language now falls back to English.
-- The DSH Doctor command is now reachable only from the DSHmux panel's "…" overflow menu (it no longer renders as a visible title-bar button).
+- The DSH Doctor is now reachable from the DSHmux panel's own "…" menu (the same menu as "Open in editor" and "Settings", as its last entry) — in addition to the command palette.
 
 ### Fixed
 - `dshmux.dshPath` pointing at a source-checkout **folder** (instead of the built file): DSHmux now resolves it to the built `apps/cli/lib/bin.js` when starting, and the DSH Doctor reports such a checkout as valid (install type `source`) instead of failing.

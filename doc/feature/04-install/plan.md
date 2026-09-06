@@ -24,7 +24,7 @@
 | R5: visible DSHmux setup terminal + echo-then-prefill order (R2 prefill stays never-auto-executed; the primary flow is superseded by R7) | T10, T12 | `test/installService.test.js` (vscode mock) + grep invariant |
 | R6: "Source on GitHub →" row on the setup panel opens the exact tested branch (URL derived from frozen constants) | T11 | `test/dshLauncher.test.js` (row in panel HTML + `openExternal` routing) |
 | R7: primary new-clone flow auto-runs in the setup terminal — one final modal (all commands listed), `&&`-chained single send, end toast | T12 | `test/installService.test.js` (one modal, 4 echoes + 1 chained send) + updated grep invariant |
-| R8: doctor command reachable from the DSHmux panel's "…" overflow menu only (not the title bar) | T13 | manual smoke on a fresh instance (entry in "…" menu, not title bar; opens the doctor QuickPick) |
+| R8: DSH Doctor in the launcher panel's own webview "…" menu (last item; same menu as "Open in editor" / "Settings"), no `view/title` contribution | T13 | `test/dshLauncher.test.js` (doctor item present + last in initial HTML; `open-doctor` → `executeCommand("dshmux.doctor")`) + manual smoke on a reloaded instance |
 | R9: locale set = en, zh, ja, ko, et, es, pt, fr, de, uk (ru removed; et/uk added, all keys) | T14 | `test/i18n.test.js` parity over the 10-locale set + `grep -c "ru:"` = 0 + compile |
 | R10: checkout-directory `dshPath` resolves to the built CLI entry (start + Doctor; file/missing/unbuilt unchanged) | T15 | `test/serverManager.test.js` + `test/dshDoctor.test.js` resolution matrix |
 | Cross-cutting: 9-locale strings, EN+ZH synced | T5 | `npm test` (i18n parity test) + compile |
@@ -185,14 +185,21 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 
 **Completion criteria**: `npm run compile` + `npm test` green; manual smoke: new-clone flow runs all four steps visibly in the terminal from one modal, a cancelled modal leaves the machine unchanged.
 
-### T13 — DSH Doctor in the panel's "…" overflow menu (R8) — ⏳
+### T13 — DSH Doctor in the launcher panel's "…" menu, last item (R8) — ⏳
 
-**Files**: `package.json` (edit — one `view/title` menu entry)
+> **Revision (2026-09-06, user clarification)**: the entry goes into the
+> launcher panel's **own webview "…" menu** (the one with "Open in editor"
+> and "Settings") as the **last** item — not a VS Code `view/title`
+> contribution. The previously committed `view/title` entry is removed.
 
-- [x] `contributes.menus["view/title"]` += `{ "command": "dshmux.doctor", "when": "view == dshmux.view", "icon": "$(stethoscope)" }` (NO `group: navigation`, so it renders in the "…" overflow menu only — never as a title-bar button) — reuses the existing `dshmux.doctor` command and its nls title (`%command.doctor.title%`); no code change, no new strings.
-- [ ] Manual smoke: on a fresh instance the entry appears ONLY in the DSHmux panel's "…" overflow menu (no stethoscope button in the title bar) and clicking it opens the doctor QuickPick — also before DSH has started.
+**Files**: `src/launcherView.ts` (edit — menu item + postMessage + host case), `package.json` (edit — remove `contributes.menus`), `test/dshLauncher.test.js` (edit — new tests)
 
-**Completion criteria**: `npm test` green; entry in the "…" menu (not the title bar) and functional in the restarted smoke instance.
+- [x] `src/launcherView.ts`: add `<button class="more-item" id="openDoctor" role="menuitem">${t("doctor.title")}</button>` as the LAST child of `#moreMenu`; `openDoctor.onclick` posts `{ type: "open-doctor" }` (same `closeMoreMenu()` pattern as its siblings); host `onDidReceiveMessage` case `"open-doctor"` → `vscode.commands.executeCommand("dshmux.doctor")`. Reuses the existing `doctor.title` i18n string and the existing `dshmux.doctor` command — no new strings.
+- [x] `package.json`: remove the whole `contributes.menus` object (the doctor `view/title` entry was its only member) — no VS Code menu contribution for the doctor.
+- [x] `test/dshLauncher.test.js`: fake vscode gains a `commands.executeCommand` recorder; new test asserts the doctor item is present and LAST in the initial "…" menu HTML and that the `open-doctor` message routes to `executeCommand("dshmux.doctor")`.
+- [ ] Manual smoke (after `Dev: Reload Window`): the panel "…" menu shows Open in editor, Settings, DSH Doctor (localized) with the doctor LAST; clicking it opens the doctor QuickPick — also before DSH has started.
+
+**Completion criteria**: `npm run compile` zero issues; `npm test` green (217/217); menu order + routing covered by the new unit test; entry last in the "…" menu and functional in the reloaded smoke instance.
 
 ### T14 — Locale set change: drop ru, add et + uk (R9) — ✅
 

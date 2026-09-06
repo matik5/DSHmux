@@ -144,15 +144,6 @@
           "description": "%view.chat.description%"
         }
       ]
-    },
-    "menus": {
-      "view/title": [
-        {
-          "command": "dshmux.doctor",
-          "when": "view == dshmux.view",
-          "icon": "$(stethoscope)"
-        }
-      ]
     }
   },
   "scripts": {

@@ -280,32 +280,40 @@ Acceptance criteria:
 3. The R2 flow keeps `sendText(command, false)` prefill (nothing auto-executed
    there); the grep invariant in the test suite is updated to reflect R7.
 
-## R8 — DSH Doctor in the panel's "…" overflow menu (2026-09-05, user)
+## R8 — DSH Doctor in the launcher panel's "…" menu (2026-09-05, user; clarified 2026-09-06)
 
 The `DSHmux: Run DSH Doctor` command is discoverable only through the command
 palette. User request (2026-09-05): expose it in the DSHmux panel's header
 ("…") menu so the doctor can be re-run manually at any time without knowing
-the command id. User clarification (2026-09-05): the entry must NOT appear as
-a visible button in the panel title bar — it belongs in the "…" overflow menu
-only ("i asked to add dsh Doctor to '...' menu in the right! not to the main
-panel!").
+the command id.
+
+Clarification (2026-09-06): the intended menu is the launcher panel's **own
+webview "…" menu** — the same menu that already contains "Open in editor" and
+"Settings" — not a VS Code `view/title` menu contribution (an intermediate
+`view/title` entry was committed and is removed by this revision). The doctor
+entry must be the **last** item of that menu.
 
 Requirements:
 
-- A `view/title` menu entry exposes **Run DSH Doctor** in the DSHmux launcher
-  panel's "…" overflow menu only — with no `group: navigation` so it never
-  renders as a visible title-bar button. It is scoped to `dshmux.view` (not
-  the chat view).
-- Reuses the existing `dshmux.doctor` command — no new command, no new code
-  path, no new user-visible strings (the nls title already exists).
+- The launcher webview "…" menu (`#moreMenu`) gains one entry labelled with
+  the existing `doctor.title` i18n string, rendered after "Open in editor"
+  and "Settings" (i.e. last).
+- Clicking it posts `{ type: "open-doctor" }` to the extension host, which
+  executes the existing `dshmux.doctor` command (the doctor QuickPick). No new
+  command and no new user-visible strings.
+- No `view/title` (or any other) package.json menu contribution exists for the
+  doctor.
 
 Acceptance criteria:
 
-1. `package.json` carries the `view/title` menu entry for `dshmux.doctor`
-   with `when: view == dshmux.view` and no `group: navigation`.
-2. Manual smoke: the entry appears ONLY in the panel's "…" overflow menu (no
-   stethoscope button in the visible title bar) and clicking it opens the
-   doctor QuickPick, also before DSH has started.
+1. The panel "…" menu shows the items in order: Open in editor, Settings,
+   DSH Doctor (localized) — the doctor last.
+2. Clicking the entry opens the doctor QuickPick (also before DSH has
+   started); the menu closes on click like its siblings.
+3. Unit tests: the doctor entry is present and last in the initial HTML; the
+   `open-doctor` message routes to
+   `vscode.commands.executeCommand("dshmux.doctor")`.
+4. `package.json` carries no `menus` contribution.
 
 ## R9 — Locale set change: drop Russian, add Estonian and Ukrainian (2026-09-05, user)
 
