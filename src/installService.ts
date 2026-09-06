@@ -8,7 +8,9 @@
 //  - The R2 npm/npx flow and all guidance paths stay prefill-only:
 //    `sendText(cmd, false)`, the user presses Enter; the only auto-executed
 //    text there is the fixed `printf` echo line (R5);
-//  - the only write is `dshmux.dshPath` at Machine scope, behind an explicit
+//  - the only write is `dshmux.dshPath` to user settings
+//    (`ConfigurationTarget.Global` — the VS Code API has no machine-settings
+//    target; the setting is `machine-overridable`), behind an explicit
 //    per-click confirmation that shows the exact path;
 //  - every dialog can be cancelled and leaves the machine unchanged.
 import * as os from "node:os";

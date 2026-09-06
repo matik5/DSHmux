@@ -14,7 +14,10 @@ Give a first-time user a beginner-safe path to a working DSH: a read-only
 host, and guided installation flows where the **primary recommendation is the
 patched `matik5/deepseek-harness` branch** (carries the two compatibility
 patches mainline lacks) and the **mainline npm package is the labeled
-alternative**. All commands are shown and prefilled — never executed by DSHmux.
+alternative**. All commands are shown and prefilled — with the R7 exception:
+the primary new-clone flow, behind ONE final modal listing every command,
+auto-executes its whole plan in the setup terminal (supersedes the
+no-auto-execute rule for that flow only); every other path stays prefill-only.
 
 Scope this round: **R1 (Doctor) + R2 (npm/npx) + R3 (source checkout)**.
 R4 (setup bundles) is DEFERRED to `TODO.md`; nothing in this solution builds
