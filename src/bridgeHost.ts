@@ -89,6 +89,11 @@ export class BridgeHost {
     }
   }
 
+  /** Drop relayed sockets before the webview document is replaced (see WsRelay.reset). */
+  resetSockets(): void {
+    this.wsRelay.reset();
+  }
+
   dispose(): void {
     this.wsRelay.dispose();
     for (const d of this.disposables) d.dispose();

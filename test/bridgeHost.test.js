@@ -167,6 +167,45 @@ test("WsRelay reports ws-open-res ok:false when the server is unreachable", asyn
   relay.dispose();
 });
 
+test("WsRelay.reset() closes leaked sockets and frees their ids for the new page", async (t) => {
+  // Simulates a webview document swap (webview.html = ...): the old page world
+  // dies without sending ws-close, and the new world re-mints ids from 1.
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((r) => wss.once("listening", r));
+  t.after(() => wss.close());
+  const { port } = wss.address();
+  const base = `http://127.0.0.1:${port}`;
+  let serverConnections = 0;
+  wss.on("connection", (socket) => {
+    serverConnections += 1;
+    socket.on("close", () => {
+      serverConnections -= 1;
+    });
+    socket.on("message", (data) => socket.send("echo:" + data.toString()));
+  });
+
+  const posts = [];
+  const relay = new WsRelay((msg) => posts.push(msg), () => base);
+
+  // Old page: opens its stream socket with the small webview-assigned id 1.
+  relay.open(1, "/api/remote.mux");
+  await waitFor(() => posts.some((p) => p.type === "ws-open-res" && p.id === 1 && p.ok));
+  assert.equal(serverConnections, 1);
+
+  // Document swap: no ws-close arrives; reset() must drop the leaked socket.
+  relay.reset();
+  await waitFor(() => serverConnections === 0);
+  // The dying socket must not post a stale ws-close into the new page.
+  assert.ok(!posts.some((p) => p.type === "ws-close" && p.id === 1));
+
+  // New page re-mints id 1: it must get a FRESH working socket, not a no-op.
+  relay.open(1, "/api/remote.mux");
+  await waitFor(() => posts.filter((p) => p.type === "ws-open-res" && p.id === 1 && p.ok).length === 2);
+  relay.send(1, "hi");
+  await waitFor(() => posts.some((p) => p.type === "ws-frame" && p.id === 1 && p.data === "echo:hi"));
+  relay.dispose();
+});
+
 function waitFor(pred, timeoutMs = 3000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {

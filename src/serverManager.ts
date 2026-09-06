@@ -70,6 +70,15 @@ const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const SIGKILL_GRACE_MS = 6_000;
 const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
+// Bound for a single /api request. Without it a stale keep-alive socket in a
+// long-lived extension host can hang the fetch forever: apiOnce never rejects,
+// so a click (e.g. "+ New session") silently does nothing — no toast, no log.
+const API_REQUEST_TIMEOUT_MS = 15_000;
+
+/** Resolve after `ms` milliseconds (retry backoff for the restore path). */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type ApiProtocol = "legacy" | "remote";
 
@@ -433,11 +442,33 @@ export function resolveDshPath(
   };
 }
 
+/** CLI entry inside a source checkout (built with `pnpm build`). */
+export const CHECKOUT_BIN_REL = "apps/cli/lib/bin.js";
+
+/**
+ * Resolve a configured `dshPath` that points at a source-checkout DIRECTORY
+ * to its built CLI entry (`<dir>/apps/cli/lib/bin.js`) (04-install R10).
+ * Anything else — file paths, unbuilt checkouts, missing paths — is returned
+ * unchanged so callers apply their existing exists/discovery handling.
+ */
+export function resolveConfiguredDshPath(p: string): string {
+  try {
+    if (fs.statSync(p).isDirectory()) {
+      const bin = path.join(p, CHECKOUT_BIN_REL);
+      if (fs.existsSync(bin)) return bin;
+    }
+  } catch {
+    /* not stat-able (missing, permissions) — treat as a plain file path */
+  }
+  return p;
+}
+
 /**
  * Choose which binary to spawn for a start. An explicit `opts.dshBin` is
  * authoritative (used as-is, even if missing). The configured `dshPath` is
- * best-effort: if it does not exist on this host — e.g. a local path carried
- * onto a remote via synced or workspace settings — it is ignored and
+ * best-effort: a source-checkout directory is resolved to its built CLI
+ * entry; if the result does not exist on this host — e.g. a local path
+ * carried onto a remote via synced or workspace settings — it is ignored and
  * auto-discovery runs instead, so a stale setting can never break startup.
  */
 export function resolveStartBin(
@@ -447,8 +478,10 @@ export function resolveStartBin(
   platform: NodeJS.Platform = process.platform
 ): { path: string | null; tried: string[] } {
   const explicitBin = opts.dshBin?.trim();
-  const configuredValid = configuredBin !== undefined && fs.existsSync(configuredBin);
-  const preferredBin = explicitBin ?? (configuredValid ? configuredBin : undefined);
+  const configuredPath =
+    configuredBin !== undefined ? resolveConfiguredDshPath(configuredBin) : undefined;
+  const configuredValid = configuredPath !== undefined && fs.existsSync(configuredPath);
+  const preferredBin = explicitBin ?? (configuredValid ? configuredPath : undefined);
   return preferredBin
     ? { path: preferredBin, tried: [preferredBin] }
     : resolveDshPath(home, platform);
@@ -778,6 +811,10 @@ export class DshServerManager extends EventEmitter {
         method: wireMethod,
         payload: wirePayload,
       }),
+      // A stale pooled socket must not hang the caller forever; time out so the
+      // promise rejects (visible error) instead of deadlocking the UI. A timeout
+      // is not a 404, so api() will not retry a mutating RPC after it.
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
     });
     const text = await res.text();
     if (!res.ok) {
@@ -946,6 +983,43 @@ export class DshServerManager extends EventEmitter {
     if (bound) return bound.sessionId;
     // 2. No usable session yet — create one bound to this workspace.
     return (await this.api("session.create", { workspaceId: workspace.workspaceId })).sessionId;
+  }
+
+  /**
+   * `ensureWorkspaceSession` with bounded retries, for the startup-restore path.
+   *
+   * A full VS Code restart boots one `dsh web` child per window, all against the
+   * shared ~/.dsh. While the co-booting servers settle (and contend on the shared
+   * state files), workspace queries can transiently fail — both the
+   * workspace/follow stream (5 s baseline timeout) and the legacy workspace.list.
+   * A single failed attempt skips the `dsh.sessions.current` preset, and the DSH
+   * frontend then falls back to the GLOBAL most-recent workspace: the wrong
+   * session in the wrong window. Retrying a few times lets the server settle so
+   * the preset is baked.
+   *
+   * Stops early when the server leaves "ready" (window closed / dsh stopped).
+   * Throws the last error when every attempt fails; the caller then degrades to
+   * the no-preset default.
+   */
+  async ensureWorkspaceSessionResilient(
+    cwd: string,
+    opts: { attempts?: number; delayMs?: number } = {}
+  ): Promise<string> {
+    const attempts = Math.max(1, opts.attempts ?? 3);
+    const delayMs = Math.max(0, opts.delayMs ?? 1500);
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) {
+        await sleep(delayMs);
+        if (this.state !== "ready") break; // server stopped mid-retry
+      }
+      try {
+        return await this.ensureWorkspaceSession(cwd);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 
   /**

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Changed
+- The extension UI locale set is now ten locales: **en, zh, ja, ko, et, es, pt, fr, de, uk**. Russian was removed and Estonian and Ukrainian were added; a Russian display language now falls back to English.
+- The DSH Doctor is now reachable from the DSHmux panel's own "…" menu (the same menu as "Open in editor" and "Settings", as its last entry) — in addition to the command palette.
+
+### Fixed
+- `dshmux.dshPath` pointing at a source-checkout **folder** (instead of the built file): DSHmux now resolves it to the built `apps/cli/lib/bin.js` when starting, and the DSH Doctor reports such a checkout as valid (install type `source`) instead of failing.
+- The `dshmux.completionSound` master setting was rendered apart from the other DSHmux sound settings in the Settings UI; the four sound settings now appear as one ordered group (master switch above the per-sound toggles).
+
+## [0.4.4] - 2026-09-05
+
+### Changed
+- The launcher's DSH compatibility badge is now anchored to dsh `0.1.2-rc.1` (previously `0.1.2-alpha.2`), verified against this release's session switching, new-session, and embedded-client flows.
+- Removed the temporary diagnostic JSONL logging (`dshmux-diag.jsonl`) that tracked the session-switch bug; the fix shipped in 0.4.3 and the diagnostics are no longer needed.
+
+## [0.4.3] - 2026-09-05
+
+### Fixed
+- Side-panel chat: switching to another session could leave the embedded DSH UI empty (workspaces and session lists not loading). The previous page's WebSocket relay connections survived the document swap and blocked the new page's stream socket ids; DSHmux now drops relayed sockets before the embedded document is replaced (editor-tab panel included).
+- "+ New session" could hang silently when the DSH server stopped responding to API requests; requests now time out after 15 seconds and surface a warning instead of waiting forever.
+- The IDE-workspace session preset on (re)start now retries transient workspace-session failures when several DSH instances co-boot after a VS Code restart, instead of falling back to the global most-recent workspace.
+
 ## [0.4.0] - 2026-08-31
 
 ### Added

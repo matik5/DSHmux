@@ -53,6 +53,52 @@
   var DARK_QUERY = "(prefers-color-scheme: dark)";
   var darkOverride; // undefined = real media; boolean = forced by VS Code theme
   var mediaListeners = new Set();
+  // DSH owns a semantic token palette while VS Code exposes the active color
+  // theme through live --vscode-* variables. Point the main DSH surfaces at
+  // those variables (instead of copying resolved colors) so light -> light and
+  // dark -> dark theme changes are visible too, without another host message.
+  var vscodeThemeTokens = {
+    "--dsw-alias-bg-base": "var(--vscode-editor-background)",
+    "--dsw-alias-bg-layer-1": "var(--vscode-editorWidget-background, var(--vscode-editor-background))",
+    "--dsw-alias-bg-layer-2": "var(--vscode-input-background, var(--vscode-editor-background))",
+    "--dsw-alias-bg-layer-3": "var(--vscode-dropdown-background, var(--vscode-editor-background))",
+    "--dsw-alias-bg-module-platform": "var(--vscode-sideBar-background, var(--vscode-editor-background))",
+    "--dsw-alias-bg-overlay": "var(--vscode-editorWidget-background, var(--vscode-editor-background))",
+    "--dsw-alias-border-l1": "var(--vscode-widget-border, var(--vscode-panel-border, transparent))",
+    "--dsw-alias-border-l2": "var(--vscode-panel-border, var(--vscode-widget-border, transparent))",
+    "--dsw-alias-border-l3": "var(--vscode-contrastBorder, var(--vscode-focusBorder))",
+    "--dsw-alias-label-primary": "var(--vscode-editor-foreground, var(--vscode-foreground))",
+    "--dsw-alias-label-secondary": "var(--vscode-descriptionForeground, var(--vscode-foreground))",
+    "--dsw-alias-label-tertiary": "var(--vscode-descriptionForeground, var(--vscode-foreground))",
+    "--dsw-alias-label-caption": "var(--vscode-disabledForeground, var(--vscode-descriptionForeground))",
+    "--dsw-alias-label-dimmed": "var(--vscode-disabledForeground, var(--vscode-descriptionForeground))",
+    "--dsw-alias-label-primary-foreground": "var(--vscode-button-foreground)",
+    "--dsw-alias-button-primary-fill": "var(--vscode-button-background)",
+    "--dsw-alias-button-primary-hover": "var(--vscode-button-hoverBackground)",
+    "--dsw-alias-interactive-bg-active": "var(--vscode-list-activeSelectionBackground)",
+    "--dsw-alias-interactive-bg-hover": "var(--vscode-list-hoverBackground)",
+    "--dsw-alias-interactive-bg-hover-solid": "var(--vscode-list-hoverBackground)",
+    "--dsw-alias-markdown-code-block": "var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background))",
+    "--dsw-alias-markdown-inline-code": "var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background))",
+    "--dsw-specific-input-major": "var(--vscode-input-background)",
+    "--dsw-specific-menu": "var(--vscode-dropdown-background, var(--vscode-editorWidget-background))",
+    "--dsw-specific-sidebar-fill": "var(--vscode-sideBar-background, var(--vscode-editor-background))",
+    "--dsw-specific-sidebar-nav-item-active": "var(--vscode-list-activeSelectionBackground)",
+    "--dsw-specific-sidebar-nav-item-hover": "var(--vscode-list-hoverBackground)",
+    "--dsw-specific-bubble": "var(--vscode-editorWidget-background, var(--vscode-editor-background))",
+  };
+
+  function applyThemeToDocument() {
+    if (darkOverride === undefined || typeof document === "undefined") return;
+    if (document.documentElement && document.documentElement.style) {
+      document.documentElement.style.colorScheme = darkOverride ? "dark" : "light";
+    }
+    if (!document.body) return;
+    document.body.toggleAttribute("data-ds-dark-theme", darkOverride);
+    Object.keys(vscodeThemeTokens).forEach(function (name) {
+      document.body.style.setProperty(name, vscodeThemeTokens[name]);
+    });
+  }
   window.matchMedia = function (query) {
     if (query !== DARK_QUERY) return realMatchMedia(query);
     return {
@@ -66,7 +112,13 @@
       removeListener: function (fn) { mediaListeners.delete(fn); },
     };
   };
-  if (bridge.dark !== undefined) darkOverride = !!bridge.dark;
+  if (bridge.dark !== undefined) {
+    darkOverride = !!bridge.dark;
+    if (typeof document !== "undefined") {
+      if (document.body) applyThemeToDocument();
+      else document.addEventListener("DOMContentLoaded", applyThemeToDocument, { once: true });
+    }
+  }
 
   // ------------------------------------------------------------------ fetch
   var nativeFetch = window.fetch.bind(window);
@@ -513,6 +565,9 @@
       }
       case "theme-preference": {
         darkOverride = !!msg.dark;
+        // Also update the DOM directly. This is a compatibility fallback for
+        // DSH builds whose ThemeRuntime is not listening in "system" mode.
+        applyThemeToDocument();
         mediaListeners.forEach(function (fn) {
           try {
             fn({ matches: darkOverride, media: DARK_QUERY });

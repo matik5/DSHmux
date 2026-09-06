@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
-const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, resolveConfiguredDshPath, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -439,6 +439,52 @@ test("resolveStartBin ignores a configured dshPath missing on this host (falls b
     assert.equal(explicit.path, stale);
   } finally {
     fs.rmSync(emptyHome, { recursive: true, force: true });
+  }
+});
+
+test("resolveConfiguredDshPath resolves a source-checkout directory to its built CLI", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-checkout-"));
+  try {
+    // A plain file path is returned unchanged.
+    const file = path.join(home, "bin");
+    fs.writeFileSync(file, "#!/bin/sh\n");
+    assert.equal(resolveConfiguredDshPath(file), file);
+
+    // A missing path is returned unchanged (caller applies discovery).
+    const missing = path.join(home, "nope");
+    assert.equal(resolveConfiguredDshPath(missing), missing);
+
+    // A checkout directory WITHOUT a built bin.js is returned unchanged.
+    const unbuilt = path.join(home, "checkout-unbuilt");
+    fs.mkdirSync(unbuilt, { recursive: true });
+    assert.equal(resolveConfiguredDshPath(unbuilt), unbuilt);
+
+    // A checkout directory WITH apps/cli/lib/bin.js resolves to that file.
+    const checkout = path.join(home, "checkout");
+    const bin = path.join(checkout, "apps", "cli", "lib", "bin.js");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/usr/bin/env node\n");
+    assert.equal(resolveConfiguredDshPath(checkout), bin);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveStartBin spawns a source-checkout directory's built CLI", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-checkout-start-"));
+  try {
+    const checkout = path.join(home, "deepseek-harness");
+    const bin = path.join(checkout, "apps", "cli", "lib", "bin.js");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/usr/bin/env node\n");
+    // Configured path is the checkout directory -> resolves to the built bin.
+    assert.equal(resolveStartBin({}, checkout, home, "linux").path, bin);
+    // A configured directory without a built bin is not invented out of thin air.
+    const unbuilt = path.join(home, "checkout-unbuilt");
+    fs.mkdirSync(unbuilt, { recursive: true });
+    assert.equal(resolveStartBin({}, unbuilt, home, "linux").path, unbuilt);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 
@@ -931,6 +977,113 @@ test("ensureWorkspaceSession skips archived sessions and creates a fresh one", a
     const id = await manager.ensureWorkspaceSession("/ws/a");
     assert.equal(id, "s2");
     assert.ok(methods.includes("session.create"));
+  } finally {
+    restore();
+  }
+});
+
+// Shared mock: `workspace.list` fails for the first `failTimes` calls (a
+// co-booting dsh server still settling on the shared ~/.dsh), then returns a
+// workspace bound to /ws/a with one blank session s1.
+function resilientMock(failTimes) {
+  let workspaceListCalls = 0;
+  const restore = mockFetch((req) => {
+    if (req.method === "workspace.list") {
+      workspaceListCalls++;
+      if (workspaceListCalls <= failTimes) {
+        return { result: { ok: false, error: { message: "transient: server settling" } } };
+      }
+      return {
+        result: {
+          ok: true,
+          value: {
+            items: [{ workspaceId: "w1", path: "/ws/a", sessionIds: ["s1"] }],
+            archivedSessionIds: [],
+          },
+        },
+      };
+    }
+    if (req.method === "session.list") {
+      return {
+        result: {
+          ok: true,
+          value: {
+            items: [
+              { sessionId: "s1", updatedAt: 1, running: false, blank: true, cwd: "/ws/a", projections: { values: { title: null } } },
+            ],
+          },
+        },
+      };
+    }
+    return { result: { ok: false, error: { message: "unexpected " + req.method } } };
+  });
+  return { restore, calls: () => workspaceListCalls };
+}
+
+test("ensureWorkspaceSessionResilient succeeds on the first attempt", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(0);
+  try {
+    const id = await manager.ensureWorkspaceSessionResilient("/ws/a", { delayMs: 1 });
+    assert.equal(id, "s1");
+    assert.equal(calls(), 1, "must not retry on first-attempt success");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient retries transient failures then succeeds", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(2); // fail twice, succeed on the 3rd
+  try {
+    const id = await manager.ensureWorkspaceSessionResilient("/ws/a", { delayMs: 1 });
+    assert.equal(id, "s1");
+    assert.equal(calls(), 3, "must retry until the co-booting server settles");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient throws after every attempt fails", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  const { restore, calls } = resilientMock(Infinity); // never settles
+  try {
+    await assert.rejects(
+      manager.ensureWorkspaceSessionResilient("/ws/a", { attempts: 3, delayMs: 1 }),
+      (err) => {
+        assert.match(err.message, /transient: server settling/);
+        return true;
+      }
+    );
+    assert.equal(calls(), 3, "must stop after the configured attempt count");
+  } finally {
+    restore();
+  }
+});
+
+test("ensureWorkspaceSessionResilient stops early when the server leaves ready", async () => {
+  const manager = apiManager();
+  manager._state = "ready";
+  let workspaceListCalls = 0;
+  const restore = mockFetch((req) => {
+    if (req.method === "workspace.list") {
+      workspaceListCalls++;
+      // The window is closed / dsh stops right after the first failed attempt.
+      manager._state = "stopped";
+      return { result: { ok: false, error: { message: "transient: server settling" } } };
+    }
+    return { result: { ok: false, error: { message: "unexpected " + req.method } } };
+  });
+  try {
+    await assert.rejects(
+      manager.ensureWorkspaceSessionResilient("/ws/a", { attempts: 3, delayMs: 1 })
+    );
+    // The first attempt runs while ready; the non-ready check before the next
+    // retry breaks the loop, so no second attempt is made against a dead server.
+    assert.equal(workspaceListCalls, 1, "must not keep retrying a stopped server");
   } finally {
     restore();
   }

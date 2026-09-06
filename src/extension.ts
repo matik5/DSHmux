@@ -9,7 +9,16 @@ import { DshServerManager } from "./serverManager.js";
 import { registerCommands, workspaceRoot } from "./commands.js";
 import { DshPanel } from "./dshPanel.js";
 import { SessionPanelManager } from "./sessionPanels.js";
-import { DshLauncherView } from "./launcherView.js";
+import { DshLauncherView, type DoctorActions } from "./launcherView.js";
+import {
+  runAlternativeInstallFlow,
+  runDoctorCommand,
+  runDoctorForLauncher,
+  runGitInstallGuidance,
+  runNodeInstallGuidance,
+  runPnpmInstallGuidance,
+  runPrimaryInstallFlow,
+} from "./installService.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
@@ -73,12 +82,19 @@ export function activate(context: vscode.ExtensionContext): void {
   const m = manager;
   m.on("state", async (info) => {
     if (info.state !== "ready") return;
+    const root = workspaceRoot();
     await theme.syncNow();
     let wsSessionId: string | undefined;
     try {
-      wsSessionId = await m.ensureWorkspaceSession(workspaceRoot());
+      // Resilient variant: a full restart boots one dsh child per window against
+      // the shared ~/.dsh, so the first workspace query can transiently fail
+      // while the co-booting servers settle. Without a retry the preset is
+      // skipped and the DSH frontend falls back to the GLOBAL most-recent
+      // workspace — the wrong session in the wrong window.
+      wsSessionId = await m.ensureWorkspaceSessionResilient(root);
     } catch (err) {
-      console.log("[dsh] workspace-session preset skipped:", err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log("[dsh] workspace-session preset skipped after retries:", msg);
     }
     // Primary surface (2026-08-23): the side-panel chat view shows ONE session
     // at a time (Copilot-style). Load the IDE-workspace session into it. The
@@ -123,6 +139,29 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
+  // DSH Doctor + guided install (04-install R1–R3). Every entry point runs on
+  // the WORKSPACE host (remote windows diagnose the remote); the panel's
+  // "Check again" re-opens the full report and refreshes the launcher so the
+  // setup panel reflects any change the user made in the terminal.
+  const doctorActions: DoctorActions = {
+    // The full report (QuickPick); afterwards re-run the doctor so the panel
+    // reflects any machine change (e.g. a dshPath write from the flow).
+    checkAgain: () => {
+      void runDoctorCommand().then(() => launcher?.refresh(true));
+    },
+    primary: () => {
+      void runPrimaryInstallFlow(runDoctorForLauncher()).then(() =>
+        launcher?.refresh(true)
+      );
+    },
+    alternative: () => {
+      void runAlternativeInstallFlow().then(() => launcher?.refresh(true));
+    },
+    node: () => void runNodeInstallGuidance(),
+    git: () => void runGitInstallGuidance(),
+    pnpm: () => void runPnpmInstallGuidance(),
+  };
+
   registerCommands(
     context,
     manager,
@@ -130,7 +169,9 @@ export function activate(context: vscode.ExtensionContext): void {
     // generates a `<viewId>.focus` command for every contributed view).
     revealChat,
     // Secondary surface: open the editor-tab panel (kept for now).
-    () => panels.open()
+    () => panels.open(),
+    // DSH Doctor (04-install R1): palette command, works pre-start.
+    () => void runDoctorCommand()
   );
 
   // Session handlers: new/open session loads it into the side-panel chat view
@@ -145,9 +186,8 @@ export function activate(context: vscode.ExtensionContext): void {
       chatView?.loadSession(sessionId);
       launcher?.refreshSessions();
     } catch (err) {
-      void vscode.window.showWarningMessage(
-        `DSHmux: failed to create session — ${err instanceof Error ? err.message : err}`
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      void vscode.window.showWarningMessage(`DSHmux: failed to create session — ${msg}`);
     }
   };
   const onOpenSession = (sessionId: string): void => {
@@ -179,7 +219,9 @@ export function activate(context: vscode.ExtensionContext): void {
     { newSession: () => void onNewSession(), openSession: onOpenSession, renameSession: onRenameSession, archiveSession: (sid) => void onArchiveSession(sid) },
     // Secondary surface: open the editor tab for the session currently shown
     // in the side-panel chat view (falls back to the default panel when none).
-    () => panels.open(chatView?.shownSessionId)
+    () => panels.open(chatView?.shownSessionId),
+    // Doctor + setup-panel actions (04-install R1–R3).
+    doctorActions
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(DshLauncherView.viewType, launcher)

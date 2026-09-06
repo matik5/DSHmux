@@ -300,7 +300,9 @@ export class DshChatView implements vscode.WebviewViewProvider {
   loadSession(sessionId: string): void {
     // No-op when the view is already showing this exact session (avoids a
     // pointless re-assembly + flicker on re-click).
-    if (sessionId && sessionId === this.currentSessionId && this.assembled) return;
+    if (sessionId && sessionId === this.currentSessionId && this.assembled) {
+      return;
+    }
     // Dim the currently rendered session immediately. The replacement document
     // starts with the same overlay, so feedback remains visible across the
     // asynchronous re-assembly and DSH frontend boot phases.
@@ -363,7 +365,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
       });
       // A newer refresh superseded this one (e.g. loadSession raced the
       // ready-handler refresh): drop the stale result so the latest preset wins.
-      if (seq !== this.refreshSeq) return;
+      if (seq !== this.refreshSeq) {
+        return;
+      }
+      // The outgoing page's sockets must not survive the document swap: the
+      // old world dies without ws-close, and its leaked ids would block the
+      // new world's stream socket (empty DSH UI after a session switch).
+      this.bridge?.resetSockets();
       this.view.webview.html = html;
       this.assembled = true;
     } catch (err) {

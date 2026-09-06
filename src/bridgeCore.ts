@@ -97,4 +97,22 @@ export class WsRelay {
     for (const ws of this.sockets.values()) ws.close();
     this.sockets.clear();
   }
+
+  /**
+   * Drop every relayed socket. Call right before the webview document is
+   * replaced (`webview.html = ...`): the dying page never sends `ws-close`,
+   * so its sockets would (a) keep stale server connections alive and (b)
+   * keep occupying the small webview-assigned ids the NEW page re-mints from
+   * 1 — then `open()` below would silently no-op and the new page's stream
+   * socket would never connect (empty DSH UI after a session switch).
+   * Listeners are detached first so a dying socket cannot post a stale
+   * `ws-close` into the new page (which may reuse the same id).
+   */
+  reset(): void {
+    for (const ws of this.sockets.values()) {
+      ws.removeAllListeners();
+      ws.close();
+    }
+    this.sockets.clear();
+  }
 }
