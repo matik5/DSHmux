@@ -19,7 +19,7 @@
 | R2: node-missing → official Node link, no auto-install | T6, T7 | `install-node` action → `openExternal`; test on missing-node report |
 | R3: primary clone plan (matik5 fork, patched branch, revision constant) | T3, T4 | plan assertions incl. quoted parent dir with spaces, Windows cmd |
 | R3: existing-checkout validation (bin.js + `--version` + dirty + branch) | T3, T4, T6 | checkout tests (stale build, missing artifact, dirty, wrong branch) |
-| R3: confirmed machine-scoped `dshmux.dshPath` write | T6 | code review (`ConfigurationTarget.Machine`) + manual smoke |
+| R3: confirmed `dshmux.dshPath` write to user settings (setting is `machine-overridable`; the VS Code API has no machine target) | T6 | code review (`ConfigurationTarget.Global`) + manual smoke |
 | R3: never modify a dirty/unrelated checkout; never auto-install tools | T3, T6 | validation is read-only; flow offers guidance links only |
 | R5: visible DSHmux setup terminal + echo-then-prefill order (R2 prefill stays never-auto-executed; the primary flow is superseded by R7) | T10, T12 | `test/installService.test.js` (vscode mock) + grep invariant |
 | R6: "Source on GitHub →" row on the setup panel opens the exact tested branch (URL derived from frozen constants) | T11 | `test/dshLauncher.test.js` (row in panel HTML + `openExternal` routing) |
@@ -120,7 +120,7 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 - [ ] `runDoctorCommand(context): Promise<void>` — `runDoctor(realDoctorProbe())` with `hostLabel = vscode.env.remoteName ? \`remote-${vscode.env.remoteName}\` : "local"`; QuickPick: one item per check (`✓/⚠/✗` in `label`, detail = value, redacted paths), trailing action item by state: not-ready → `Set up DSH…` (→ primary flow) + `Alternative (npm)…`; any state → `Check again`.
 - [ ] `runPrimaryInstallFlow(report, context)`:
   - git or pnpm missing → guidance QuickPick (official links via `vscode.env.openExternal`, `Copy command`-style none) — then return (no clone plan while prerequisites missing).
-  - QuickPick: `New clone…` → `showSaveDialog`-style folder pick (`vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false })`) → `buildSourceClonePlan` → step-by-step: for each step show the exact command in a modal (`showInformationMessage(cmd, "Run in terminal", "Copy", "Cancel")`) → chosen → `prefillTerminal`; user finishes → `Check again` re-runs doctor and pushes to launcher. `Use existing checkout…` → folder pick → `checkExistingCheckout` via real probe → report warnings (dirty, wrong branch) → if `valid`: confirm `dshPath` write (message shows exact `<dir>/apps/cli/lib/bin.js`, `ConfigurationTarget.Machine`) → success message + re-run doctor.
+  - QuickPick: `New clone…` → `showSaveDialog`-style folder pick (`vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false })`) → `buildSourceClonePlan` → [**superseded by R7/T12**: ONE confirmation modal lists every command; on Run the setup terminal echoes the numbered steps and executes the whole plan as a single `&&`-chained send] user finishes → `Check again` re-runs doctor and pushes to launcher. `Use existing checkout…` → folder pick → `checkExistingCheckout` via real probe → report warnings (dirty, wrong branch) → if `valid`: confirm `dshPath` write (message shows exact `<dir>/apps/cli/lib/bin.js`; written with `ConfigurationTarget.Global` — the VS Code API has no machine target and the setting is `machine-overridable`) → success message + re-run doctor.
 - [ ] `runAlternativeInstallFlow(report, context)` — QuickPick (npm global / npx cache / copy), each clearly labeled mainline-without-patches (i18n); chosen → `prefillTerminal` / clipboard; then `Check again`.
 - [ ] `runDoctorForLauncher()` exported hook used by T7 (returns fresh `DoctorReport` + pushes nothing — launcher pushes).
 - [ ] Node-missing branch: message + `Open Node download page` action → `openExternal(NODE_DOWNLOAD_URL)`.
@@ -175,17 +175,17 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 
 **Completion criteria**: `npm run compile` + `npm test` green; row visible in every missing-state smoke screenshot; click opens the branch URL in the browser.
 
-### T12 — Auto-run primary install in the setup terminal (R7) — ⏳
+### T12 — Auto-run primary install in the setup terminal (R7) — ✅
 
 **Files**: `src/installService.ts` (edit), `src/i18nStrings.ts` (edit — 2 keys × 9 locales), `test/installService.test.js` (edit)
 
-- [ ] `src/installService.ts`: in the new-clone branch, replace the per-step `confirmStep` loop with ONE `confirmAutoRun(plan)` modal — numbered, verbatim commands; **Run in terminal / Copy / Cancel** (Copy writes all commands, one per line). On Run: echo every numbered step via the R5 `echoSetupLine`, then a single `terminal.sendText(plan.map((s) => s.command).join(" && "), true)`; then one non-modal toast (running in the DSHmux setup terminal, a failing step stops the rest, use Check again when done). Update the file-header safety contract (R7 supersedes no-auto-execute for this flow only; R2 + guidance stay prefill-only). The existing-checkout branch and guidance paths are untouched.
-- [ ] `i18nStrings.ts`: `install.autoRunPrompt` (carries `{steps}`) + `install.autoRunStarted`, all 9 locales.
-- [ ] `test/installService.test.js`: primary-flow test becomes one scripted modal answer, 4 echo sends (auto-executed) + exactly ONE chained auto-executed send (`" && "`-joined, all four commands in order, clone verbatim against the chosen parent dir); R2 alternative flow stays prefill-only (`sendText(command, false)`); grep invariant updated: the auto-executed `sendText(…, true)` lines in `src/installService.ts` are the fixed printf echo and the single `join(" && ")` chain send — nothing else.
+- [x] `src/installService.ts`: in the new-clone branch, replace the per-step `confirmStep` loop with ONE `confirmAutoRun(plan)` modal — numbered, verbatim commands; **Run in terminal / Copy / Cancel** (Copy writes all commands, one per line). On Run: echo every numbered step via the R5 `echoSetupLine`, then a single `terminal.sendText(plan.map((s) => s.command).join(" && "), true)`; then one non-modal toast (running in the DSHmux setup terminal, a failing step stops the rest, use Check again when done). Update the file-header safety contract (R7 supersedes no-auto-execute for this flow only; R2 + guidance stay prefill-only). The existing-checkout branch and guidance paths are untouched.
+- [x] `i18nStrings.ts`: `install.autoRunPrompt` (carries `{steps}`) + `install.autoRunStarted`, all 9 locales.
+- [x] `test/installService.test.js`: primary-flow test becomes one scripted modal answer, 4 echo sends (auto-executed) + exactly ONE chained auto-executed send (`" && "`-joined, all four commands in order, clone verbatim against the chosen parent dir); R2 alternative flow stays prefill-only (`sendText(command, false)`); grep invariant updated: the auto-executed `sendText(…, true)` lines in `src/installService.ts` are the fixed printf echo and the single `join(" && ")` chain send — nothing else.
 
 **Completion criteria**: `npm run compile` + `npm test` green; manual smoke: new-clone flow runs all four steps visibly in the terminal from one modal, a cancelled modal leaves the machine unchanged.
 
-### T13 — DSH Doctor in the launcher panel's "…" menu, last item (R8) — ⏳
+### T13 — DSH Doctor in the launcher panel's "…" menu, last item (R8) — ✅
 
 > **Revision (2026-09-06, user clarification)**: the entry goes into the
 > launcher panel's **own webview "…" menu** (the one with "Open in editor"
@@ -197,7 +197,7 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 - [x] `src/launcherView.ts`: add `<button class="more-item" id="openDoctor" role="menuitem">${t("doctor.title")}</button>` as the LAST child of `#moreMenu`; `openDoctor.onclick` posts `{ type: "open-doctor" }` (same `closeMoreMenu()` pattern as its siblings); host `onDidReceiveMessage` case `"open-doctor"` → `vscode.commands.executeCommand("dshmux.doctor")`. Reuses the existing `doctor.title` i18n string and the existing `dshmux.doctor` command — no new strings.
 - [x] `package.json`: remove the whole `contributes.menus` object (the doctor `view/title` entry was its only member) — no VS Code menu contribution for the doctor.
 - [x] `test/dshLauncher.test.js`: fake vscode gains a `commands.executeCommand` recorder; new test asserts the doctor item is present and LAST in the initial "…" menu HTML and that the `open-doctor` message routes to `executeCommand("dshmux.doctor")`.
-- [ ] Manual smoke (after `Dev: Reload Window`): the panel "…" menu shows Open in editor, Settings, DSH Doctor (localized) with the doctor LAST; clicking it opens the doctor QuickPick — also before DSH has started.
+- [x] Manual smoke (after `Dev: Reload Window`): the panel "…" menu shows Open in editor, Settings, DSH Doctor (localized) with the doctor LAST; clicking it opens the doctor QuickPick — also before DSH has started. (Confirmed by the user, 2026-09-06.)
 
 **Completion criteria**: `npm run compile` zero issues; `npm test` green (217/217); menu order + routing covered by the new unit test; entry last in the "…" menu and functional in the reloaded smoke instance.
 
@@ -228,14 +228,14 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 
 **Verified (2026-09-05)**: `tsc -p ./` clean; `npm test` 216/216 (3 new tests: resolution matrix, start-from-checkout-dir, Doctor configured-dir).
 
-### T9 — Verification + packaging — ⏳
+### T9 — Verification + packaging — ✅ (completed by the user, 2026-09-06)
 
-- [ ] `npm run compile` — zero issues.
-- [ ] `npm test` — full suite green (old + new).
-- [ ] Manual smoke (local machine, DSH present): command palette → Run DSH Doctor → report shows `ready`, install type `source`/`npm-global`, no start disruption; launcher shows normal ready UI (no setup panel, no prompt).
-- [ ] Manual smoke (missing DSH simulation): scratch workspace + `dshmux.dshPath` set to a nonexistent path + temporary rename of the global dsh link **only with explicit user go-ahead at that moment** (never without) → launcher shows setup panel, no spawn; doctor QuickPick shows the missing rows; clone plan strings correct.
-- [ ] Manual smoke (guided install, R5+R7, 2026-09-05 with user): click primary install in missing state → DSHmux setup terminal opens immediately; clone to `/tmp/dshmux-test` via ONE confirmation modal, then all four steps run automatically in the terminal (visible output, `&&`-chained); then "Use existing checkout…" validates the built CLI and writes `dshmux.dshPath` behind confirmation; Check again → ready + auto-start.
-- [ ] `npm run package` → new `.vsix` (no publish — requires separate explicit confirmation).
+- [x] `npm run compile` — zero issues.
+- [x] `npm test` — full suite green (old + new).
+- [x] Manual smoke (local machine, DSH present): command palette → Run DSH Doctor → report shows `ready`, install type `source`/`npm-global`, no start disruption; launcher shows normal ready UI (no setup panel, no prompt).
+- [x] Manual smoke (missing DSH simulation): scratch workspace + `dshmux.dshPath` set to a nonexistent path + temporary rename of the global dsh link **only with explicit user go-ahead at that moment** (never without) → launcher shows setup panel, no spawn; doctor QuickPick shows the missing rows; clone plan strings correct.
+- [x] Manual smoke (guided install, R5+R7, 2026-09-05 with user): click primary install in missing state → DSHmux setup terminal opens immediately; clone to `/tmp/dshmux-test` via ONE confirmation modal, then all four steps run automatically in the terminal (visible output, `&&`-chained); then "Use existing checkout…" validates the built CLI and writes `dshmux.dshPath` behind confirmation; Check again → ready + auto-start.
+- [x] `npm run package` → new `.vsix` (no publish — requires separate explicit confirmation).
 
 **Completion criteria**: all gates pass; results recorded in `verification.md`.
 

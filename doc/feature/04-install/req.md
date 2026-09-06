@@ -168,9 +168,11 @@ Requirements:
      time and each user-confirmed, the visible `git clone`, `git checkout <tested
      revision>`, dependency-install (pnpm), and build commands. No
      multi-command script is hidden behind one button.
-- After validation, the extension offers to set `dshmux.dshPath` (machine
-  scope, overridable) to the validated built CLI. The exact path is shown and
-  the change requires explicit confirmation.
+- After validation, the extension offers to set `dshmux.dshPath` to the
+  validated built CLI. The setting is machine-scoped in effect
+  (`machine-overridable` in package.json); the write target is user settings
+  (the VS Code API has no machine target). The exact path is shown and the
+  change requires explicit confirmation.
 - Doctor re-runs after selection and after each user-driven build attempt.
 - DSHmux never edits or patches an existing checkout (X3 rejection stands).
 

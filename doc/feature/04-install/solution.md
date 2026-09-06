@@ -257,9 +257,11 @@ Inbound (webview → host), new types:
 3. **dshPath write (R3)**: after a validated checkout, a message shows the
    exact path; on confirm,
    `vscode.workspace.getConfiguration("dshmux").update("dshPath", path,
-   vscode.ConfigurationTarget.Machine)` — machine scope (the setting is
-   declared `machine-overridable`), and a follow-up Doctor run must show
-   `ready` with `installType: source`.
+   vscode.ConfigurationTarget.Global)` — user settings, because the VS Code
+   API has no machine-settings target (only `Global` / `Workspace` /
+   `WorkspaceFolder`); the setting is declared `machine-overridable`, so
+   per-machine overrides stay possible in the UI, and a follow-up Doctor run
+   must show `ready` with `installType: source`.
 4. **Ready machines unchanged**: existing users with a runnable DSH keep the
    current direct-start flow; the Doctor probe adds at most a bounded
    pre-check and no first-run prompt.

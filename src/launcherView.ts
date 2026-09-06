@@ -238,15 +238,15 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
 .setup-summary { font-size: 12.5px; line-height: 1.45; }
 .setup-warn {
   font-size: 11.5px; line-height: 1.4;
-  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
+  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow));
 }
 button.tool-link {
   display: inline-flex; align-items: center; gap: 6px;
   width: auto; padding: 2px 4px; background: none; border: none;
   font-size: 12px; text-align: left; cursor: pointer;
-  color: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-textLink-foreground);
 }
-button.tool-link:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground, #3794ff); }
+button.tool-link:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground); }
 button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground); }
 </style>
 </head>
