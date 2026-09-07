@@ -105,23 +105,26 @@ test("splitLaunchUrl splits origin and token", () => {
 
 test("resolveDshPath finds dsh in an injected home", (t) => {
   const home = tmpdir(t);
+  // Hermetic: systemPaths off so a globally installed dsh on the host
+  // (npm global, /opt/homebrew, /usr/local, $DSH_BIN) cannot shadow home.
+  const hermetic = { systemPaths: false };
 
   // Case 1: npx cache glob.
   const npxDir = path.join(home, ".npm", "_npx", "abc123", "node_modules", ".bin");
   fs.mkdirSync(npxDir, { recursive: true });
   fs.writeFileSync(path.join(npxDir, "dsh"), "");
-  assert.equal(resolveDshPath(home, "linux").path, path.join(npxDir, "dsh"));
+  assert.equal(resolveDshPath(home, "linux", hermetic).path, path.join(npxDir, "dsh"));
 
   // Case 2: npm-global bin wins over npx cache (earlier in the order).
   const globalDir = path.join(home, ".npm-global", "bin");
   fs.mkdirSync(globalDir, { recursive: true });
   fs.writeFileSync(path.join(globalDir, "dsh"), "");
-  assert.equal(resolveDshPath(home, "linux").path, path.join(globalDir, "dsh"));
+  assert.equal(resolveDshPath(home, "linux", hermetic).path, path.join(globalDir, "dsh"));
 
   // Case 3: nothing found → null; home-derived tried entries are "~"-redacted
-  // (machine-level candidates like npm prefix -g stay absolute).
+  // (machine-level candidates are skipped entirely in hermetic mode).
   const empty = tmpdir(t);
-  const res = resolveDshPath(empty, "linux");
+  const res = resolveDshPath(empty, "linux", hermetic);
   assert.equal(res.path, null);
   assert.ok(res.tried.some((p) => p.startsWith("~")));
   assert.ok(res.tried.every((p) => !p.includes(empty)));
@@ -133,7 +136,7 @@ test("resolveDshPath handles Windows layout (npm-cache _npx, dsh.cmd)", (t) => {
   const npxDir = path.join(home, "AppData", "Local", "npm-cache", "_npx", "winhash", "node_modules", ".bin");
   fs.mkdirSync(npxDir, { recursive: true });
   fs.writeFileSync(path.join(npxDir, "dsh.cmd"), "");
-  const res = resolveDshPath(home, "win32");
+  const res = resolveDshPath(home, "win32", { systemPaths: false });
   assert.equal(res.path, path.join(npxDir, "dsh.cmd"));
   // Windows must NOT probe macOS-only paths (homebrew / usr-local).
   assert.ok(res.tried.every((p) => !p.includes("opt/homebrew")));
@@ -145,17 +148,9 @@ test("resolveDshPath finds the standard Windows roaming npm dsh.cmd", (t) => {
   fs.mkdirSync(npmDir, { recursive: true });
   const cmd = path.join(npmDir, "dsh.cmd");
   fs.writeFileSync(cmd, "");
-  // On a real win32 host the roaming npm dir is read from the live APPDATA
-  // env var (production behavior), so point it at the fake home; on other
-  // hosts the injected home is used directly and this is a no-op.
-  const prevAppData = process.env.APPDATA;
-  process.env.APPDATA = path.join(home, "AppData", "Roaming");
-  try {
-    assert.equal(resolveDshPath(home, "win32").path, cmd);
-  } finally {
-    if (prevAppData === undefined) delete process.env.APPDATA;
-    else process.env.APPDATA = prevAppData;
-  }
+  // Hermetic mode skips the live-APPDATA probe on a real win32 host, so the
+  // home-derived roaming dir is used on every host — no env var to swap.
+  assert.equal(resolveDshPath(home, "win32", { systemPaths: false }).path, cmd);
 });
 
 test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t) => {
@@ -164,7 +159,7 @@ test("resolveDshPath prefers dsh.cmd over the extensionless shim on Windows", (t
   fs.mkdirSync(npxDir, { recursive: true });
   fs.writeFileSync(path.join(npxDir, "dsh"), "");
   fs.writeFileSync(path.join(npxDir, "dsh.cmd"), "");
-  const res = resolveDshPath(home, "win32");
+  const res = resolveDshPath(home, "win32", { systemPaths: false });
   // The extensionless Unix shim is not executable by cmd.exe (spawn exits
   // code 1), so the .cmd shim must win when both exist.
   assert.equal(res.path, path.join(npxDir, "dsh.cmd"));
