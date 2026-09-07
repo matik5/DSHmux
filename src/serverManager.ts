@@ -420,13 +420,12 @@ export function resolveDshPath(
   // the real global prefix.
   const prefix = systemPaths && platform === process.platform ? npmGlobalPrefix(platform) : "";
   const globalDir = isWin ? prefix : prefix ? path.join(prefix, "bin") : "";
-  // On the live platform the roaming npm dir comes from the machine APPDATA
-  // env var (a system path); for a simulated platform it is home-derived.
+  // On the live platform with system paths the roaming npm dir comes from
+  // the machine APPDATA env var; hermetic (tests) and simulated platforms
+  // use the home-derived dir so the fixture is always probed.
   const roamingNpmDir = isWin
-    ? platform === process.platform
-      ? systemPaths && process.env.APPDATA
-        ? path.join(process.env.APPDATA, "npm")
-        : ""
+    ? platform === process.platform && systemPaths && process.env.APPDATA
+      ? path.join(process.env.APPDATA, "npm")
       : path.join(home, "AppData", "Roaming", "npm")
     : "";
 
