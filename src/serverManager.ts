@@ -402,30 +402,39 @@ function exeCandidates(base: string, platform: NodeJS.Platform): string[] {
  * `tried` in the error message.
  * @param home - home directory to scan (injectable for tests).
  * @param platform - target platform (injectable for tests).
+ * @param opts.systemPaths - probe machine-level locations ($DSH_BIN, npm
+ *   global prefix, live-APPDATA roaming, Homebrew, /usr/local). Default true.
+ *   Tests pass false for a hermetic, pure-home resolution so a globally
+ *   installed dsh on the host cannot shadow the injected home.
  */
 export function resolveDshPath(
   home: string = os.homedir(),
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  opts: { systemPaths?: boolean } = {}
 ): { path: string | null; tried: string[] } {
   const isWin = platform === "win32";
+  const systemPaths = opts.systemPaths ?? true;
   // An injected target platform is used by cross-platform tests. Do not mix
   // the host machine's npm prefix (for example /opt/homebrew) into a simulated
   // Windows candidate list; production uses process.platform and still probes
   // the real global prefix.
-  const prefix = platform === process.platform ? npmGlobalPrefix(platform) : "";
+  const prefix = systemPaths && platform === process.platform ? npmGlobalPrefix(platform) : "";
   const globalDir = isWin ? prefix : prefix ? path.join(prefix, "bin") : "";
+  // On the live platform with system paths the roaming npm dir comes from
+  // the machine APPDATA env var; hermetic (tests) and simulated platforms
+  // use the home-derived dir so the fixture is always probed.
   const roamingNpmDir = isWin
-    ? platform === process.platform && process.env.APPDATA
+    ? platform === process.platform && systemPaths && process.env.APPDATA
       ? path.join(process.env.APPDATA, "npm")
       : path.join(home, "AppData", "Roaming", "npm")
     : "";
 
   const candidates = [
-    ...exeCandidates(process.env.DSH_BIN ?? "", platform),
+    ...(systemPaths ? exeCandidates(process.env.DSH_BIN ?? "", platform) : []),
     ...(globalDir ? exeCandidates(path.join(globalDir, "dsh"), platform) : []),
     ...(roamingNpmDir ? exeCandidates(path.join(roamingNpmDir, "dsh"), platform) : []),
-    ...(!isWin ? exeCandidates(path.join("/opt/homebrew/bin", "dsh"), platform) : []),
-    ...(!isWin ? exeCandidates(path.join("/usr/local/bin", "dsh"), platform) : []),
+    ...(!isWin && systemPaths ? exeCandidates(path.join("/opt/homebrew/bin", "dsh"), platform) : []),
+    ...(!isWin && systemPaths ? exeCandidates(path.join("/usr/local/bin", "dsh"), platform) : []),
     ...exeCandidates(path.join(home, ".npm-global/bin", "dsh"), platform),
     ...(!isWin ? exeCandidates(path.join(home, ".nvm/versions/node/*/bin/dsh"), platform) : []),
     ...exeCandidates(
