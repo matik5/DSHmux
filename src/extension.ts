@@ -232,7 +232,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // bridge; the launcher's session list drives loadSession (one at a time).
   chatView = new DshChatView(context, manager);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(DshChatView.viewType, chatView)
+    vscode.window.registerWebviewViewProvider(DshChatView.viewType, chatView, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
   // Activation runs onStartupFinished, including after a window/extension-host
   // restart. Reveal the primary DSHmux surface only after both providers are

@@ -86,9 +86,17 @@ test("launcher warns when the running DSH version is outside the tested build", 
 
 test("activation reveals the DSHmux chat after registering its provider", () => {
   const registration = extensionSource.indexOf(
-    "registerWebviewViewProvider(DshChatView.viewType, chatView)"
+    "registerWebviewViewProvider(DshChatView.viewType, chatView"
   );
   const reveal = extensionSource.indexOf("revealChat();", registration);
   assert.ok(registration >= 0, "chat provider registration missing");
   assert.ok(reveal > registration, "chat must be revealed after provider registration");
+});
+
+test("chat webview retains its context while another sidebar tab is active", () => {
+  assert.match(
+    extensionSource,
+    /registerWebviewViewProvider\(DshChatView\.viewType, chatView, \{[\s\S]*?retainContextWhenHidden: true/,
+    "switching sidebar tabs must not destroy the DSH client and its live streams"
+  );
 });
