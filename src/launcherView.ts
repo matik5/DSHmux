@@ -83,14 +83,8 @@ function launcherHtml(init: LauncherInit): string {
             : t("launcher.stopped");
   const showStart = init.state === "stopped" || init.state === "error";
   const showReady = init.state === "ready";
-  const latestText =
-    init.state === "ready" && init.latestVersion
-      ? t("upgrade.availableLatest", { latest: init.latestVersion })
-      : "";
-  const nextText =
-    init.state === "ready" && init.nextVersion
-      ? t("upgrade.availableNext", { next: init.nextVersion })
-      : "";
+  const showLatest = init.state === "ready" && init.latestVersion !== undefined;
+  const showNext = init.state === "ready" && init.nextVersion !== undefined;
   const compatibilityText =
     init.state === "ready" && dshCompatibility(init.version) !== "tested"
       ? t("launcher.compatibilityUntested")
@@ -195,11 +189,15 @@ button.primary { background: var(--vscode-button-background); color: var(--vscod
 button.primary:hover { background: var(--vscode-button-hoverBackground); }
 button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.upgrade-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border)); border-radius: 4px; }
+.upgrade-title { font-size: 12px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-charts-blue, #3794ff)); }
 button.upgrade {
+  display: inline-flex; align-items: center; flex: 0 0 auto;
+  width: auto; padding: 2px 8px;
   background: transparent;
   color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-charts-blue, #3794ff));
   border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
-  font-size: 12px;
+  font-size: 12px; white-space: nowrap;
 }
 button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,.1)); }
 /* "⋯" actions menu (Open in editor / Open Settings) sits on the header row's
@@ -282,8 +280,11 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
     </div>
   </div>
 
-  <button class="upgrade" id="upgradeLatest" style="display:${latestText ? "block" : "none"}">${latestText} →</button>
-  <button class="upgrade" id="upgradeNext" style="display:${nextText ? "block" : "none"}">${nextText} →</button>
+  <div class="upgrade-row" id="upgradeRow" style="display:${showLatest || showNext ? "flex" : "none"}">
+    <span class="upgrade-title">${t("upgrade.title")}</span>
+    <button class="upgrade" id="upgradeLatest" style="display:${showLatest ? "inline-flex" : "none"}" title="${showLatest ? t("upgrade.latestChip", { version: init.latestVersion! }) : ""}" aria-label="${showLatest ? t("upgrade.latestChip", { version: init.latestVersion! }) : ""}">${showLatest ? `${init.latestVersion} →` : ""}</button>
+    <button class="upgrade" id="upgradeNext" style="display:${showNext ? "inline-flex" : "none"}" title="${showNext ? t("upgrade.nextChip", { version: init.nextVersion! }) : ""}" aria-label="${showNext ? t("upgrade.nextChip", { version: init.nextVersion! }) : ""}">${showNext ? `${init.nextVersion} →` : ""}</button>
+  </div>
 
   <div class="setup" id="setupPanel" style="display:${setup ? "flex" : "none"}" role="region" aria-label="${t("install.setupTitle")}">
     <div class="setup-summary" id="setupSummary">${setupSummary}</div>
@@ -326,6 +327,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
   var actions = document.getElementById("actions");
   var statusActions = document.getElementById("statusActions");
   var stop = document.getElementById("stop");
+  var upgradeRow = document.getElementById("upgradeRow");
   var upgradeLatest = document.getElementById("upgradeLatest");
   var upgradeNext = document.getElementById("upgradeNext");
   var newSession = document.getElementById("newSession");
@@ -588,16 +590,15 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
     )};
   }
   function setUpgrade(latest, next) {
-    var ltxt = latest
-      ? ${JSON.stringify(t("upgrade.availableLatest", { latest: "{latest}" }))}.replace("{latest}", latest) + " →"
-      : "";
-    var ntxt = next
-      ? ${JSON.stringify(t("upgrade.availableNext", { next: "{next}" }))}.replace("{next}", next) + " →"
-      : "";
-    upgradeLatest.style.display = ltxt ? "block" : "none";
-    upgradeLatest.textContent = ltxt;
-    upgradeNext.style.display = ntxt ? "block" : "none";
-    upgradeNext.textContent = ntxt;
+    upgradeRow.style.display = latest || next ? "flex" : "none";
+    upgradeLatest.style.display = latest ? "inline-flex" : "none";
+    upgradeLatest.textContent = latest ? latest + " →" : "";
+    upgradeLatest.title = latest ? ${JSON.stringify(t("upgrade.latestChip", { version: "{version}" }))}.replace("{version}", latest) : "";
+    upgradeLatest.setAttribute("aria-label", upgradeLatest.title);
+    upgradeNext.style.display = next ? "inline-flex" : "none";
+    upgradeNext.textContent = next ? next + " →" : "";
+    upgradeNext.title = next ? ${JSON.stringify(t("upgrade.nextChip", { version: "{version}" }))}.replace("{version}", next) : "";
+    upgradeNext.setAttribute("aria-label", upgradeNext.title);
   }
   window.addEventListener("message", function (e) {
     var m = e.data;
