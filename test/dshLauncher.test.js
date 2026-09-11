@@ -327,7 +327,7 @@ test("setup-panel GitHub link: install-source opens the tested branch URL extern
   handler({ type: "install-source" });
   assert.deepStrictEqual(
     openedExternal,
-    ["https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.2-rc.1"],
+    ["https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.5-rc.2"],
     "the exact tested branch page is opened externally"
   );
 });

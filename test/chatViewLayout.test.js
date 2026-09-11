@@ -93,6 +93,23 @@ test("activation reveals the DSHmux chat after registering its provider", () => 
   assert.ok(reveal > registration, "chat must be revealed after provider registration");
 });
 
+test("update banner is one compact row: shared title plus separated channel chips", () => {
+  const row = launcherSource.indexOf('<div class="upgrade-row" id="upgradeRow"');
+  assert.ok(row >= 0, "upgrade row container missing");
+  const rowEnd = launcherSource.indexOf("</div>", row);
+  const title = launcherSource.indexOf('<span class="upgrade-title">', row);
+  const latest = launcherSource.indexOf('id="upgradeLatest"', row);
+  const next = launcherSource.indexOf('id="upgradeNext"', row);
+  assert.ok(title > row && title < rowEnd, "row must carry the shared update title");
+  assert.ok(latest > title && latest < rowEnd, "latest chip must sit in the same row");
+  assert.ok(next > latest && next < rowEnd, "next chip must follow latest in the same row");
+  assert.match(
+    launcherSource,
+    /button\.upgrade \{[^}]*width: auto/,
+    "chips must be auto-width inline links, not full-width stacked buttons"
+  );
+});
+
 test("chat webview retains its context while another sidebar tab is active", () => {
   assert.match(
     extensionSource,

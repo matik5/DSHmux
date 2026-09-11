@@ -114,13 +114,13 @@ test("ready: npm-global DSH at tested version, no warnings", () => {
       existsEntries: [[NODE, true], [bin, true]],
       realPathEntries: [[bin, "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]],
       dshFound: { path: bin, tried: [`${HOME}/.nvm/versions/node/x/bin/dsh`, bin] },
-      dshVersions: { [bin]: "0.1.2-rc.1" },
+      dshVersions: { [bin]: "0.1.5-rc.2" },
     },
     t
   );
   const report = runDoctor(probe);
   assert.equal(report.state, "ready");
-  assert.equal(report.dsh.version, "0.1.2-rc.1");
+  assert.equal(report.dsh.version, "0.1.5-rc.2");
   assert.equal(report.dsh.compatibility, "tested");
   assert.equal(report.dsh.installType, "npm-global");
   assert.equal(report.dsh.tried[0], "~/.nvm/versions/node/x/bin/dsh"); // redacted
@@ -213,7 +213,7 @@ test("configured path valid: used as-is, discovery not consulted", () => {
     {
       configuredDshPath: bin,
       existsEntries: [[NODE, true], [bin, true]],
-      dshVersions: { [bin]: "0.1.2-rc.1" },
+      dshVersions: { [bin]: "0.1.5-rc.2" },
     },
     t
   );
@@ -246,7 +246,7 @@ test("configured source-checkout directory resolves to its built CLI entry (R10)
       {
         configuredDshPath: dir,
         existsEntries: [[NODE, true], [dir, true], [bin, true]],
-        dshVersions: { [bin]: "0.1.2-rc.1" },
+        dshVersions: { [bin]: "0.1.5-rc.2" },
       },
       t
     );

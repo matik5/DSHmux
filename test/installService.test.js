@@ -202,7 +202,7 @@ test("primary flow (new clone): ONE modal, 4 echoes, then ONE &&-chained auto-ru
       ? "/tmp/dshmux-test\\deepseek-harness"
       : "/tmp/dshmux-test/deepseek-harness";
   const plan = [
-    `git clone --branch matik/dsh-patches-0.1.2-rc.1 https://github.com/matik5/deepseek-harness.git "${target}"`,
+    `git clone --branch matik/dsh-patches-0.1.5-rc.2 https://github.com/matik5/deepseek-harness.git "${target}"`,
     `cd "${target}"`,
     "pnpm install",
     "pnpm build",
@@ -244,14 +244,18 @@ test("R2 alternative flow (npm): stays prefill-only — nothing auto-executed (R
   assert.strictEqual(sends[1].addNewLine, false, "R2 command is prefilled, never executed");
 });
 
-test("invariant: auto-executed sends are only the printf echo + the single && chain (R7)", () => {
+test("invariant: auto-executed sends are only printf echoes and R7 && chains (new-clone + update)", () => {
   const autoExecuted = SRC.split("\n").filter(
     (l) => /sendText\(/.test(l) && /,\s*true\)/.test(l)
   );
-  assert.strictEqual(autoExecuted.length, 2, "exactly two auto-executed sendText lines");
+  assert.strictEqual(
+    autoExecuted.length,
+    3,
+    "printf echo + new-clone && chain + update && chain"
+  );
   assert.ok(
     autoExecuted.every((l) => l.includes("printf") || l.includes('join(" && ")')),
-    "they are the fixed printf echo and the R7 && chain send"
+    "they are the fixed printf echo and the R7 && chain sends"
   );
   assert.ok(SRC.includes("terminal.sendText(command, false)"), "the R2 prefill stays false");
 });

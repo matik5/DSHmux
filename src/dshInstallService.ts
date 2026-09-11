@@ -10,12 +10,13 @@ import type { DoctorProbe } from "./dshDoctor.js";
  * Tested source (R3, PRIMARY recommendation). The matik5 fork carries the
  * two compatibility patches missing from mainline (see
  * `doc/dsh-patches/README.md`): the JPEG attachment projection and the
- * pi-ai compaction wire marker. Branch tip = tag `dsh-v0.1.2-rc.1`
- * (`a66e470204`) + the two patch commits.
+ * pi-ai compaction wire marker. Supported branch for this release:
+ * `matik/dsh-patches-0.1.5-rc.2` (tip `5f54644c4f`), which declares
+ * @deepseek-ai/dsh 0.1.5-rc.2 (= TESTED_DSH_VERSION).
  */
 export const TESTED_SOURCE_REPO = "https://github.com/matik5/deepseek-harness.git";
-export const TESTED_SOURCE_BRANCH = "matik/dsh-patches-0.1.2-rc.1";
-export const TESTED_SOURCE_REVISION = "07bca197e2";
+export const TESTED_SOURCE_BRANCH = "matik/dsh-patches-0.1.5-rc.2";
+export const TESTED_SOURCE_REVISION = "5f54644c4f";
 /** R6: the branch page the setup panel links to (derived, not a new string). */
 export const TESTED_SOURCE_TREE_URL =
   TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_BRANCH;
@@ -89,6 +90,42 @@ export function buildSourceClonePlan(
   ];
 }
 
+/**
+ * R3 update path: move an existing source checkout onto the supported branch.
+ * Same shape as the clone plan — user-confirmed steps, every path quoted —
+ * so an install built on an older patch branch can be refreshed in place:
+ * fetch the supported branch, check it out, then rebuild the workspace.
+ * (Rebuild steps reuse the clone plan's purposes: they are the same commands.)
+ */
+export function buildSourceUpdatePlan(
+  checkoutDir: string,
+  platform: NodeJS.Platform
+): InstallCommand[] {
+  const dir = quote(checkoutDir);
+  return [
+    {
+      label: "install.updateStep1",
+      command: `git -C ${dir} fetch origin ${TESTED_SOURCE_BRANCH}`,
+      purpose: "install.updateStep1.purpose",
+    },
+    {
+      label: "install.updateStep2",
+      command: `git -C ${dir} checkout ${TESTED_SOURCE_BRANCH}`,
+      purpose: "install.updateStep2.purpose",
+    },
+    {
+      label: "install.updateStep3",
+      command: `cd ${dir} && pnpm install`,
+      purpose: "install.cloneStep3.purpose",
+    },
+    {
+      label: "install.updateStep4",
+      command: "pnpm build",
+      purpose: "install.cloneStep4.purpose",
+    },
+  ];
+}
+
 /** R2 alternative (mainline, without the two compatibility patches). */
 export function buildNpmPlan(): InstallCommand {
   return {
@@ -140,4 +177,23 @@ export function checkExistingCheckout(
     dirty,
     onPatchedBranch,
   };
+}
+
+/**
+ * Recommended-source checker: does the supported branch exist on the fork?
+ * A single bounded `git ls-remote --heads` (read-only; lists the remote ref,
+ * never mutates anything). Reuses the DoctorProbe `run` seam so it stays pure
+ * and unit-testable like the rest of the install service.
+ *  - `true`  — the branch is published on the fork
+ *  - `false` — git answered but the branch is not there (rename/deleted)
+ *  - `null`  — indeterminate (git missing, no network, or timeout)
+ */
+export function recommendedSourceBranchExists(probe: DoctorProbe): boolean | null {
+  const res = probe.run(
+    "git",
+    ["ls-remote", "--heads", TESTED_SOURCE_REPO, `refs/heads/${TESTED_SOURCE_BRANCH}`],
+    { timeoutMs: CHECK_TIMEOUT_MS }
+  );
+  if (!res.ok) return null;
+  return res.stdout.trim() !== "";
 }
