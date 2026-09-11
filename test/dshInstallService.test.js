@@ -13,15 +13,17 @@ import {
   buildSourceClonePlan,
   buildNpmPlan,
   buildNpxPlan,
+  buildSourceUpdatePlan,
   checkExistingCheckout,
+  recommendedSourceBranchExists,
 } from "../out/dshInstallService.js";
 import { TESTED_DSH_VERSION } from "../out/versionCheck.js";
 import { CHECKOUT_BIN_REL } from "../out/serverManager.js";
 
 test("tested source constants are frozen", () => {
   assert.equal(TESTED_SOURCE_REPO, "https://github.com/matik5/deepseek-harness.git");
-  assert.equal(TESTED_SOURCE_BRANCH, "matik/dsh-patches-0.1.2-rc.1");
-  assert.equal(TESTED_SOURCE_REVISION, "07bca197e2");
+  assert.equal(TESTED_SOURCE_BRANCH, "matik/dsh-patches-0.1.5-rc.2");
+  assert.equal(TESTED_SOURCE_REVISION, "5f54644c4f");
 });
 
 test("prerequisite download URLs point at official pages", () => {
@@ -189,4 +191,61 @@ test("checkExistingCheckout (win32): CLI entry uses backslashes", () => {
   );
   assert.equal(check.binPath, bin);
   assert.equal(check.valid, true);
+});
+
+test("update plan (darwin): fetch, checkout, rebuild — exact strings, spaces quoted", () => {
+  const plan = buildSourceUpdatePlan("/Users/me/My Projects", "darwin");
+  assert.equal(plan.length, 4);
+  const dir = "/Users/me/My Projects";
+  assert.equal(
+    plan[0].command,
+    `git -C "${dir}" fetch origin ${TESTED_SOURCE_BRANCH}`
+  );
+  assert.equal(
+    plan[1].command,
+    `git -C "${dir}" checkout ${TESTED_SOURCE_BRANCH}`
+  );
+  assert.equal(plan[2].command, `cd "${dir}" && pnpm install`);
+  assert.equal(plan[3].command, "pnpm build"); // rebuild is always last
+  // fetch/checkout are new steps; rebuild steps reuse the clone plan purposes.
+  assert.equal(plan[0].label, "install.updateStep1");
+  assert.equal(plan[1].label, "install.updateStep2");
+  assert.equal(plan[0].purpose, "install.updateStep1.purpose");
+  assert.equal(plan[1].purpose, "install.updateStep2.purpose");
+  assert.equal(plan[2].purpose, "install.cloneStep3.purpose");
+  assert.equal(plan[3].purpose, "install.cloneStep4.purpose");
+  for (const step of plan) {
+    assert.match(step.label, /^install\./);
+    assert.match(step.purpose, /^install\./);
+  }
+});
+
+test("update plan (win32): backslash join, double-quoted", () => {
+  const plan = buildSourceUpdatePlan("C:\\proj\\dsh", "win32");
+  assert.equal(
+    plan[0].command,
+    `git -C "C:\\proj\\dsh" fetch origin ${TESTED_SOURCE_BRANCH}`
+  );
+  assert.equal(
+    plan[1].command,
+    `git -C "C:\\proj\\dsh" checkout ${TESTED_SOURCE_BRANCH}`
+  );
+  assert.equal(plan[2].command, `cd "C:\\proj\\dsh" && pnpm install`);
+});
+
+const LS_REMOTE_KEY = `git ls-remote --heads ${TESTED_SOURCE_REPO} refs/heads/${TESTED_SOURCE_BRANCH}`;
+
+test("recommendedSourceBranchExists: branch published on fork → true", () => {
+  const t = new Map([[LS_REMOTE_KEY, { ok: true, stdout: "5f54644c...\trefs/heads/x\n" }]]);
+  assert.equal(recommendedSourceBranchExists(checkoutProbe({}, t)), true);
+});
+
+test("recommendedSourceBranchExists: branch absent → false", () => {
+  const t = new Map([[LS_REMOTE_KEY, { ok: true, stdout: "" }]]);
+  assert.equal(recommendedSourceBranchExists(checkoutProbe({}, t)), false);
+});
+
+test("recommendedSourceBranchExists: git/network error → null (indeterminate)", () => {
+  // run-table miss → { ok: false, stdout: "" }
+  assert.equal(recommendedSourceBranchExists(checkoutProbe({}, new Map())), null);
 });

@@ -30,7 +30,9 @@ import {
   buildNpmPlan,
   buildNpxPlan,
   buildSourceClonePlan,
+  buildSourceUpdatePlan,
   checkExistingCheckout,
+  recommendedSourceBranchExists,
   type InstallCommand,
 } from "./dshInstallService.js";
 import { resolveNodeExecutable } from "./serverManager.js";
@@ -212,6 +214,28 @@ export async function runDoctorCommand(): Promise<void> {
     report.dsh.resolvedPath === null ? "fail" : report.dsh.version === null ? "warn" : "ok";
   items.push(checkItem(dshIcon, t("doctor.row.dsh"), dshDetail));
 
+  // Recommended source (R3): one bounded `git ls-remote` while the interactive
+  // doctor is open — reports whether the supported branch is published on the
+  // fork. Skipped without git; a "missing" branch is a warning, not a failure.
+  if (report.git.available) {
+    const sourceExists = recommendedSourceBranchExists(
+      realDoctorProbe(hostLabel(), configuredDshBin())
+    );
+    const sourceStatus =
+      sourceExists === true
+        ? t("doctor.sourceExists")
+        : sourceExists === false
+          ? t("doctor.sourceMissing")
+          : t("doctor.sourceUnknown");
+    items.push(
+      checkItem(
+        sourceExists === false ? "warn" : "ok",
+        t("doctor.row.source"),
+        `${TESTED_SOURCE_BRANCH} — ${sourceStatus}`
+      )
+    );
+  }
+
   for (const w of report.warnings) {
     items.push(checkItem("warn", "", warningText(w)));
   }
@@ -352,7 +376,8 @@ export async function runPrimaryInstallFlow(report: DoctorReport): Promise<void>
   if (!uri || uri.length === 0) return;
   const dir = uri[0].fsPath;
   const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), process.env);
-  const check = checkExistingCheckout(dir, node, realDoctorProbe(hostLabel(), configuredDshBin()));
+  const probe = realDoctorProbe(hostLabel(), configuredDshBin());
+  const check = checkExistingCheckout(dir, node, probe);
   if (!check.valid) {
     vscode.window.showWarningMessage(t("install.checkoutInvalid"));
     return;
@@ -361,9 +386,31 @@ export async function runPrimaryInstallFlow(report: DoctorReport): Promise<void>
     await vscode.window.showWarningMessage(t("install.checkoutDirty"));
   }
   if (check.onPatchedBranch === false) {
-    await vscode.window.showWarningMessage(
-      t("install.checkoutNotPatchedBranch", { branch: TESTED_SOURCE_BRANCH })
-    );
+    // Built on an older/other branch. If the supported branch is published on
+    // the fork and the tree is clean, offer to refresh it in place (fetch +
+    // check out + rebuild) behind the R7 single confirmation, then auto-run in
+    // the setup terminal. A dirty tree or an unpublished branch keeps the old
+    // warning — DSHmux never force-checks-out a dirty working tree.
+    const sourceExists = recommendedSourceBranchExists(probe);
+    if (sourceExists === false || check.dirty) {
+      await vscode.window.showWarningMessage(
+        t("install.checkoutNotPatchedBranch", { branch: TESTED_SOURCE_BRANCH })
+      );
+    } else {
+      const plan = buildSourceUpdatePlan(dir, process.platform);
+      if (await confirmAutoRun(plan)) {
+        const terminal = getSetupTerminal();
+        for (let i = 0; i < plan.length; i++) {
+          const s = plan[i];
+          echoSetupLine(
+            terminal,
+            `Step ${i + 1} of ${plan.length} — ${t(s.purpose as I18nKey)} — ${s.command}`
+          );
+        }
+        terminal.sendText(plan.map((s) => s.command).join(" && "), true);
+        vscode.window.showInformationMessage(t("install.autoRunStarted"));
+      }
+    }
   }
   const bin = check.binPath!;
   const confirm = t("install.setDshPathConfirm");
