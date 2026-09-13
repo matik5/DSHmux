@@ -1,0 +1,487 @@
+:root {
+  --dshmux-header-height: 40px;
+}
+
+html,
+body {
+  height: 100% !important;
+  margin: 0 !important;
+}
+
+body {
+  box-sizing: border-box !important;
+  padding-top: var(--dshmux-header-height) !important;
+  overflow: hidden !important;
+}
+
+#root {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+
+#dshmux-chat-header,
+#dshmux-session-backdrop,
+#dshmux-overflow,
+#dshmux-overlay,
+#dshmux-toast {
+  box-sizing: border-box;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+#dshmux-chat-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10010;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--dshmux-header-height);
+  padding: 4px 8px 4px 12px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border, transparent));
+}
+
+#dshmux-current-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  font-weight: 500;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#dshmux-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.dshmux-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.dshmux-icon-button:hover,
+.dshmux-icon-button[aria-expanded="true"] {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.dshmux-icon-button:active {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.dshmux-icon-button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.dshmux-icon-button svg,
+.dshmux-search-wrap svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+#dshmux-more svg circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+[role="option"]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.dshmux-backdrop {
+  position: fixed;
+  inset: var(--dshmux-header-height) 0 0;
+  z-index: 10000;
+  padding: 8px;
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 32%, transparent);
+}
+
+.dshmux-backdrop[hidden],
+#dshmux-overflow[hidden],
+#dshmux-overlay[hidden],
+#dshmux-toast[hidden] {
+  display: none;
+}
+
+.dshmux-dialog {
+  width: min(720px, 100%);
+  max-height: calc(100vh - var(--dshmux-header-height) - 16px);
+  margin: 0 auto;
+  padding: 10px;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 10px;
+  box-shadow: 0 8px 28px var(--vscode-widget-shadow, rgba(0, 0, 0, .25));
+}
+
+.dshmux-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 9px;
+  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 5px;
+}
+
+.dshmux-search-wrap:focus-within {
+  border-color: var(--vscode-focusBorder);
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+#dshmux-session-search {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  color: var(--vscode-input-foreground);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+#dshmux-session-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(280px, 100%);
+  margin: 9px 0 7px;
+  padding: 2px;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+}
+
+#dshmux-session-tabs button {
+  min-width: 0;
+  padding: 5px 10px;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#dshmux-session-tabs button[aria-pressed="true"] {
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+}
+
+#dshmux-session-message {
+  min-height: 0;
+  color: var(--vscode-errorForeground, var(--vscode-descriptionForeground));
+  font-size: 12px;
+}
+
+#dshmux-session-message:not(:empty) {
+  padding: 4px 6px;
+}
+
+#dshmux-session-list {
+  max-height: min(420px, calc(100vh - var(--dshmux-header-height) - 140px));
+  overflow: auto;
+  scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+.dshmux-session-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.dshmux-session-row:hover,
+.dshmux-session-row:focus-within {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.dshmux-session-open {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dshmux-session-open[aria-current="true"] {
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.dshmux-session-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshmux-session-time {
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dshmux-session-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1px;
+  padding-right: 4px;
+  opacity: 0;
+}
+
+.dshmux-session-row:hover .dshmux-session-actions,
+.dshmux-session-row:focus-within .dshmux-session-actions {
+  opacity: 1;
+}
+
+.dshmux-session-actions button {
+  width: 25px;
+  height: 25px;
+}
+
+.dshmux-session-rename-input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 28px;
+  margin: 4px 4px 4px 8px;
+  padding: 0 7px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.dshmux-primary-button,
+.dshmux-secondary-button,
+#dshmux-overflow button {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dshmux-primary-button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: 1px solid transparent;
+}
+
+.dshmux-primary-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.dshmux-secondary-button {
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
+}
+
+#dshmux-empty-new {
+  margin: 8px 6px 2px;
+}
+
+#dshmux-overflow {
+  position: fixed;
+  top: calc(var(--dshmux-header-height) - 3px);
+  right: 7px;
+  z-index: 10030;
+  display: flex;
+  flex-direction: column;
+  width: min(220px, calc(100vw - 14px));
+  padding: 4px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+  border-radius: 7px;
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, .25));
+}
+
+#dshmux-overflow button {
+  width: 100%;
+  overflow: hidden;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: transparent;
+  border: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#dshmux-overflow button:hover,
+#dshmux-overflow button:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.dshmux-menu-separator {
+  height: 1px;
+  margin: 3px 5px;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
+}
+
+#dshmux-status-detail {
+  margin: 3px 5px;
+  padding: 4px 5px;
+  border-left: 2px solid var(--vscode-focusBorder);
+}
+
+#dshmux-status-detail > div {
+  display: grid;
+  grid-template-columns: minmax(62px, 1fr) minmax(0, 1.25fr);
+  gap: 6px;
+  padding: 2px 0;
+}
+
+#dshmux-status-detail dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+#dshmux-status-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+#dshmux-overlay {
+  position: fixed;
+  inset: var(--dshmux-header-height) 0 0;
+  z-index: 9990;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  text-align: center;
+}
+
+#dshmux-overlay[data-mode="session"] {
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 76%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+#dshmux-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+
+#dshmux-progress {
+  position: relative;
+  width: min(220px, 70vw);
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--vscode-progressBar-background) 24%, transparent);
+  border-radius: 999px;
+}
+
+#dshmux-progress::after {
+  position: absolute;
+  inset-block: 0;
+  left: -42%;
+  width: 42%;
+  background: var(--vscode-progressBar-background);
+  border-radius: inherit;
+  content: "";
+  animation: dshmux-progress 1.15s ease-in-out infinite;
+}
+
+#dshmux-toast {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 10040;
+  width: min(360px, calc(100vw - 20px));
+  padding: 8px 10px;
+  color: var(--vscode-notifications-foreground, var(--vscode-foreground));
+  background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border));
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .25));
+}
+
+@keyframes dshmux-progress {
+  from { transform: translateX(0); }
+  to { transform: translateX(340%); }
+}
+
+@media (hover: none) {
+  .dshmux-session-actions { opacity: 1; }
+}
+
+@media (max-width: 280px) {
+  #dshmux-chat-header { padding-inline: 8px 5px; }
+  .dshmux-dialog { padding: 8px; border-radius: 8px; }
+  .dshmux-session-open { gap: 5px; padding-inline: 6px; }
+  .dshmux-session-actions { padding-right: 2px; }
+}
+
+@media (forced-colors: active) {
+  #dshmux-chat-header,
+  .dshmux-dialog,
+  #dshmux-overflow,
+  #dshmux-toast {
+    border: 1px solid CanvasText;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  [role="option"]:focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #dshmux-progress::after { animation: none; }
+}

@@ -74,7 +74,8 @@ border:none;border-radius:3px;padding:6px 16px;font-family:var(--vscode-font-fam
   var overlay = document.getElementById("dsh-overlay");
   var msg = document.getElementById("dsh-msg");
   var btn = document.getElementById("dsh-start");
-  var vscode = acquireVsCodeApi();
+  var vscode = window.__DSHMUX_VSCODE_API__ || acquireVsCodeApi();
+  window.__DSHMUX_VSCODE_API__ = vscode;
   btn.onclick = function () { vscode.postMessage({ type: "start" }); };
   window.addEventListener("message", function (e) {
     var m = e.data;
@@ -83,6 +84,7 @@ border:none;border-radius:3px;padding:6px 16px;font-family:var(--vscode-font-fam
     overlay.hidden = false;
     btn.style.display = m.state === "stopped" || m.state === "error" ? "inline-block" : "none";
     if (m.state === "starting") msg.textContent = ${JSON.stringify(t("overlay.starting"))};
+    else if (m.state === "stopping") msg.textContent = ${JSON.stringify(t("overlay.stopping"))};
     else if (m.state === "stopped") msg.textContent = ${JSON.stringify(t("overlay.stopped"))};
     else if (m.state === "error") msg.textContent = ${JSON.stringify(t("overlay.error", { message: "{message}" }))}.replace("{message}", m.message || "unknown");
   });
@@ -98,6 +100,8 @@ export class DshPanel {
   private bridge?: BridgeHost;
   private pendingPreset?: string;
   private disposedCbs: (() => void)[] = [];
+  private assembled = false;
+  private refreshSeq = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -109,7 +113,9 @@ export class DshPanel {
     // panel (re)assembly AFTER theme sync so the page loads with the right
     // color scheme (R7 ordering fix, 2026-08-17).
     manager.on("state", (info: ServerInfo) => {
+      if (info.state !== "ready") this.assembled = false;
       this.postStatus(info);
+      if (info.state === "ready" && this.panel && !this.assembled) void this.refresh();
     });
     // Live theme switch: the embedded client resolves "system" via the
     // matchMedia shim, so push the VS Code theme without a page reload.
@@ -192,6 +198,8 @@ export class DshPanel {
       }
     });
     panel.onDidDispose(() => {
+      this.refreshSeq += 1;
+      this.assembled = false;
       this.panel = undefined;
       this.bridge?.dispose();
       this.bridge = undefined;
@@ -199,6 +207,7 @@ export class DshPanel {
     });
 
     panel.webview.html = placeholderHtml();
+    this.assembled = false;
     this.postStatus({ state: this.manager.state, url: this.manager.serverUrl });
     if (this.manager.state === "ready") void this.refresh();
   }
@@ -238,13 +247,15 @@ export class DshPanel {
 
   private async refresh(): Promise<void> {
     const url = this.manager.serverUrl;
-    if (!url || !this.panel) return;
+    const targetPanel = this.panel;
+    if (!url || !targetPanel) return;
+    const seq = ++this.refreshSeq;
     try {
       const bridgeJs = fs.readFileSync(
         path.join(this.context.extensionUri.fsPath, "media", "bridge-client.js"),
         "utf8"
       );
-      const webview = this.panel.webview;
+      const webview = targetPanel.webview;
       webview.options = {
         ...webview.options,
         portMapping: dshWebviewPortMappings(url),
@@ -265,10 +276,14 @@ export class DshPanel {
         cookieProvider: () => this.manager.authCookie,
         log: (m) => console.log("[dsh] " + m),
       });
+      if (seq !== this.refreshSeq || this.panel !== targetPanel) return;
       // Same document-swap socket hygiene as the side-panel chat view.
       this.bridge?.resetSockets();
-      this.panel.webview.html = html;
+      targetPanel.webview.html = html;
+      this.assembled = true;
     } catch (err) {
+      if (seq !== this.refreshSeq || this.panel !== targetPanel) return;
+      this.assembled = false;
       const msg = err instanceof Error ? err.message : String(err);
       this.postStatus({ state: "error", message: msg });
     }

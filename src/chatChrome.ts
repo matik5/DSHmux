@@ -1,0 +1,140 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export interface ChatChromeCopy {
+  sessions: string;
+  newSession: string;
+  searchSessions: string;
+  active: string;
+  archived: string;
+  empty: string;
+  rename: string;
+  renamePlaceholder: string;
+  archive: string;
+  timeNow: string;
+  more: string;
+  openInEditor: string;
+  openSettings: string;
+  openDoctor: string;
+  statusVersions: string;
+  status: string;
+  ready: string;
+  extensionVersion: string;
+  dshVersion: string;
+  notAvailable: string;
+  retry: string;
+  start: string;
+  stop: string;
+  stopped: string;
+  starting: string;
+  stopping: string;
+  loadingSession: string;
+  errorTemplate: string;
+  actionFailedTemplate: string;
+  updateLatestTemplate: string;
+  updateNextTemplate: string;
+}
+
+export interface ChatChromeInit {
+  lang: string;
+  currentSessionId?: string;
+  currentTitle: string;
+  serverState: string;
+  doctorState?: string;
+  latestVersion?: string;
+  nextVersion?: string;
+  initialSessionLoading: boolean;
+  copy: ChatChromeCopy;
+}
+
+export interface ChatChromeAssets {
+  css: string;
+  script: string;
+}
+
+/** Load the two static chrome assets once in the extension host. */
+export function loadChatChromeAssets(extensionRootPath: string): ChatChromeAssets {
+  return {
+    css: fs.readFileSync(path.join(extensionRootPath, "media", "chat-chrome.css"), "utf8"),
+    script: fs.readFileSync(path.join(extensionRootPath, "media", "chat-chrome.js"), "utf8"),
+  };
+}
+
+function jsonForInlineScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
+}
+
+/**
+ * Build the small DSHmux-owned layer injected after the upstream DSH root.
+ * User/session text is supplied as JSON and applied with textContent by the
+ * static browser script; it is never interpolated into HTML attributes.
+ */
+export function chatChromeHtml(
+  init: ChatChromeInit,
+  css: string,
+  script: string
+): string {
+  return `
+<style id="dshmux-chat-chrome-style">${css}</style>
+<header id="dshmux-chat-header">
+  <div id="dshmux-current-title"></div>
+  <div id="dshmux-header-actions">
+    <button id="dshmux-sessions" class="dshmux-icon-button" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5h9v9h-9zM1.5 6v7.5a1 1 0 0 0 1 1H10"/><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"/></svg>
+    </button>
+    <button id="dshmux-new-session" class="dshmux-icon-button" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+    <button id="dshmux-more" class="dshmux-icon-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="dshmux-session-backdrop" class="dshmux-backdrop" hidden>
+  <section id="dshmux-session-dialog" class="dshmux-dialog" role="dialog" aria-modal="true">
+    <div class="dshmux-search-wrap">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+      <input id="dshmux-session-search" type="search" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="dshmux-session-tabs" role="group">
+      <button id="dshmux-active-tab" type="button" aria-pressed="true"></button>
+      <button id="dshmux-archived-tab" type="button" aria-pressed="false"></button>
+    </div>
+    <div id="dshmux-session-message" role="status" aria-live="polite"></div>
+    <div id="dshmux-session-list" role="listbox"></div>
+    <button id="dshmux-empty-new" class="dshmux-primary-button" type="button" hidden></button>
+  </section>
+</div>
+
+<div id="dshmux-overflow" role="dialog" aria-modal="false" hidden>
+  <button type="button" data-command="open-in-editor"></button>
+  <button type="button" data-command="open-settings"></button>
+  <button type="button" data-command="open-doctor"></button>
+  <button type="button" data-command="show-status"></button>
+  <dl id="dshmux-status-detail" role="status" aria-live="polite" hidden>
+    <div><dt id="dshmux-state-label"></dt><dd id="dshmux-state-value"></dd></div>
+    <div><dt id="dshmux-extension-label"></dt><dd id="dshmux-extension-value"></dd></div>
+    <div><dt id="dshmux-dsh-label"></dt><dd id="dshmux-dsh-value"></dd></div>
+  </dl>
+  <div class="dshmux-menu-separator" role="separator"></div>
+  <button id="dshmux-update-latest" type="button" data-command="upgrade-latest" hidden></button>
+  <button id="dshmux-update-next" type="button" data-command="upgrade-next" hidden></button>
+  <button id="dshmux-stop" type="button" data-command="stop" hidden></button>
+</div>
+
+<div id="dshmux-overlay" hidden aria-live="polite">
+  <div id="dshmux-overlay-message"></div>
+  <div id="dshmux-progress" role="progressbar" hidden></div>
+  <div id="dshmux-overlay-actions">
+    <button id="dshmux-start" class="dshmux-primary-button" type="button" hidden></button>
+    <button id="dshmux-overlay-doctor" class="dshmux-secondary-button" type="button" hidden></button>
+  </div>
+</div>
+<div id="dshmux-toast" role="status" aria-live="polite" hidden></div>
+<script>window.__DSHMUX_CHROME_INIT__=${jsonForInlineScript(init)};</script>
+<script>${script}</script>`;
+}

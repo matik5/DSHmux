@@ -1,19 +1,11 @@
-// DSH chat view (side panel, 2026-08-23): the PRIMARY chat surface. A
-// WebviewView in the `dshmux` side container, stacked BELOW the
-// launcher (buttons / sessions / workspace indicator). It hosts the full DSH
-// Web UI over the transport bridge — the same document assembly + BridgeHost
-// the editor-tab DshPanel uses — but as a side-panel view, one session at a
-// time (Copilot-style: clicking a session loads it into this single view).
-//
-// Session switching re-assembles the document with the chosen session baked
-// into the <head> `dsh.sessions.current` preset (the same localStorage key the
-// DSH frontend rehydrates on boot). A "light" localStorage+reload would not
-// work: that preset script re-runs on every page load and would clobber the
-// reloaded value back to the previously-baked session.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { DshServerManager, type ServerInfo } from "./serverManager.js";
+import {
+  DshServerManager,
+  type ServerInfo,
+  type SessionSummary,
+} from "./serverManager.js";
 import { assembleDocument } from "./documentAssembly.js";
 import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
@@ -25,228 +17,100 @@ import {
   soundSettings,
 } from "./configuration.js";
 import { dshWebviewPortMappings } from "./webviewPortMapping.js";
+import { sessionTitleOf } from "./workspaceTracker.js";
+import { runDoctorForLauncher } from "./installService.js";
+import type { DoctorReport } from "./dshDoctor.js";
+import { isUpdateAvailable } from "./versionCheck.js";
+import { showUpgradeOptions, upgradeInfo } from "./versionCheckService.js";
+import {
+  chatChromeHtml,
+  loadChatChromeAssets,
+  type ChatChromeAssets,
+  type ChatChromeCopy,
+  type ChatChromeInit,
+} from "./chatChrome.js";
 
 const DIST_DIR_NAME = "dsh-dist";
+const SESSIONS_POLL_MS = 5_000;
 
-function isDarkTheme(): boolean {
-  const k = vscode.window.activeColorTheme.kind;
-  return k === vscode.ColorThemeKind.Dark || k === vscode.ColorThemeKind.HighContrast;
+export interface SessionPanelHooks {
+  onSessionRenamed(sessionId: string, title: string): void;
+  onSessionArchived(sessionId: string): void;
 }
 
-/** dshmux.frameFontScale (default 0.9), with legacy-setting fallback. */
+export interface ChromeSession {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+  archived: boolean;
+}
+
+const NOOP_PANEL_HOOKS: SessionPanelHooks = {
+  onSessionRenamed: () => undefined,
+  onSessionArchived: () => undefined,
+};
+
+function isDarkTheme(): boolean {
+  const kind = vscode.window.activeColorTheme.kind;
+  return kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
+}
+
 function frameFontScaleValue(): number {
   return dshmuxConfiguration("frameFontScale", 0.9);
 }
 
-/** Minimal shell shown before the server is ready (never a blank view). */
-function placeholderHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="${langCode()}">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<style>html,body{height:100%;margin:0;background:var(--vscode-sideBar-background, var(--vscode-editor-background))}</style>
-</head>
-<body>${statusChromeHtml()}
-<script>
-(function(){
-  var overlay = document.getElementById("dsh-overlay");
-  var msg = document.getElementById("dsh-msg");
-  var btn = document.getElementById("dsh-start");
-  overlay.hidden = false;
-  msg.textContent = ${JSON.stringify(t("overlay.stopped"))};
-  btn.style.display = "inline-block";
-})();
-</script>
-</body>
-</html>`;
+function messageText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
-/** Overlay + status listener injected into the assembled document. */
-function statusChromeHtml(initialSessionLoading = false): string {
-  return `
-<style>
-#dsh-overlay{position:fixed;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;
-background:var(--vscode-sideBar-background, var(--vscode-editor-background));color:var(--vscode-foreground);
-font-family:var(--vscode-font-family);font-size:13px;text-align:center;padding:24px;z-index:9999}
-#dsh-overlay[hidden]{display:none}
-#dsh-overlay[data-mode="session"]{background:color-mix(in srgb,
-var(--vscode-sideBar-background, var(--vscode-editor-background)) 76%,transparent);backdrop-filter:blur(1px)}
-#dsh-progress{position:relative;width:min(220px,70vw);height:2px;overflow:hidden;border-radius:999px;
-background:color-mix(in srgb,var(--vscode-progressBar-background) 24%,transparent)}
-#dsh-progress[hidden]{display:none}
-#dsh-progress::after{content:"";position:absolute;inset-block:0;left:-42%;width:42%;border-radius:inherit;
-background:var(--vscode-progressBar-background);animation:dshmux-progress 1.15s ease-in-out infinite}
-@keyframes dshmux-progress{from{transform:translateX(0)}to{transform:translateX(340%)}}
-@media (prefers-reduced-motion:reduce){#dsh-progress::after{animation-duration:2s}}
-#dsh-start{background:var(--vscode-button-background);color:var(--vscode-button-foreground);
-border:none;border-radius:3px;padding:6px 16px;font-family:var(--vscode-font-family);font-size:13px;cursor:pointer}
-#dsh-start:hover{background:var(--vscode-button-hoverBackground)}
-</style>
-<div id="dsh-overlay" hidden aria-live="polite">
-  <div id="dsh-msg">DSHmux</div>
-  <div id="dsh-progress" role="progressbar" hidden></div>
-  <button id="dsh-start" style="display:none">${t("button.start")}</button>
-</div>
-<script>
-(function(){
-  var overlay = document.getElementById("dsh-overlay");
-  var msg = document.getElementById("dsh-msg");
-  var progress = document.getElementById("dsh-progress");
-  var btn = document.getElementById("dsh-start");
-  var vscode = acquireVsCodeApi();
-  var loadingText = ${JSON.stringify(t("overlay.loadingSession"))};
-  var initialSessionLoading = ${initialSessionLoading ? "true" : "false"};
-  var sessionLoading = false;
-  var serverState = initialSessionLoading ? "ready" : "unknown";
-  var readyObserver;
-  var readyTimer;
-
-  function stopReadyWatch() {
-    if (readyObserver) readyObserver.disconnect();
-    readyObserver = undefined;
-    if (readyTimer) clearTimeout(readyTimer);
-    readyTimer = undefined;
-  }
-
-  function setSessionLoading(active, watchDocument) {
-    if (!active) {
-      sessionLoading = false;
-      stopReadyWatch();
-      document.body.removeAttribute("aria-busy");
-      overlay.removeAttribute("data-mode");
-      progress.hidden = true;
-      if (serverState === "ready") overlay.hidden = true;
-      return;
-    }
-    if (!watchDocument) stopReadyWatch();
-    sessionLoading = true;
-    document.body.setAttribute("aria-busy", "true");
-    overlay.dataset.mode = "session";
-    overlay.hidden = false;
-    msg.textContent = loadingText;
-    progress.setAttribute("aria-label", loadingText);
-    progress.hidden = false;
-    btn.style.display = "none";
-  }
-
-  function watchForRenderedSession() {
-    function scheduleReady() {
-      var root = document.getElementById("root");
-      if (!root || !root.firstElementChild || root.querySelector("[data-dsh-boot]")) {
-        if (readyTimer) clearTimeout(readyTimer);
-        readyTimer = undefined;
-        return;
-      }
-      if (readyTimer) clearTimeout(readyTimer);
-      readyTimer = setTimeout(function () {
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () { setSessionLoading(false, false); });
-        });
-      }, 450);
-    }
-    readyObserver = new MutationObserver(scheduleReady);
-    readyObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      characterData: true
-    });
-    window.addEventListener("load", scheduleReady, { once: true });
-    scheduleReady();
-  }
-
-  btn.onclick = function () { vscode.postMessage({ type: "start" }); };
-  window.addEventListener("message", function (e) {
-    var m = e.data;
-    if (!m || typeof m !== "object") return;
-    if (m.type === "session-loading") {
-      setSessionLoading(m.loading !== false, false);
-      return;
-    }
-    if (m.type === "server-status") {
-      serverState = m.state;
-      if (m.state === "ready") {
-        if (!sessionLoading) overlay.hidden = true;
-        return;
-      }
-      sessionLoading = false;
-      stopReadyWatch();
-      document.body.removeAttribute("aria-busy");
-      overlay.removeAttribute("data-mode");
-      overlay.hidden = false;
-      progress.hidden = true;
-      btn.style.display = m.state === "stopped" || m.state === "error" ? "inline-block" : "none";
-      if (m.state === "starting") msg.textContent = ${JSON.stringify(t("overlay.starting"))};
-      else if (m.state === "stopped") msg.textContent = ${JSON.stringify(t("overlay.stopped"))};
-      else if (m.state === "error") msg.textContent = ${JSON.stringify(t("overlay.error", { message: "{message}" }))}.replace("{message}", m.message || "unknown");
-    }
-  });
-  if (initialSessionLoading) {
-    setSessionLoading(true, true);
-    watchForRenderedSession();
-  }
-})();
-</script>`;
+function isMessage(value: unknown): value is Record<string, unknown> & { type: string } {
+  return !!value && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
 }
 
-/**
- * Side-panel WebviewView hosting the DSH UI over the transport bridge. One
- * instance, one session at a time. The launcher (above it) drives
- * {@link loadSession}; the editor-tab DshPanel remains a secondary surface.
- */
+/** One sidebar webview: compact DSHmux chrome plus the embedded DSH client. */
 export class DshChatView implements vscode.WebviewViewProvider {
   public static readonly viewType = "dshmux.chat";
 
   private view?: vscode.WebviewView;
   private bridge?: BridgeHost;
-  /** Session the view should show (drives the localStorage preset on (re)load). */
   private currentSessionId?: string;
-  /** True once the assembled DSH document is showing (false for the placeholder). */
+  private currentTitle = t("sessions.newSession");
   private assembled = false;
-  /** Monotonic refresh counter: only the latest refresh may write its result. */
   private refreshSeq = 0;
+  private pollTimer?: NodeJS.Timeout;
+  private isPolling = false;
+  private newSessionPending = false;
+  private sessions: ChromeSession[] = [];
+  private archivedSessions: ChromeSession[] = [];
+  private doctorReport?: DoctorReport;
+  private readonly chromeAssets: ChatChromeAssets;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly manager: DshServerManager
+    private readonly manager: DshServerManager,
+    private readonly panelHooks: SessionPanelHooks = NOOP_PANEL_HOOKS
   ) {
-    // Mirror state into the overlay/placeholder; the extension drives
-    // (re)assembly AFTER theme sync so the page loads with the right scheme.
+    this.chromeAssets = loadChatChromeAssets(context.extensionUri.fsPath);
     manager.on("state", (info: ServerInfo) => {
+      if (info.state !== "ready") this.assembled = false;
       this.postStatus(info);
-      if (info.state === "ready" && !this.assembled && this.view) {
-        void this.refresh();
-      }
+      this.syncPolling();
+      if (info.state === "ready" && !this.assembled && this.view) void this.refresh();
+      if (info.state === "ready") void this.pollSessions();
     });
-    // Live theme switch: the embedded client resolves "system" via the
-    // matchMedia shim, so push the VS Code theme without a page reload.
+
     context.subscriptions.push(
-      vscode.window.onDidChangeActiveColorTheme((e) => {
+      vscode.window.onDidChangeActiveColorTheme((event) => {
         const dark =
-          e.kind === vscode.ColorThemeKind.Dark || e.kind === vscode.ColorThemeKind.HighContrast;
-        this.view?.webview.postMessage({ type: "theme-preference", dark });
-      })
-    );
-    // Live sound toggle: push the full sound state to the webview so the
-    // bridge-client detector picks it up without a page reload.
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (affectsAnySoundSetting(e)) {
-          const s = soundSettings();
-          this.view?.webview.postMessage({
-            type: "completion-sound",
-            completionSound: s.completionSound,
-            soundStart: s.soundStart,
-            soundDone: s.soundDone,
-            soundAsk: s.soundAsk,
-          });
+          event.kind === vscode.ColorThemeKind.Dark ||
+          event.kind === vscode.ColorThemeKind.HighContrast;
+        void this.view?.webview.postMessage({ type: "theme-preference", dark });
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (affectsAnySoundSetting(event)) {
+          void this.view?.webview.postMessage({ type: "completion-sound", ...soundSettings() });
         }
-        if (affectsDshmuxConfiguration(e, "frameFontScale")) {
-          // The scale is baked into the assembled document, so re-assemble.
-          // No-op while the server is not running (refresh guards on it).
-          void this.refresh();
-        }
+        if (affectsDshmuxConfiguration(event, "frameFontScale")) void this.refresh();
       })
     );
   }
@@ -265,80 +129,396 @@ export class DshChatView implements vscode.WebviewViewProvider {
       () => this.manager.authCookie
     );
 
-    // View-level commands from the placeholder/overlay chrome.
-    webviewView.webview.onDidReceiveMessage((msg) => {
-      const m = msg as { type?: string };
-      if (m.type === "start") {
-        void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
-          /* state machine drives the overlay */
-        });
-      } else if (m.type === "stop") {
-        this.manager.stop();
-      }
+    webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      void this.handleMessage(message);
+    });
+    webviewView.onDidChangeVisibility(() => {
+      this.syncPolling();
+      if (webviewView.visible && this.manager.state === "ready") void this.pollSessions();
     });
     webviewView.onDidDispose(() => {
+      this.refreshSeq += 1;
+      this.clearPolling();
       this.view = undefined;
       this.bridge?.dispose();
       this.bridge = undefined;
     });
 
-    webviewView.webview.html = placeholderHtml();
+    try {
+      this.doctorReport = runDoctorForLauncher(this.context);
+    } catch {
+      this.doctorReport = undefined;
+    }
+    webviewView.webview.html = this.placeholderHtml();
     this.assembled = false;
-    this.postStatus({ state: this.manager.state, url: this.manager.serverUrl });
-    if (this.manager.state === "ready") void this.refresh();
+    this.postStatusNow();
+    this.syncPolling();
+
+    if (this.manager.state === "ready") {
+      void this.refresh();
+      void this.pollSessions();
+    } else {
+      this.autoStartWhenReady();
+    }
   }
 
-  /**
-   * Load a session into the single chat view (one at a time). Always re-assembles
-   * so the <head> session preset bakes in the NEW session: the DSH frontend
-   * rehydrates `dsh.sessions.current` on boot, and that preset script re-runs on
-   * every page load, so a "light" localStorage+reload would be clobbered back to
-   * the previously-baked session (the reload would not switch). When the dist rev
-   * is unchanged, assembleDocument skips the re-download — this is a cheap
-   * index.html fetch + re-string, not a full re-fetch.
-   */
   loadSession(sessionId: string): void {
-    // No-op when the view is already showing this exact session (avoids a
-    // pointless re-assembly + flicker on re-click).
-    if (sessionId && sessionId === this.currentSessionId && this.assembled) {
-      return;
-    }
-    // Dim the currently rendered session immediately. The replacement document
-    // starts with the same overlay, so feedback remains visible across the
-    // asynchronous re-assembly and DSH frontend boot phases.
-    this.view?.webview.postMessage({ type: "session-loading", loading: true });
-    this.currentSessionId = sessionId;
-    // The current document still shows the previous session until refresh
-    // succeeds. Keeping this false also lets a user retry the same target after
-    // a transient assembly failure instead of being trapped by the no-op guard.
+    if (sessionId && sessionId === this.currentSessionId && this.assembled) return;
+    void this.view?.webview.postMessage({ type: "session-loading", loading: true });
+    this.currentSessionId = sessionId || undefined;
+    this.updateCurrentTitle();
+    this.postSnapshot();
     this.assembled = false;
-    // refreshSeq makes the latest call win, so a concurrent ready-handler
-    // refresh cannot clobber this one's (correct) preset.
     void this.refresh();
   }
 
-  /** The session currently shown (for title / status hints). */
   get shownSessionId(): string | undefined {
     return this.currentSessionId;
+  }
+
+  refreshSessions(): void {
+    void this.pollSessions();
+  }
+
+  refreshMetadata(): void {
+    this.postStatusNow();
+  }
+
+  async refreshDoctor(): Promise<DoctorReport | undefined> {
+    try {
+      this.doctorReport = runDoctorForLauncher(this.context);
+    } catch {
+      // A failed probe must not erase the last useful report.
+    }
+    this.postStatusNow();
+    if (this.doctorReport?.state === "ready") this.autoStartWhenReady();
+    return this.doctorReport;
+  }
+
+  private placeholderHtml(): string {
+    return `<!DOCTYPE html>
+<html lang="${langCode()}">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>html,body{background:var(--vscode-sideBar-background,var(--vscode-editor-background))}</style>
+</head>
+<body><div id="root"></div>${this.chromeHtml(false)}</body>
+</html>`;
+  }
+
+  private chromeCopy(): ChatChromeCopy {
+    return {
+      sessions: t("sessions.title"),
+      newSession: t("sessions.newSession"),
+      searchSessions: t("chrome.searchSessions"),
+      active: t("chrome.active"),
+      archived: t("sessions.archived"),
+      empty: t("sessions.empty"),
+      rename: t("sessions.rename"),
+      renamePlaceholder: t("sessions.renamePlaceholder"),
+      archive: t("sessions.archive"),
+      timeNow: t("sessions.timeNow"),
+      more: t("chrome.more"),
+      openInEditor: t("chrome.openInEditor"),
+      openSettings: t("chrome.openSettings"),
+      openDoctor: t("chrome.openDoctor"),
+      statusVersions: t("chrome.statusVersions"),
+      status: t("chrome.status"),
+      ready: t("doctor.state.ready"),
+      extensionVersion: t("chrome.extensionVersion"),
+      dshVersion: t("chrome.dshVersion"),
+      notAvailable: t("chrome.notAvailable"),
+      retry: t("chrome.retry"),
+      start: t("button.start"),
+      stop: t("button.stop"),
+      stopped: t("overlay.stopped"),
+      starting: t("overlay.starting"),
+      stopping: t("overlay.stopping"),
+      loadingSession: t("overlay.loadingSession"),
+      errorTemplate: t("overlay.error", { message: "{message}" }),
+      actionFailedTemplate: t("chrome.actionFailed", { message: "{message}" }),
+      updateLatestTemplate: t("upgrade.latestChip", { version: "{version}" }),
+      updateNextTemplate: t("upgrade.nextChip", { version: "{version}" }),
+    };
+  }
+
+  private availableUpdates(): { latestVersion?: string; nextVersion?: string } {
+    const current = this.manager.dshVersion;
+    const updates = upgradeInfo(this.context, current, this.manager.dshBinPath);
+    return {
+      latestVersion:
+        updates && isUpdateAvailable(current, updates.latest) ? updates.latest : undefined,
+      nextVersion:
+        updates && isUpdateAvailable(current, updates.next) ? updates.next : undefined,
+    };
+  }
+
+  private chromeInit(initialSessionLoading: boolean): ChatChromeInit {
+    return {
+      lang: langCode(),
+      currentSessionId: this.currentSessionId,
+      currentTitle: this.currentTitle,
+      serverState: this.manager.state,
+      doctorState: this.doctorReport?.state,
+      ...this.availableUpdates(),
+      initialSessionLoading,
+      copy: this.chromeCopy(),
+    };
+  }
+
+  private chromeHtml(initialSessionLoading: boolean): string {
+    return chatChromeHtml(
+      this.chromeInit(initialSessionLoading),
+      this.chromeAssets.css,
+      this.chromeAssets.script
+    );
   }
 
   private distRootPath(): string {
     return path.join(this.context.globalStorageUri.fsPath, DIST_DIR_NAME);
   }
 
+  private async handleMessage(value: unknown): Promise<void> {
+    if (!isMessage(value)) return;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : undefined;
+    switch (value.type) {
+      case "chrome-ready":
+        this.postStatusNow();
+        this.postSnapshot();
+        if (this.manager.state === "ready") void this.pollSessions();
+        return;
+      case "refresh-sessions":
+        if (this.manager.state === "ready") await this.pollSessions();
+        return;
+      case "start":
+        this.startFromChrome();
+        return;
+      case "stop":
+        this.manager.stop();
+        return;
+      case "new-session":
+        await this.createSession();
+        return;
+      case "open-session":
+        if (sessionId) this.loadSession(sessionId);
+        return;
+      case "rename-session":
+        if (sessionId && typeof value.title === "string" && value.title.trim()) {
+          await this.renameSession(sessionId, value.title.trim());
+        }
+        return;
+      case "archive-session":
+        if (sessionId) await this.archiveSession(sessionId);
+        return;
+      case "active-session-changed":
+        if (sessionId) {
+          this.currentSessionId = sessionId;
+          this.updateCurrentTitle();
+          this.postSnapshot();
+          if (!this.findSession(sessionId)) void this.pollSessions();
+        }
+        return;
+      case "open-in-editor":
+        await vscode.commands.executeCommand("dshmux.openPanel");
+        return;
+      case "open-settings":
+        await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:matik5.dshmux");
+        return;
+      case "open-doctor":
+        await vscode.commands.executeCommand("dshmux.doctor");
+        return;
+      case "show-status":
+        void this.view?.webview.postMessage({
+          type: "status-detail",
+          state: this.manager.state,
+          extensionVersion: this.context.extension.packageJSON.version as string | undefined,
+          dshVersion: this.manager.dshVersion,
+        });
+        return;
+      case "upgrade": {
+        const channel =
+          value.channel === "next" ? "next" : value.channel === "latest" ? "latest" : undefined;
+        if (channel) {
+          await showUpgradeOptions(
+            this.context,
+            this.manager.dshVersion,
+            this.manager.dshBinPath,
+            channel
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  private startFromChrome(): void {
+    if (this.manager.state === "ready" || this.manager.state === "starting") return;
+    if (this.doctorReport && this.doctorReport.state !== "ready") {
+      void vscode.commands.executeCommand("dshmux.doctor");
+      return;
+    }
+    void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
+      // The manager state drives the visible error.
+    });
+  }
+
+  private autoStartWhenReady(): void {
+    const doctorAllowsStart = !this.doctorReport || this.doctorReport.state === "ready";
+    if (
+      doctorAllowsStart &&
+      !this.manager.isRunning &&
+      this.manager.state !== "starting" &&
+      this.manager.state !== "stopping"
+    ) {
+      void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
+        // The manager state drives the visible error.
+      });
+    }
+  }
+
+  private async createSession(): Promise<void> {
+    if (this.newSessionPending || this.manager.state !== "ready") return;
+    this.newSessionPending = true;
+    this.postOperation("new", "pending");
+    try {
+      const workspaceId = await this.manager.workspaceIdFor(workspaceRoot());
+      const sessionId = await this.manager.createSession(workspaceId);
+      this.newSessionPending = false;
+      this.currentSessionId = sessionId;
+      this.currentTitle = t("sessions.newSession");
+      this.postOperation("new", "success", sessionId);
+      this.loadSession(sessionId);
+      void this.pollSessions();
+    } catch (err) {
+      this.newSessionPending = false;
+      this.postOperation("new", "error", undefined, messageText(err));
+    }
+  }
+
+  private async renameSession(sessionId: string, title: string): Promise<void> {
+    this.postOperation("rename", "pending", sessionId);
+    try {
+      const result = await this.manager.renameSession(sessionId, title);
+      for (const item of this.sessions.concat(this.archivedSessions)) {
+        if (item.sessionId === sessionId) item.title = result.title;
+      }
+      if (this.currentSessionId === sessionId) this.currentTitle = result.title;
+      this.panelHooks.onSessionRenamed(sessionId, result.title);
+      this.postOperation("rename", "success", sessionId);
+      this.postSnapshot();
+      void this.pollSessions();
+    } catch (err) {
+      this.postOperation("rename", "error", sessionId, messageText(err));
+    }
+  }
+
+  private async archiveSession(sessionId: string): Promise<void> {
+    this.postOperation("archive", "pending", sessionId);
+    try {
+      await this.manager.archiveSession(sessionId);
+      this.panelHooks.onSessionArchived(sessionId);
+      this.postOperation("archive", "success", sessionId);
+      await this.pollSessions();
+    } catch (err) {
+      this.postOperation("archive", "error", sessionId, messageText(err));
+    }
+  }
+
+  private postOperation(
+    operation: "new" | "rename" | "archive",
+    state: "pending" | "success" | "error",
+    sessionId?: string,
+    message?: string
+  ): void {
+    void this.view?.webview.postMessage({
+      type: "session-operation",
+      operation,
+      state,
+      sessionId,
+      message,
+    });
+  }
+
+  private mapSession(summary: SessionSummary, archived: boolean): ChromeSession {
+    return {
+      sessionId: summary.sessionId,
+      title: summary.blank
+        ? t("sessions.newSession")
+        : sessionTitleOf(summary.title, summary.cwd, summary.sessionId),
+      updatedAt: summary.updatedAt,
+      archived,
+    };
+  }
+
+  private findSession(sessionId: string | undefined): ChromeSession | undefined {
+    if (!sessionId) return undefined;
+    return this.sessions.concat(this.archivedSessions).find((item) => item.sessionId === sessionId);
+  }
+
+  private updateCurrentTitle(): void {
+    this.currentTitle = this.findSession(this.currentSessionId)?.title ?? t("sessions.newSession");
+  }
+
+  private async pollSessions(): Promise<void> {
+    if (this.isPolling || this.manager.state !== "ready" || !this.view) return;
+    this.isPolling = true;
+    try {
+      const result = await this.manager.listWorkspaceSessions(workspaceRoot());
+      this.sessions = result.items
+        .map((item) => this.mapSession(item, false))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      this.archivedSessions = result.archivedItems
+        .map((item) => this.mapSession(item, true))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      this.updateCurrentTitle();
+      this.postSnapshot();
+    } catch {
+      this.postSnapshot(t("sessions.error"));
+    } finally {
+      this.isPolling = false;
+    }
+  }
+
+  private postSnapshot(error?: string): void {
+    void this.view?.webview.postMessage({
+      type: "sessions-snapshot",
+      items: this.sessions,
+      archivedItems: this.archivedSessions,
+      currentSessionId: this.currentSessionId,
+      error,
+    });
+  }
+
+  private syncPolling(): void {
+    const shouldPoll =
+      this.view !== undefined &&
+      this.view.visible !== false &&
+      this.manager.state === "ready";
+    if (shouldPoll && !this.pollTimer) {
+      this.pollTimer = setInterval(() => void this.pollSessions(), SESSIONS_POLL_MS);
+      this.pollTimer.unref?.();
+    } else if (!shouldPoll) {
+      this.clearPolling();
+    }
+  }
+
+  private clearPolling(): void {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = undefined;
+  }
+
   private async refresh(): Promise<void> {
     const url = this.manager.serverUrl;
-    if (!url || !this.view) return;
+    const targetView = this.view;
+    if (!url || !targetView) return;
     const seq = ++this.refreshSeq;
     try {
       const bridgeJs = fs.readFileSync(
         path.join(this.context.extensionUri.fsPath, "media", "bridge-client.js"),
         "utf8"
       );
-      const webview = this.view.webview;
-      // Plugin bundles remain absolute HTTP URLs because they are classic
-      // scripts. In a remote window, map their loopback port to the remote
-      // extension host before loading the assembled document.
+      const webview = targetView.webview;
       webview.options = {
         ...webview.options,
         portMapping: dshWebviewPortMappings(url),
@@ -346,43 +526,45 @@ export class DshChatView implements vscode.WebviewViewProvider {
       const { html } = await assembleDocument({
         serverBase: url,
         distRootPath: this.distRootPath(),
-        asWebviewUri: (p) => webview.asWebviewUri(vscode.Uri.file(p)).toString(),
+        asWebviewUri: (filePath) => webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
         bridgeClientJs: bridgeJs,
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
         ...soundSettings(),
         frameFontScale: frameFontScaleValue(),
-        // Bake the current session in so both a cold load (server just became
-        // ready) and a live session switch boot into the right session.
         sessionPreset: this.currentSessionId
           ? JSON.stringify({ sessionId: this.currentSessionId })
           : undefined,
-        chromeHtml: statusChromeHtml(true),
-        // The index route is auth-gated on DSH >= 0.1.2-alpha; the cookie is
-        // minted from the launch token at start (manager.authCookie).
+        chromeHtml: this.chromeHtml(true),
         cookieProvider: () => this.manager.authCookie,
-        log: (m) => console.log("[dsh] " + m),
+        log: (message) => console.log("[dsh] " + message),
       });
-      // A newer refresh superseded this one (e.g. loadSession raced the
-      // ready-handler refresh): drop the stale result so the latest preset wins.
-      if (seq !== this.refreshSeq) {
-        return;
-      }
-      // The outgoing page's sockets must not survive the document swap: the
-      // old world dies without ws-close, and its leaked ids would block the
-      // new world's stream socket (empty DSH UI after a session switch).
+      if (seq !== this.refreshSeq || this.view !== targetView) return;
       this.bridge?.resetSockets();
-      this.view.webview.html = html;
+      targetView.webview.html = html;
       this.assembled = true;
     } catch (err) {
-      if (seq !== this.refreshSeq) return;
-      const msg = err instanceof Error ? err.message : String(err);
+      if (seq !== this.refreshSeq || this.view !== targetView) return;
       this.assembled = false;
-      this.postStatus({ state: "error", message: msg });
+      this.postStatus({ state: "error", message: messageText(err) });
     }
   }
 
+  private postStatusNow(): void {
+    this.postStatus({
+      state: this.manager.state,
+      url: this.manager.serverUrl,
+      version: this.manager.dshVersion,
+    });
+  }
+
   private postStatus(info: ServerInfo): void {
-    this.view?.webview.postMessage({ type: "server-status", ...info });
+    void this.view?.webview.postMessage({
+      type: "server-status",
+      ...info,
+      version: info.version ?? this.manager.dshVersion,
+      doctorState: this.doctorReport?.state,
+      ...this.availableUpdates(),
+    });
   }
 }

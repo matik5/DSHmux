@@ -19,7 +19,7 @@ const SCRIPT = require("node:fs").readFileSync(
 );
 
 /** Install browser globals, run the bridge script, return a probe handle. */
-function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
+function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
   const posted = [];
   const nativeFetchCalls = [];
   const listeners = {};
@@ -27,6 +27,7 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   const documentListeners = {};
   const themeProperties = new Map();
   const themeAttributes = new Set();
+  let acquireCount = 0;
 
   const window = {
     fetch: (input, init) => {
@@ -51,6 +52,7 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
       }
     },
   };
+  if (vscodeApi) window.__DSHMUX_VSCODE_API__ = vscodeApi;
   const themeBody = {
     style: { setProperty: (name, value) => themeProperties.set(name, value) },
     toggleAttribute(name, force) {
@@ -63,7 +65,10 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
     body: deferDocumentBody ? null : themeBody,
     addEventListener: (type, fn) => { documentListeners[type] = fn; },
   };
-  const acquireVsCodeApi = () => ({ postMessage: (msg) => posted.push(msg) });
+  const acquireVsCodeApi = () => {
+    acquireCount += 1;
+    return { postMessage: (msg) => posted.push(msg) };
+  };
   const location = { href: WEBVIEW_ORIGIN + "/", origin: WEBVIEW_ORIGIN };
   // Node ≥21 exposes a read-only global navigator; the bridge only adds a
   // `clipboard` property to it, which is allowed.
@@ -89,8 +94,17 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   );
   run(window, location, navigator, document, acquireVsCodeApi, URL, Headers, Response, DOMException);
 
-  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes };
+  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes, acquireCount };
 }
+
+test("reuses the chrome VS Code API singleton", () => {
+  const posted = [];
+  const vscodeApi = { postMessage: (message) => posted.push(message) };
+  const h = loadBridge(undefined, { vscodeApi });
+  assert.equal(h.acquireCount, 0);
+  h.window.fetch(WEBVIEW_ORIGIN + "/api/session.list", { method: "POST", body: "{}" });
+  assert.equal(posted[0].type, "http");
+});
 
 test("fetch with a URL object relays the correct path (regression: /undefined)", async () => {
   const h = loadBridge();
