@@ -180,7 +180,8 @@ export function resolveNodeExecutable(
   platform: NodeJS.Platform = process.platform,
   execPath: string = process.execPath,
   home: string = os.homedir(),
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  useCache: boolean = true
 ): string {
   const isWin = platform === "win32";
   const pathApi = isWin ? path.win32 : path.posix;
@@ -202,7 +203,7 @@ export function resolveNodeExecutable(
     env.ProgramFiles,
     env["ProgramFiles(x86)"],
   ].join("\0");
-  const cached = nodeExecutableCache.get(cacheKey);
+  const cached = useCache ? nodeExecutableCache.get(cacheKey) : undefined;
   if (cached) return cached;
 
   const delimiter = isWin ? ";" : ":";
@@ -276,7 +277,8 @@ export function resolveNodeExecutable(
     }
   }
 
-  nodeExecutableCache.set(cacheKey, nodeName);
+  // Do not cache a miss. Doctor's Check again must be able to discover Node
+  // after the user installs it without requiring an extension-host restart.
   return nodeName;
 }
 

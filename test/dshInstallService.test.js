@@ -10,6 +10,7 @@ import {
   managedDshBin,
   buildManagedInstallSpec,
   buildManagedNpmLaunchSpec,
+  resolveNpmLaunchSpec,
   isSupportedNodeVersion,
   checkManagedInstall,
 } from "../out/dshInstallService.js";
@@ -72,6 +73,37 @@ test("Windows managed npm launch preserves spaced argv without a shell", () => {
     shell: false,
   });
   assert.equal(launch.args[3], spec.cwd);
+});
+
+test("Windows npm resolver supports a user-prefix npm CLI and is reusable by Doctor", () => {
+  const node = "C:\\Program Files\\nodejs\\node.exe";
+  const npmCli = "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js";
+  const launch = resolveNpmLaunchSpec(
+    node,
+    {
+      Path: "C:\\Program Files\\nodejs;C:\\Windows\\System32",
+      APPDATA: "C:\\Users\\me\\AppData\\Roaming",
+    },
+    "win32",
+    (candidate) => candidate === npmCli
+  );
+  assert.deepEqual(launch, {
+    command: node,
+    argsPrefix: [npmCli],
+    shell: false,
+  });
+});
+
+test("Windows npm resolver fails before Doctor can claim an unusable npm shim", () => {
+  assert.throws(
+    () => resolveNpmLaunchSpec(
+      "C:\\runtime\\node.exe",
+      { Path: "C:\\runtime;C:\\shim-only" },
+      "win32",
+      (candidate) => candidate === "C:\\shim-only\\npm.cmd"
+    ),
+    /could not be resolved safely/
+  );
 });
 
 test("managed npm launch uses the augmented POSIX PATH without a shell", () => {

@@ -23,6 +23,7 @@ function makeProbe(overrides = {}, runTable = new Map()) {
     dshVersion: (bin) => overrides.dshVersions?.[bin] ?? null,
     resolveDsh: () => overrides.dshFound ?? { path: null, tried: [] },
     resolveNode: () => NODE,
+    resolveNpm: () => ({ command: "npm", argsPrefix: [], shell: false }),
     ...overrides,
   };
 }
@@ -155,6 +156,41 @@ test("Windows npm shim classification and workspace host label survive", () => {
   assert.equal(report.state, "ready");
   assert.equal(report.dsh.installType, "npm-global");
   assert.equal(report.host.label, "remote-ssh");
+});
+
+test("Doctor probes the exact resolved npm launcher", () => {
+  const node = "C:\\Program Files\\nodejs\\node.exe";
+  const npmCli = "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js";
+  const calls = [];
+  const report = runDoctor(makeProbe({
+    platform: "win32",
+    env: { Path: "C:\\Program Files\\nodejs" },
+    resolveNode: () => node,
+    resolveNpm: () => ({ command: node, argsPrefix: [npmCli], shell: false }),
+    existsEntries: [[node, true]],
+    run: (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (cmd === node && args.length === 1 && args[0] === "--version") {
+        return { ok: true, stdout: "v24.0.0" };
+      }
+      if (cmd === node && args[0] === npmCli && args[1] === "--version") {
+        return { ok: true, stdout: "12.0.0" };
+      }
+      return { ok: false, stdout: "" };
+    },
+  }));
+  assert.equal(report.npm.available, true);
+  assert.equal(report.npm.version, "12.0.0");
+  assert.deepEqual(calls[0], {
+    cmd: node,
+    args: ["--version"],
+    opts: { timeoutMs: 5_000, shell: false },
+  });
+  assert.deepEqual(calls[1], {
+    cmd: node,
+    args: [npmCli, "--version"],
+    opts: { timeoutMs: 5_000, shell: false },
+  });
 });
 
 test("install type string rules remain compatible", () => {

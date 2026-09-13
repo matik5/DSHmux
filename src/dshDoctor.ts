@@ -23,7 +23,11 @@ import {
   spawnSpec,
 } from "./serverManager.js";
 import { dshCompatibility, TESTED_DSH_VERSION, type DshCompatibility } from "./versionCheck.js";
-import { isSupportedNodeVersion } from "./dshInstallService.js";
+import {
+  isSupportedNodeVersion,
+  resolveNpmLaunchSpec,
+  type NpmLaunchSpec,
+} from "./dshInstallService.js";
 
 /** How DSH was installed (inferred from the resolved binary path). */
 export type DoctorInstallType = "managed" | "npm-global" | "npx-cache" | "source" | "custom" | "none";
@@ -119,6 +123,12 @@ export interface DoctorProbe {
     home: string,
     env: NodeJS.ProcessEnv
   ) => string;
+  /** npm executable resolved exactly as it will be used by managed repair. */
+  resolveNpm: (
+    nodePath: string,
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform
+  ) => NpmLaunchSpec | null;
 }
 
 const PROBE_TIMEOUT_MS = 5_000;
@@ -130,7 +140,7 @@ export function realDoctorProbe(
   managedDshPath?: string
 ): DoctorProbe {
   const env = process.env;
-  const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), env);
+  const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), env, false);
   // Give every probe the same PATH the server manager would give its children,
   // so Node, npm, and DSH resolve the same way a DSH launch would.
   const spec = spawnSpec(node, process.platform, process.execPath, os.homedir(), env);
@@ -168,7 +178,14 @@ export function realDoctorProbe(
     },
     dshVersion: (bin) => resolveDshVersion(bin),
     resolveDsh: (home, platform) => resolveDshPath(home, platform),
-    resolveNode: (platform, execPath, home, e) => resolveNodeExecutable(platform, execPath, home, e),
+    resolveNode: (platform, execPath, home, e) => resolveNodeExecutable(platform, execPath, home, e, false),
+    resolveNpm: (nodePath, e, platform) => {
+      try {
+        return resolveNpmLaunchSpec(nodePath, e, platform, fs.existsSync);
+      } catch {
+        return null;
+      }
+    },
   };
 }
 
@@ -226,7 +243,13 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
   const nodePath = probe.resolveNode(probe.platform, probe.execPath, probe.home, probe.env);
   const isAbsolute = nodePath.includes("/") || /^[A-Za-z]:[\\/]/.test(nodePath);
   const nodeAbs = isAbsolute ? nodePath : null;
-  const nodeProbe = probe.run(nodePath, ["--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  // An absolute Windows path commonly contains spaces (Program Files). Passing
+  // it through cmd.exe makes child_process flatten argv and can turn a working
+  // Node installation into a false `node-missing` result.
+  const nodeProbe = probe.run(nodePath, ["--version"], {
+    timeoutMs: PROBE_TIMEOUT_MS,
+    shell: false,
+  });
   const nodeVersion = nodeProbe.ok ? nodeProbe.stdout : null;
   const node: DoctorReport["node"] = {
     available: (nodeAbs !== null && probe.exists(nodeAbs)) || nodeProbe.ok,
@@ -237,12 +260,17 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
   };
 
   // --- npm (only meaningful when Node runs) ----------------------------------
-  const probeTool = (cmd: string): ToolInfo => {
+  const probeNpm = (): ToolInfo => {
     if (!node.runnable) return { available: false };
-    const res = probe.run(cmd, ["--version"], { timeoutMs: PROBE_TIMEOUT_MS, shell: probe.platform === "win32" });
+    const launch = probe.resolveNpm(nodePath, probe.env, probe.platform);
+    if (!launch) return { available: false };
+    const res = probe.run(launch.command, [...launch.argsPrefix, "--version"], {
+      timeoutMs: PROBE_TIMEOUT_MS,
+      shell: launch.shell,
+    });
     return res.ok ? { available: true, version: firstVersionLine(res.stdout) } : { available: false };
   };
-  const npm = probeTool("npm");
+  const npm = probeNpm();
 
   // --- DSH (reuse the single discovery algorithm) ------------------------------
   const managed = probe.managedDshPath?.trim() || undefined;

@@ -182,7 +182,20 @@ async function runChild(
     return { ok: false, cancelled: true, exitCode: null };
   }
   try {
-    const nodeSpec = spawnSpec(spec.binPath);
+    const node = resolveNodeExecutable(
+      process.platform,
+      process.execPath,
+      os.homedir(),
+      process.env,
+      false
+    );
+    const nodeSpec = spawnSpec(
+      spec.binPath,
+      process.platform,
+      node,
+      os.homedir(),
+      process.env
+    );
     const launch = prepareManagedNpmLaunch(
       spec,
       nodeSpec,
@@ -190,6 +203,9 @@ async function runChild(
       process.platform,
       fs.existsSync
     );
+    onOutput(`Node: ${nodeSpec.command}\n`);
+    onOutput(`npm: ${launch.command}${launch.args[0] ? ` ${launch.args[0]}` : ""}\n`);
+    onOutput(`Destination: ${spec.cwd}\n\n`);
     const child = spawn(launch.command, launch.args, {
       cwd: spec.cwd,
       env: launch.env,
@@ -208,7 +224,13 @@ function realInstallRuntime(): ManagedInstallRuntime {
     mkdir: (dir) => fs.promises.mkdir(dir, { recursive: true }).then(() => undefined),
     run: runChild,
     validate: (spec) => {
-      const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), process.env);
+      const node = resolveNodeExecutable(
+        process.platform,
+        process.execPath,
+        os.homedir(),
+        process.env,
+        false
+      );
       const probe = realDoctorProbe(hostLabel(), configuredDshBin(), spec.binPath);
       const result = checkManagedInstall(spec.binPath, node, process.platform, probe);
       return { valid: result.valid, version: result.version };
@@ -294,7 +316,7 @@ export async function runNpmInstallGuidance(): Promise<void> {
 /** Full Doctor report and the one action appropriate to the current state. */
 export async function runDoctorCommand(
   context: vscode.ExtensionContext,
-  onChanged?: () => void,
+  onChanged?: () => void | Promise<unknown>,
   runtime?: ManagedInstallRuntime
 ): Promise<void> {
   const report = runDoctorForLauncher(context);
@@ -333,5 +355,8 @@ export async function runDoctorCommand(
   }
   if (picked.action === "node") return runNodeInstallGuidance();
   if (picked.action === "npm") return runNpmInstallGuidance();
-  if (picked.action === "repair" && await runManagedInstall(context, runtime)) onChanged?.();
+  if (picked.action === "repair" && await runManagedInstall(context, runtime)) {
+    await onChanged?.();
+    return runDoctorCommand(context, onChanged, runtime);
+  }
 }

@@ -30,7 +30,14 @@ export interface ManagedInstallCheck {
 export interface ManagedNpmLaunchSpec {
   command: string;
   args: string[];
-  shell: false;
+  shell: boolean;
+}
+
+/** Executable portion shared by Doctor's npm probe and the real installer. */
+export interface NpmLaunchSpec {
+  command: string;
+  argsPrefix: string[];
+  shell: boolean;
 }
 
 export interface ManagedInstallProbe {
@@ -99,15 +106,14 @@ export function buildManagedInstallSpec(
  * reinterpret paths. Run npm's JS entry through the resolved Node executable
  * instead (or a native npm.exe shim when provided by a version manager).
  */
-export function buildManagedNpmLaunchSpec(
-  install: ManagedInstallSpec,
+export function resolveNpmLaunchSpec(
   nodePath: string,
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
   exists: (candidate: string) => boolean
-): ManagedNpmLaunchSpec {
+): NpmLaunchSpec {
   if (platform !== "win32") {
-    return { command: "npm", args: [...install.args], shell: false };
+    return { command: "npm", argsPrefix: [], shell: false };
   }
 
   const pathValue = Object.entries(env)
@@ -123,17 +129,44 @@ export function buildManagedNpmLaunchSpec(
   if (path.win32.isAbsolute(nodePath)) addDirectory(path.win32.dirname(nodePath));
   for (const entry of pathValue.split(";")) addDirectory(entry);
 
+  // A user-prefix npm upgrade can place npm itself below %APPDATA% even when
+  // node.exe remains in Program Files. Include that direct JS entry without
+  // invoking a .cmd shim through a shell.
+  const appData = Object.entries(env)
+    .find(([key]) => key.toLowerCase() === "appdata")?.[1];
+  const npmCliCandidates: string[] = [];
+  if (appData) {
+    npmCliCandidates.push(path.win32.join(appData, "npm", "node_modules", "npm", "bin", "npm-cli.js"));
+  }
+
   for (const directory of directories) {
-    const npmCli = path.win32.join(directory, "node_modules", "npm", "bin", "npm-cli.js");
-    if (exists(npmCli)) {
-      return { command: nodePath, args: [npmCli, ...install.args], shell: false };
-    }
+    npmCliCandidates.push(path.win32.join(directory, "node_modules", "npm", "bin", "npm-cli.js"));
+  }
+  for (const npmCli of npmCliCandidates) {
+    if (exists(npmCli)) return { command: nodePath, argsPrefix: [npmCli], shell: false };
+  }
+  for (const directory of directories) {
     const npmExe = path.win32.join(directory, "npm.exe");
     if (exists(npmExe)) {
-      return { command: npmExe, args: [...install.args], shell: false };
+      return { command: npmExe, argsPrefix: [], shell: false };
     }
   }
   throw new Error("npm was detected, but its Windows executable could not be resolved safely");
+}
+
+export function buildManagedNpmLaunchSpec(
+  install: ManagedInstallSpec,
+  nodePath: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  exists: (candidate: string) => boolean
+): ManagedNpmLaunchSpec {
+  const npm = resolveNpmLaunchSpec(nodePath, env, platform, exists);
+  return {
+    command: npm.command,
+    args: [...npm.argsPrefix, ...install.args],
+    shell: npm.shell,
+  };
 }
 
 /** Official 0.1.5-rc.2 engine range: ^22.19.0 OR >=24.0.0 (Node 23 excluded). */

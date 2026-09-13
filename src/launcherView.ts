@@ -637,11 +637,24 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
 
   /** Re-push current status; with `doctor`, re-run the bounded readiness check
    *  after a managed install or repair. */
-  refresh(doctor = false): void {
+  refresh(doctor = false): Promise<DoctorReport | undefined> {
     if (doctor) {
-      void this.refreshDoctor().then(() => this.postStatusNow());
+      return this.refreshDoctor().then((report) => {
+        this.postStatusNow();
+        if (
+          report?.state === "ready" &&
+          !this.manager.isRunning &&
+          this.manager.state !== "starting"
+        ) {
+          void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
+            /* state machine drives the launcher */
+          });
+        }
+        return report;
+      });
     } else {
       this.postStatusNow();
+      return Promise.resolve(this.doctorReport);
     }
   }
 

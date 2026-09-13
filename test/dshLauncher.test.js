@@ -132,6 +132,18 @@ test("ready Doctor state hides Fix and preserves auto-start", () => {
   assert.ok(posted.some((item) => item.type === "server-status"));
 });
 
+test("Doctor refresh resumes start after managed repair becomes ready", async () => {
+  const m = manager();
+  const { launcher } = resolve("dsh-missing", m);
+  assert.deepEqual(m.startCalls, []);
+
+  currentReport = report("ready");
+  const refreshed = await launcher.refresh(true);
+
+  assert.equal(refreshed.state, "ready");
+  assert.deepEqual(m.startCalls, ["/tmp/fake-ws"]);
+});
+
 test("Doctor probe failure retains the previous blind-start fallback", () => {
   currentReport = undefined;
   const m = manager();
