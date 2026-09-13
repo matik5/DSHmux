@@ -7,6 +7,7 @@
 - Mux Trail now resumes a living round per DSH session and shows both the current and best score; death clears only the resumable round.
 - The waiting-game dialog is now **Mux Arcade**, with a top selector for Mux Trail or an original dependency-free draw-one Solitaire implementation; both live games and the selected tab persist per DSH session.
 - Solitaire cards now support click-to-move and drag-and-drop, with clearer layered card backs, a visible stock back/count, explicit suit foundation slots, and invalid-move feedback.
+- Stacked face-up Solitaire cards now keep a fixed rank-and-suit marker visible in the exposed top band.
 
 ## [0.4.7] - 2026-09-13
 

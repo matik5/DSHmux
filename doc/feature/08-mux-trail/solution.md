@@ -274,7 +274,9 @@ ainult `❌`/`⏭️` ridadest ning kirjuta `summary.md`.
   suurenda kaetud tableau kaartide vertikaalset sammu ja kontrasti.
 - Renderda kõik neli tühja foundation'it alati tugeva dashed outline'i ja
   mastisümboliga.
+- Renderda face-up kaardi rank ja mast eraldi absoluutse `.dshmux-solitaire-corner`
+  elemendina ning suurenda face-up tableau sammu nii, et kogu marker jääb nähtavaks.
 - Laienda fake-DOM testi, et see tõendaks stock back'i, foundation slot'e,
-  draggable/drop hook'e ja päris click-source/click-destination move'i.
+  draggable/drop hook'e, rank+suit corner'it ja päris click-source/click-destination move'i.
 
 *Seotud dokumendid: [discussion.md](discussion.md) | [req.md](req.md) | [plan.md](plan.md)*

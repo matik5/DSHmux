@@ -243,6 +243,7 @@ test("browser controller source pins accessibility, responsive theme, and cleanu
   assert.match(source, /@media\(max-width:260px\)/);
   assert.match(source, /@media\(prefers-reduced-motion:reduce\)/);
   assert.match(source, /@media\(forced-colors:active\)/);
+  assert.match(source, /dshmux-solitaire-corner/);
   assert.match(source, /--vscode-focusBorder/);
   assert.match(source, /visibilitychange/);
   assert.match(source, /removeEventListener/);
@@ -375,6 +376,11 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   const solitaire = dialog.children.find((node) => node.className === "dshmux-solitaire");
   assert.equal(solitaire.hidden, false);
   assert.equal(fake.pendingCount, 0, "Solitaire has no animation loop");
+  const exposedCard = solitaire.children[1].children[0].children[0];
+  const corner = exposedCard.children[0];
+  assert.equal(corner.className, "dshmux-solitaire-corner");
+  assert.ok(corner.children[0].textContent, "stacked card exposes its rank at the top");
+  assert.match(corner.children[1].textContent, /^[♠♥♦♣]$/, "stacked card exposes its suit at the top");
   assert.match(solitaire.children[0].children[0].children[0].className, /covered stock/, "stock must look like a card back");
   for (let slot = 3; slot < 7; slot++) {
     assert.match(solitaire.children[0].children[slot].children[0].className, /foundation/, "empty suit homes stay visible");

@@ -50,7 +50,8 @@
   `dragstart`, tableau/foundation targets install `dragover`/`drop`, and the
   click path invokes the same pure move functions. The fake-DOM controller test
   performs a real waste-Ace-to-foundation click move and checks draggable/drop
-  listeners, patterned stock back and all four empty suit slots.
+  listeners, patterned stock back, all four empty suit slots, and a dedicated
+  visible rank+suit corner on a stacked face-up card.
 
 ## Executed checks
 

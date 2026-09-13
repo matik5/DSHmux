@@ -70,6 +70,8 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Mittetühi stock kuvatakse selge mustrilise kaarditaguse ja allesolevate
   kaartide arvuga. Tableau kattuvate kaetud kaartide servad peavad olema
   üksteisest visuaalselt eristatavad.
+- Iga face-up kaardi rank ja mast on eraldi fikseeritud ülanurga märgisena
+  nähtavad; tableau kattumine peab jätma selle märgise tervikuna avatuks.
 - Neli foundation'i on tühjana selgelt nähtavad dashed slot'id vastava
   mastisümboliga, et oleks ilmne, kuhu ässast algavaid mastivirnu laduda.
 - Kõigi 52 kaardi foundation'isse viimine lõpetab jaotuse võiduga.
@@ -236,6 +238,9 @@ worktree's implementeerida, ilma eraldi feature-nõuet loomata.
 peavad liikuma nii click-source/click-destination kui drag-and-drop abil;
 tableau tagaküljed, stock'i tagakülg ja neli foundation-slot'i peavad olema
 selgelt eristatavad.
+
+2026-09-13 testimise tagasiside täpsustas lisaks, et kattuvate face-up kaartide
+rank ja mast peavad olema kaardi ülaosas alati nähtavad.
 
 Kasutaja andis 2026-09-13 korralduse kinnitada nõuded, kinnitada järgnev
 `plan.md` ja feature implementeerida. Selle korralduse alusel võib pipeline

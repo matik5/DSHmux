@@ -33,7 +33,8 @@ immediately dismiss it.
 - Solitaire supports both source→destination clicking and native drag/drop.
   Layered backs have stronger separation, stock displays a patterned back and
   remaining-card count, and all four empty foundation homes stay visible with
-  suit symbols. Invalid destinations preserve selection and explain the error.
+  suit symbols. Every face-up card keeps its rank and suit in a fixed exposed
+  top-corner marker. Invalid destinations preserve selection and explain the error.
 
 ## Verification result
 

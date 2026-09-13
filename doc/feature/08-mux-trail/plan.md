@@ -244,6 +244,7 @@ loop'i ja taastub sama sessiooni järgmisel ooteajal.
 - [x] Hoia invalid move'i korral selection ja näita lokaliseeritud teadet.
 - [x] Kuva stock mustrilise kaarditaguse ning allesoleva arvuga.
 - [x] Tee kattuvate tableau tagakülgede servad ja vahed eristatavaks.
+- [x] Hoia iga face-up kaardi rank+mast fikseeritud ülanurgas ja virnas nähtav.
 - [x] Kuva neli tühja foundation-slot'i mastisümboli ja tugeva outline'iga.
 - [x] Tõenda fake-DOM testiga slot'id, drag/drop hook'id ja click-move.
 
@@ -253,7 +254,8 @@ makeSolitaireDropTarget(foundationNode, "foundation", suit);
 ```
 
 **Completion criteria**: kaarte saab mõlema sisendimudeliga legaalselt
-liigutada ning stock, kattuvad tagaküljed ja kõik mastikohad on kohe loetavad.
+liigutada ning stock, kattuvad tagaküljed, face-up rank+mast ja kõik mastikohad
+on kohe loetavad.
 
 ## Order
 
