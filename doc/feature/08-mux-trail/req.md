@@ -46,8 +46,10 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
   külgribavaates juhitavaks.
 - Vooru lõpp näitab skoori ning pakub ühe klahvi või nupuga uut vooru seni,
   kuni AI-töö kestab.
-- Skoor elab ainult jooksvas webview dokumendis; püsivat rekordit ega
-  edetabelit ei ole.
+- Elus vooru current state ja current score salvestatakse sessioonipõhiselt
+  VS Code'i webview state'i ning taastatakse järgmisel sobival ooteajal.
+- Surm või võit eemaldab jätkatava vooru, kuid max score säilib ja kuvatakse
+  jooksva skoori kõrval. Edetabelit ei ole.
 
 ### R3 — AI-töö lifecycle on alati ülimuslik
 
@@ -117,6 +119,15 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Kõik kasutajale nähtavad tekstid ja ligipääsetavad nimed on olemas kõigis
   DSHmuxi toetatud keeltes; mängu pärisnimi **Mux Trail** jääb tõlkimata.
 
+### R6a — Vooru taastamine
+
+- Salvestatud state sisaldab ainult mänguruudustikku, rada, suunda, packet'it,
+  current score'i ja max score'i; prompti ega DSH event payload'e ei salvestata.
+- State valideeritakse enne taastamist. Vigane, vana versiooniga või surnud
+  voor jäetakse ohutult kõrvale.
+- Mängu salvestus peab jagama VS Code'i webview state'i teiste kasutajatega:
+  olemasolevaid tundmatuid state-välju ei tohi üle kirjutada.
+
 ### R7 — Kontrollitav kvaliteet
 
 - Deterministlikud testid katavad vähemalt: 3 sekundi viite, lühikese töö puhul
@@ -130,6 +141,8 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
   avatud mängu `Escape` sulgeb ja puhastab aktiivse loop'i.
 - Renderdus või DOM-test kontrollib kitsast vaadet, semantilisi nimesid ja
   light/dark/high-contrast tokenite kasutust.
+- Persistence-test katab elusa vooru taastamise samas sessioonis, surnud vooru
+  eemaldamise, max score'i säilimise ja tundmatu webview state'i allesjätmise.
 - Olemasolevad bridge-, document-assembly-, chat-view- ja panel-testid jäävad
   roheliseks; compile, kogu unit-test suite ja VSIX package kontroll läbivad.
 
@@ -146,9 +159,11 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
    sulgub ja vajalik DSH kontroll on kasutatav ilma lisasammuta.
 5. **Kaks sessiooni**: taustsessioon töötab, nähtav sessioon on idle; mänguikooni
    ei ilmu. Nähtava sessiooni töö käivitamisel ilmub see pärast viidet.
-6. **Lifecycle**: avatud mängu ajal vahetatakse sessiooni, peidetakse webview või
+6. **Jätkamine**: vastus sulgeb elusa vooru; sama sessiooni järgmisel pikemal
+   ooteajal taastuvad rada, packet, current score ja max score.
+7. **Lifecycle**: avatud mängu ajal vahetatakse sessiooni, peidetakse webview või
    peatatakse server; vana mäng ei jää nähtavaks ega tööta taustal.
-7. **Kitsas/high-contrast vaade**: 240 px laiuses on mäng, skoor ja sulgemine
+8. **Kitsas/high-contrast vaade**: 240 px laiuses on mäng, skoor ja sulgemine
    kasutatavad ning rada/pakett on mustrite või kuju järgi eristatavad.
 
 ## 4. Selgelt scope'ist väljas
@@ -157,7 +172,7 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
   visuaalne jäljendus.
 - Multiplayer, globaalne edetabel, achievement'id, kontod või skoori
   sünkroonimine.
-- Püsiv high score, analytics, telemetry või võrguteenused.
+- Globaalne/online high-score tabel, analytics, telemetry või võrguteenused.
 - Mobiili/touchi eraldi juhtpult, gamepad ja heli esimeses versioonis.
 - Mängu eraldi VS Code command, setting, Activity Bar view või alati nähtav
   paneel.
@@ -172,7 +187,12 @@ Käesoleva mustandi kinnitamine kiidab heaks järgmised soovitatud valikud:
 3. mäng avaneb ainult kasutaja soovil ja sulgub automaatselt vastuse,
    küsimuse või approval'i saabumisel;
 4. funktsioon töötab nii külgriba chat-view's kui editor-tab paneelis;
-5. esimeses versioonis puuduvad setting, mänguheli ja püsiv rekord.
+5. esimeses versioonis puuduvad setting, mänguheli ja online-edetabel; lokaalne
+   max score ja elusa vooru state säilivad.
+
+2026-09-13 lisas kasutaja samasse feature-round'i nõude säilitada elusa vooru
+current state/current score ning max score ja andis korralduse see samas
+worktree's implementeerida, ilma eraldi feature-nõuet loomata.
 
 Kasutaja andis 2026-09-13 korralduse kinnitada nõuded, kinnitada järgnev
 `plan.md` ja feature implementeerida. Selle korralduse alusel võib pipeline

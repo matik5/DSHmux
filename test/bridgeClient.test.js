@@ -19,7 +19,7 @@ const SCRIPT = require("node:fs").readFileSync(
 );
 
 /** Install browser globals, run the bridge script, return a probe handle. */
-function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
+function loadBridge(bridgeInit, { deferDocumentBody = false, initialVsCodeState } = {}) {
   const posted = [];
   const nativeFetchCalls = [];
   const listeners = {};
@@ -28,6 +28,8 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   const themeProperties = new Map();
   const themeAttributes = new Set();
   const muxTrailCalls = [];
+  let muxTrailStorage;
+  let vscodeState = initialVsCodeState;
 
   const window = {
     fetch: (input, init) => {
@@ -53,6 +55,7 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
     },
   };
   window.__DSH_MUX_TRAIL__ = {
+    attachStorage(value) { muxTrailStorage = value; },
     beginWait(value) { muxTrailCalls.push(["beginWait", value]); },
     endWait(value) { muxTrailCalls.push(["endWait", value]); },
   };
@@ -68,7 +71,11 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
     body: deferDocumentBody ? null : themeBody,
     addEventListener: (type, fn) => { documentListeners[type] = fn; },
   };
-  const acquireVsCodeApi = () => ({ postMessage: (msg) => posted.push(msg) });
+  const acquireVsCodeApi = () => ({
+    postMessage: (msg) => posted.push(msg),
+    getState: () => vscodeState,
+    setState: (value) => { vscodeState = value; },
+  });
   const location = { href: WEBVIEW_ORIGIN + "/", origin: WEBVIEW_ORIGIN };
   // Node ≥21 exposes a read-only global navigator; the bridge only adds a
   // `clipboard` property to it, which is allowed.
@@ -94,8 +101,22 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   );
   run(window, location, navigator, document, acquireVsCodeApi, URL, Headers, Response, DOMException);
 
-  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes, muxTrailCalls };
+  return {
+    posted, nativeFetchCalls, window, listeners, listenerOptions, document,
+    documentListeners, themeBody, themeProperties, themeAttributes, muxTrailCalls,
+    get muxTrailStorage() { return muxTrailStorage; },
+    get vscodeState() { return vscodeState; },
+  };
 }
+
+test("Mux Trail storage adapter preserves unrelated VS Code webview state", () => {
+  const saved = { version: 1, maxScore: 4, rounds: {} };
+  const h = loadBridge({}, { initialVsCodeState: { upstream: "kept", dshmuxMuxTrail: saved } });
+  assert.deepEqual(h.muxTrailStorage.load(), saved);
+  const next = { version: 1, maxScore: 9, rounds: {} };
+  h.muxTrailStorage.save(next);
+  assert.deepEqual(h.vscodeState, { upstream: "kept", dshmuxMuxTrail: next });
+});
 
 test("fetch with a URL object relays the correct path (regression: /undefined)", async () => {
   const h = loadBridge();

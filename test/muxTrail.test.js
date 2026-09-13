@@ -15,6 +15,8 @@ const {
   stepGame,
   spawnPacket,
   speedForScore,
+  snapshotGame,
+  restoreGame,
   createOfferGate,
   install,
 } = require(sourcePath);
@@ -114,6 +116,18 @@ test("speed increases gently and remains bounded", () => {
   assert.equal(speedForScore(0), 150);
   assert.equal(speedForScore(3), 140);
   assert.equal(speedForScore(999), 70);
+});
+
+test("game snapshots restore valid live rounds and reject dead or malformed state", () => {
+  const game = createGame(() => 0.5, 18, 18);
+  game.started = true;
+  game.score = 7;
+  const snapshot = snapshotGame(game);
+  assert.deepEqual(restoreGame(snapshot), game);
+  game.over = true;
+  assert.equal(snapshotGame(game), null, "dead rounds must never be resumable");
+  assert.equal(restoreGame({ ...snapshot, trail: [{ x: -1, y: 0 }] }), null);
+  assert.equal(restoreGame({ ...snapshot, score: -1 }), null);
 });
 
 test("offer gate waits exactly 3000 ms and duplicate begin is idempotent", () => {
@@ -253,7 +267,13 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
     }
     return null;
   };
+  let persisted;
+  const storage = {
+    load() { return persisted; },
+    save(value) { persisted = structuredClone(value); },
+  };
   const controller = install(window, { delayMs: 3000, random: () => 0 });
+  controller.attachStorage(storage);
   controller.beginWait("s1");
   assert.equal(document.body.children.length, 0, "idle delay creates no visible game chrome");
   fake.advance(3000);
@@ -271,11 +291,85 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   });
   assert.equal(prevented, 1);
   assert.ok(fake.pendingCount > 0, "active game schedules one bounded tick");
+  fake.advance(150);
+  const savedHead = persisted.rounds["session:s1"].trail[0];
   controller.endWait("complete");
   assert.equal(controller.state().open, false);
   assert.equal(overlay.hidden, true);
   assert.equal(fake.pendingCount, 0);
+
+  controller.beginWait("s1");
+  fake.advance(3000);
+  launcher.dispatch("click");
+  assert.equal(controller.state().open, true);
+  assert.deepEqual(persisted.rounds["session:s1"].trail[0], savedHead, "live round resumes for the same session");
+  assert.match(find(overlay, "dshmux-mux-trail-title").parentNode.children[1].textContent, /Best 0/);
+  controller.endWait("complete");
   controller.destroy();
   assert.equal(document.body.children.length, 0);
   assert.equal(document.head.children.length, 0);
+});
+
+test("death clears the resumable round but retains max score", () => {
+  const fake = clock();
+  const listeners = new Map();
+  let persisted = {
+    version: 1,
+    maxScore: 2,
+    rounds: {
+      "session:s-death": {
+        columns: 8,
+        rows: 8,
+        trail: [{ x: 3, y: 3 }, { x: 3, y: 2 }, { x: 2, y: 2 }, { x: 2, y: 3 }, { x: 2, y: 4 }],
+        packet: { x: 7, y: 7 },
+        direction: { x: -1, y: 0 },
+        pendingDirection: null,
+        turnQueued: false,
+        started: true,
+        over: false,
+        won: false,
+        score: 6,
+      },
+    },
+  };
+  class Node {
+    constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.listeners = new Map(); this.style = {}; this.hidden = false; }
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
+    setAttribute(name, value) { this[name] = String(value); }
+    addEventListener(type, fn) { (this.listeners.get(type) || this.listeners.set(type, []).get(type)).push(fn); }
+    dispatch(type, event = {}) { event.target ||= this; for (const fn of this.listeners.get(type) || []) fn(event); }
+    focus() {}
+    remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter((child) => child !== this); }
+    getBoundingClientRect() { return { width: 240, height: 240 }; }
+    getContext() { return this.tagName === "CANVAS" ? { setTransform() {}, fillRect() {}, strokeRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, save() {}, restore() {}, translate() {}, rotate() {} } : null; }
+  }
+  const document = {
+    visibilityState: "visible",
+    createElement: (tag) => new Node(tag),
+    head: new Node("head"),
+    body: new Node("body"),
+    addEventListener(type, fn) { listeners.set("doc:" + type, fn); },
+    removeEventListener() {},
+  };
+  const window = {
+    document,
+    setTimeout: fake.setTimeout,
+    clearTimeout: fake.clearTimeout,
+    addEventListener(type, fn) { listeners.set("win:" + type, fn); },
+    removeEventListener() {},
+    getComputedStyle() { return { getPropertyValue() { return ""; } }; },
+  };
+  const controller = install(window, { delayMs: 0, random: () => 0 });
+  controller.attachStorage({
+    load: () => persisted,
+    save: (value) => { persisted = structuredClone(value); },
+  });
+  controller.beginWait("s-death");
+  fake.advance(0);
+  document.body.children[0].dispatch("click");
+  fake.advance(speedForScore(6));
+  assert.equal(persisted.rounds["session:s-death"], undefined);
+  assert.equal(persisted.maxScore, 6);
+  assert.equal(controller.state().gameOver, true);
+  controller.destroy();
 });

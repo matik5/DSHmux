@@ -14,6 +14,7 @@
 | R4 — input and accessibility | Dialog/controller in `media/mux-trail.js:206-591`; keyboard, focus, responsive, ARIA, forced-colors and reduced-motion guards | ✅ |
 | R5 — original and local | One new dependency-free JS/canvas asset; no game package, image, font, audio, network, clipboard or telemetry path; VSIX content inspected | ✅ |
 | R6 — isolation and compatibility | Hooks are guarded; relay payload is unchanged; both production surfaces call assembly; idle/hidden cleanup is covered | ✅ |
+| R6a — live-round persistence | Versioned snapshots, same-session restore, death cleanup, max score and merge-safe VS Code state adapter are covered by deterministic tests | ✅ |
 | R7 — verifiable quality | Compile, affected suite, broad regression suite and VSIX package pass; full-suite baseline exception documented below | ✅ with baseline exception |
 
 ## Done-task code and call-site audit
@@ -35,6 +36,11 @@
   `test/muxTrailWiring.test.js`. All are discovered and executed by `node:test`.
 - **T5** exists in this close-out document and the reviewed `plan.md`,
   `summary.md` and mechanically derived `TODO.md`.
+- **T6** exists in `media/mux-trail.js` (`snapshotGame`, `restoreGame`,
+  `attachStorage` and per-tick persistence) and `media/bridge-client.js`
+  (merge-safe `getState`/`setState` adapter). Controller tests prove a live
+  same-session round resumes, death deletes it while preserving max score, and
+  the bridge test proves unrelated webview state remains intact.
 
 ## Executed checks
 
@@ -42,8 +48,8 @@
 |---|---|
 | `node --check media/mux-trail.js` and `media/bridge-client.js` | ✅ |
 | `npm run compile` | ✅ |
-| Six directly affected test files | ✅ 75 passed, 0 failed |
-| All test files except the two known baseline-failing files | ✅ 178 passed, 0 failed, 1 skipped |
+| Six directly affected test files | ✅ 78 passed, 0 failed |
+| All test files except the two known baseline-failing files | ✅ 181 passed, 0 failed, 1 skipped |
 | `npm run package -- --out /tmp/dshmux-mux-trail.vsix` | ✅ 78 files, 1.08 MB |
 | VSIX listing | ✅ contains `media/mux-trail.js`, updated bridge and compiled view/assembly code |
 | `git diff --check` | ✅ |

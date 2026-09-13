@@ -148,6 +148,72 @@
     return Math.max(70, 150 - Math.floor(Math.max(0, score) / 3) * 10);
   }
 
+  function snapshotGame(game) {
+    if (!game || game.over) return null;
+    return {
+      columns: game.columns,
+      rows: game.rows,
+      trail: game.trail.map(function (cell) { return { x: cell.x, y: cell.y }; }),
+      packet: game.packet ? { x: game.packet.x, y: game.packet.y } : null,
+      direction: { x: game.direction.x, y: game.direction.y },
+      pendingDirection: game.pendingDirection
+        ? { x: game.pendingDirection.x, y: game.pendingDirection.y }
+        : null,
+      turnQueued: !!game.turnQueued,
+      started: !!game.started,
+      over: false,
+      won: false,
+      score: game.score,
+    };
+  }
+
+  function restoreGame(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || snapshot.over) return null;
+    var columns = Number(snapshot.columns);
+    var rows = Number(snapshot.rows);
+    var score = Number(snapshot.score);
+    if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6 || columns > 64 || rows > 64) return null;
+    if (!Number.isInteger(score) || score < 0 || score > columns * rows) return null;
+    if (!Array.isArray(snapshot.trail) || snapshot.trail.length < 1 || snapshot.trail.length > columns * rows) return null;
+
+    function validCell(cell) {
+      return cell && Number.isInteger(cell.x) && Number.isInteger(cell.y)
+        && cell.x >= 0 && cell.x < columns && cell.y >= 0 && cell.y < rows;
+    }
+    function validDirection(direction) {
+      return direction && Number.isInteger(direction.x) && Number.isInteger(direction.y)
+        && Math.abs(direction.x) + Math.abs(direction.y) === 1;
+    }
+
+    var seen = new Set();
+    var trail = [];
+    for (var i = 0; i < snapshot.trail.length; i++) {
+      var cell = snapshot.trail[i];
+      if (!validCell(cell) || seen.has(cellKey(cell))) return null;
+      seen.add(cellKey(cell));
+      trail.push({ x: cell.x, y: cell.y });
+    }
+    if (!validDirection(snapshot.direction)) return null;
+    if (snapshot.pendingDirection && !validDirection(snapshot.pendingDirection)) return null;
+    if (!validCell(snapshot.packet) || seen.has(cellKey(snapshot.packet))) return null;
+
+    return {
+      columns: columns,
+      rows: rows,
+      trail: trail,
+      packet: { x: snapshot.packet.x, y: snapshot.packet.y },
+      direction: { x: snapshot.direction.x, y: snapshot.direction.y },
+      pendingDirection: snapshot.pendingDirection
+        ? { x: snapshot.pendingDirection.x, y: snapshot.pendingDirection.y }
+        : null,
+      turnQueued: !!snapshot.turnQueued,
+      started: !!snapshot.started,
+      over: false,
+      won: false,
+      score: score,
+    };
+  }
+
   /** A DOM-free delayed-offer state machine, also used directly by tests. */
   function createOfferGate(options) {
     var schedule = options.setTimeout;
@@ -211,7 +277,7 @@
       open: strings.open || "Play Mux Trail while DSH works",
       close: strings.close || "Close Mux Trail",
       description: strings.description || "Guide the signal and collect packets.",
-      score: strings.score || "Score {score}",
+      score: strings.score || "Score {score} · Best {maxScore}",
       instructions: strings.instructions || "Arrows / WASD · Esc closes",
       ready: strings.ready || "Choose a direction to start",
       gameOver: strings.gameOver || "Signal lost",
@@ -229,6 +295,9 @@
     var resizeObserver;
     var tickTimer;
     var game;
+    var storage;
+    var storedState = { version: 1, maxScore: 0, rounds: {} };
+    var activeSessionKey;
     var open = false;
     var destroyed = false;
 
@@ -249,6 +318,57 @@
       return template.replace(/\{(\w+)\}/g, function (match, key) {
         return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : match;
       });
+    }
+
+    function sessionKey(sessionId) {
+      return sessionId === undefined || sessionId === null ? undefined : "session:" + String(sessionId);
+    }
+
+    function loadStoredState() {
+      if (!storage || typeof storage.load !== "function") return;
+      try {
+        var value = storage.load();
+        if (!value || value.version !== 1 || typeof value !== "object") return;
+        var maxScore = Number(value.maxScore);
+        storedState.maxScore = Number.isInteger(maxScore) && maxScore >= 0 ? maxScore : 0;
+        storedState.rounds = value.rounds && typeof value.rounds === "object" ? value.rounds : {};
+      } catch (error) {
+        if (win.console && typeof win.console.error === "function") {
+          win.console.error("[dsh-mux-trail] state load failed", error);
+        }
+      }
+    }
+
+    function writeStoredState() {
+      if (!storage || typeof storage.save !== "function") return;
+      try {
+        storage.save(storedState);
+      } catch (error) {
+        if (win.console && typeof win.console.error === "function") {
+          win.console.error("[dsh-mux-trail] state save failed", error);
+        }
+      }
+    }
+
+    function persistGame() {
+      if (!game) return;
+      storedState.maxScore = Math.max(storedState.maxScore, game.score);
+      if (activeSessionKey) {
+        var snapshot = snapshotGame(game);
+        if (snapshot) storedState.rounds[activeSessionKey] = snapshot;
+        else delete storedState.rounds[activeSessionKey];
+      }
+      writeStoredState();
+    }
+
+    function restoredGameForSession() {
+      if (!activeSessionKey) return null;
+      var restored = restoreGame(storedState.rounds[activeSessionKey]);
+      if (!restored && storedState.rounds[activeSessionKey]) {
+        delete storedState.rounds[activeSessionKey];
+        writeStoredState();
+      }
+      return restored;
     }
 
     function addClass(node, className) {
@@ -443,7 +563,10 @@
         ctx.restore();
       }
 
-      scoreLabel.textContent = interpolate(text.score, { score: String(game.score) });
+      scoreLabel.textContent = interpolate(text.score, {
+        score: String(game.score),
+        maxScore: String(Math.max(storedState.maxScore, game.score)),
+      });
       if (game.over) {
         statusLabel.textContent = game.won ? text.won : text.gameOver;
         restartButton.hidden = false;
@@ -467,6 +590,7 @@
       tickTimer = win.setTimeout(function () {
         tickTimer = undefined;
         stepGame(game, random);
+        persistGame();
         render();
         if (!game.over) scheduleTick();
       }, speedForScore(game.score));
@@ -476,6 +600,7 @@
       if (!open || !gate.state().offered) return;
       clearTick();
       game = createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
+      persistGame();
       render();
       dialog.focus();
     }
@@ -483,17 +608,19 @@
     function openDialog() {
       if (!gate.state().offered || !ensureDom()) return;
       clearTick();
-      game = createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
+      game = restoredGameForSession() || createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
       open = true;
       launcher.hidden = true;
       overlay.hidden = false;
       render();
       dialog.focus();
+      scheduleTick();
     }
 
     function closeDialog(restoreFocus) {
       clearTick();
       if (!open) return;
+      persistGame();
       open = false;
       game = undefined;
       if (overlay) overlay.hidden = true;
@@ -520,6 +647,7 @@
       event.preventDefault();
       event.stopPropagation();
       if (queueDirection(game, direction)) {
+        persistGame();
         render();
         scheduleTick();
       }
@@ -548,6 +676,7 @@
 
     function destroy() {
       if (destroyed) return;
+      persistGame();
       gate.destroy();
       clearTick();
       destroyed = true;
@@ -576,7 +705,14 @@
     }
 
     return {
-      beginWait: function (sessionId) { gate.begin(sessionId); },
+      attachStorage: function (adapter) {
+        storage = adapter;
+        loadStoredState();
+      },
+      beginWait: function (sessionId) {
+        activeSessionKey = sessionKey(sessionId);
+        gate.begin(sessionId);
+      },
       endWait: function (reason) { gate.end(reason); },
       destroy: destroy,
       state: function () {
@@ -587,6 +723,7 @@
           destroyed: offer.destroyed,
           open: open,
           score: game ? game.score : 0,
+          maxScore: storedState.maxScore,
           gameOver: game ? game.over : false,
         };
       },
@@ -603,6 +740,8 @@
     stepGame: stepGame,
     spawnPacket: spawnPacket,
     speedForScore: speedForScore,
+    snapshotGame: snapshotGame,
+    restoreGame: restoreGame,
     createOfferGate: createOfferGate,
     install: install,
   };

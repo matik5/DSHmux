@@ -17,6 +17,7 @@
 | R5 — originaalne/lokaalne | T1, T3, T5 | Dependency- ja VSIX-sisu audit; ainult oma JS/CSS/canvas; võrgu API puudumise kontroll |
 | R6 — isolatsioon/ühilduvus | T2, T3, T4, T5 | Olemasolev full suite; fail-safe adapter; mõlema pinna wiring; timer cleanup |
 | R7 — kvaliteet | T4, T5 | Kõik nõutud deterministlikud testid, compile, unit suite ja VSIX package |
+| R6a — vooru taastamine | T6 | Snapshot validation, same-session resume, death cleanup, max score ja state merge testid |
 
 ## Tasks
 
@@ -174,6 +175,31 @@ verification ei leia täitmata acceptance gap'i või märgib selle ausalt
 - **Pärast T4–T5**: affected suite ja lai regressiooniring on rohelised;
   VSIX sisaldab runtime'i. Täis-suite'i seitse olemasolevat platvormi/resolveri
   viga reprodutseeriti muutmata baastööpuus ja on kirjas `verification.md`-s.
+- **Pärast T6**: restore/death/max-score testid ja bridge state-merge test on
+  rohelised; affected suite 78/78 ning lai regressiooniring 181 pass / 0 fail /
+  1 skip. R6a gap'i ei jäänud.
+
+### T6 — Current state, current score ja max score
+
+**Status**: ✅ done
+
+**Files**: `media/mux-trail.js`, `media/bridge-client.js`,
+`src/i18nStrings.ts`, `test/muxTrail.test.js`, `test/bridgeClient.test.js`
+
+- [x] Lisa versioonitud pure snapshot/restore ja range/shape valideerimine.
+- [x] Salvesta elus voor sessioonipõhiselt iga inputi/tick'i ja sulgemise eel.
+- [x] Taasta sama sessiooni elus voor; kustuta snapshot surma/võidu korral.
+- [x] Hoia ja kuva current score koos lokaalse max score'iga.
+- [x] Kasuta VS Code webview state adapterit ning säilita tundmatud state-väljad.
+- [x] Kata restore, death cleanup, max score ja state merge testidega.
+
+```js
+controller.attachStorage({ load: vscode.getState, save: mergeAndSetState });
+const game = restoreGame(savedRound) || createGame(random, 18, 18);
+```
+
+**Completion criteria**: elus voor jätkub sama sessiooni uuel ooteajal, surnud
+voor ei taastu, max score säilib ning DSH/webview muu state ei kao.
 
 ## Order
 
@@ -183,6 +209,8 @@ T1 game core/UI ───────┐
 T2 lifecycle bridge ───┤
                        │
 T3 assembly/i18n/wiring┘
+
+T1 + T2 ──> T6 persistence ──> T5 close-out recheck
 ```
 
 *Related documents: discussion.md | req.md | solution.md*

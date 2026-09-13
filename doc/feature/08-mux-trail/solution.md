@@ -112,7 +112,17 @@ Sihtarhitektuur jagab vastutuse kolmeks:
 - `07-ui-improvements` on teises worktree's dokumenteeritud, kuid selle kood ei
   ole käesoleva feature'i baasi merge'itud. Praegune production-fakt on endiselt
   kaks eraldi pinda. Lahendus hoiab mängu document-assembly tasemel, et tulevane
-  chrome'i ümberpaigutus ei nõuaks mängumootori ümberkirjutamist.
+chrome'i ümberpaigutus ei nõuaks mängumootori ümberkirjutamist.
+
+### F9 — Webview state seam
+
+- `media/bridge-client.js` omab ainsat `acquireVsCodeApi()` instantsi, mistõttu
+  saab ta anda Mux Trailile kitsad `getState`/`setState` adapterid ilma teist API
+  instantsi hankimata.
+- VS Code'i state objekt võib tulevikus sisaldada ka teiste komponentide välju;
+  Mux Trail peab kirjutamisel säilitama kõik tundmatud top-level väljad.
+- Mängumootori olemasolev pure state sisaldab juba kogu taastamiseks vajalikku
+  infot: ruudustik, trail, packet, suunad, started/over/won ja score.
 
 ## 3. Gap
 
@@ -125,6 +135,9 @@ tunda, kuid kasutab neid ainult helideks. Puuduvad:
 - lokaliseeritud mängutekstid;
 - mõlema pinna script/config wiring;
 - mängu-, scoping-, cleanup- ja regressioonitestid.
+
+2026-09-13 jätkuringi gap: elus `game` objekt nullitakse dialogi sulgemisel,
+max score'i ei ole ning bridge ei anna mängule VS Code'i state adapterit.
 
 ## 4. Call-site audit
 
@@ -210,5 +223,19 @@ Muuda `media/bridge-client.js`:
 Käivita compile, kogu unit suite ja VSIX package; kontrolli VSIX sisu. Seejärel
 kirjuta `verification.md`, uuenda `plan.md` staatused, genereeri `TODO.md`
 ainult `❌`/`⏭️` ridadest ning kirjuta `summary.md`.
+
+### S6 — Sessioonipõhine current state ja max score
+
+- Laienda `media/mux-trail.js` versioonitud snapshot/restore formaadiga ning
+  valideeri kõik cell'id, suunad, skoor ja packet enne taastamist.
+- Salvesta elus voor pärast suunasisendit ja iga tick'i; salvesta ka automaatse
+  või käsitsi sulgemise ja dispose'i eel.
+- Kustuta sessiooni resumable snapshot surma/võidu korral, kuid hoia max score.
+- Anna bridge'ist `attachStorage({load, save})` adapter, mis kasutab
+  `vscode.getState/setState` ning merge'b `dshmuxMuxTrail` välja olemasolevasse
+  state'i.
+- Kuva lokaliseeritud score real korraga `{score}` ja `{maxScore}`.
+- Lisa engine/controller/bridge testid restore'i, death cleanup'i, max score'i
+  ja tundmatute webview-state väljade säilimise kohta.
 
 *Seotud dokumendid: [discussion.md](discussion.md) | [req.md](req.md) | [plan.md](plan.md)*

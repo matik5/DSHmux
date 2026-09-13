@@ -44,6 +44,28 @@
     }
   }
 
+  // Keep the game state inside VS Code's supported webview-state container.
+  // Merge our key so upstream DSH state (if it starts using this API) survives.
+  if (typeof vscode.getState === "function" && typeof vscode.setState === "function") {
+    notifyMuxTrail("attachStorage", {
+      load: function () {
+        var state = vscode.getState();
+        return state && state.dshmuxMuxTrail;
+      },
+      save: function (value) {
+        var current = vscode.getState();
+        var next = {};
+        if (current && typeof current === "object") {
+          for (var key in current) {
+            if (Object.prototype.hasOwnProperty.call(current, key)) next[key] = current[key];
+          }
+        }
+        next.dshmuxMuxTrail = value;
+        vscode.setState(next);
+      },
+    });
+  }
+
   function followKey(socketId, streamId) {
     return String(socketId) + ":" + String(streamId);
   }
