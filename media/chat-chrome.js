@@ -108,6 +108,7 @@
     var archivedSessions = [];
     var currentSessionId = init.currentSessionId;
     var sessionMode = "active";
+    var editingSessionId;
     var newPending = false;
     var sessionLoading = init.initialSessionLoading === true;
     var serverState = init.serverState || "stopped";
@@ -254,6 +255,7 @@
     }
 
     function beginRename(row, item, openButton, actions) {
+      editingSessionId = item.sessionId;
       var input = doc.createElement("input");
       input.className = "dshmux-session-rename-input";
       input.value = item.title;
@@ -271,6 +273,7 @@
         if (save && next && next !== item.title) {
           post({ type: "rename-session", sessionId: item.sessionId, title: next });
         }
+        editingSessionId = undefined;
         input.remove();
         openButton.hidden = false;
         actions.hidden = false;
@@ -288,6 +291,8 @@
 
     function renderSessions() {
       if (sessionBackdrop.hidden) return;
+      // Background polling must not replace the row and blur an active rename.
+      if (editingSessionId) return;
       sessionList.textContent = "";
       sessionMessage.textContent = "";
       emptyNew.hidden = true;

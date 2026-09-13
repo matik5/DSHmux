@@ -53,4 +53,9 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /forced-colors:\s*active/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);
+  assert.match(
+    script,
+    /if \(editingSessionId\) return/,
+    "session polling must not replace an active rename input"
+  );
 });

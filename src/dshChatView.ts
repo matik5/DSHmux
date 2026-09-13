@@ -385,8 +385,6 @@ export class DshChatView implements vscode.WebviewViewProvider {
       const workspaceId = await this.manager.workspaceIdFor(workspaceRoot());
       const sessionId = await this.manager.createSession(workspaceId);
       this.newSessionPending = false;
-      this.currentSessionId = sessionId;
-      this.currentTitle = t("sessions.newSession");
       this.postOperation("new", "success", sessionId);
       this.loadSession(sessionId);
       void this.pollSessions();

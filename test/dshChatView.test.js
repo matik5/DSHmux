@@ -337,10 +337,17 @@ test("new-session pending guard prevents duplicates and selects exactly one resu
   await flush();
   assert.equal(manager.createCalls, 1);
   assert.equal(lastPosted(view, "session-operation").state, "pending");
+  assembleCalls.length = 0;
   release("created-once");
   await flush(4);
   assert.equal(controller.shownSessionId, "created-once");
   assert.equal(manager.workspaceIdCalls, 1);
+  assert.equal(assembleCalls.length, 1);
+  assert.equal(assembleCalls[0].sessionPreset, JSON.stringify({ sessionId: "created-once" }));
+  assert.deepEqual(lastPosted(view, "session-loading"), {
+    type: "session-loading",
+    loading: true,
+  });
 });
 
 test("new-session failure preserves the current chat and reports a localized operation", async () => {
