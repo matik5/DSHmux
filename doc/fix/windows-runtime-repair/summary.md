@@ -10,3 +10,6 @@
   state, and resume DSH startup.
 - Added Windows contract, cache-refresh, and post-repair regressions while
   retaining the existing macOS/POSIX coverage.
+- Replaced the duplicate-Cancel dialog with explicit global and project install
+  choices plus **Change…**. The project default uses `.dshmux`; a changed
+  location creates a normal official `deepseek-harness` checkout instead.

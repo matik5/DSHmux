@@ -10,7 +10,7 @@ import { registerCommands, workspaceRoot } from "./commands.js";
 import { DshPanel } from "./dshPanel.js";
 import { SessionPanelManager } from "./sessionPanels.js";
 import { DshLauncherView } from "./launcherView.js";
-import { managedBinForContext, runDoctorCommand } from "./installService.js";
+import { managedBinsForContext, runDoctorCommand } from "./installService.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
@@ -28,10 +28,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // extension host restarted (the manager instance below is brand-new and
   // starts "stopped" even though the old dsh child may still be alive).
   console.log(`[dsh] activate: wasRunning=${context.workspaceState.get<boolean>(WAS_RUNNING_KEY)} workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "(none)"}`);
-  const managedBin = managedBinForContext(context);
-  manager = new DshServerManager(() =>
-    resolveDshVersion(managedBin) === TESTED_DSH_VERSION ? managedBin : configuredDshBin()
-  );
+  manager = new DshServerManager(() => {
+    const managedBin = managedBinsForContext(context).find(
+      (candidate) => resolveDshVersion(candidate) === TESTED_DSH_VERSION
+    );
+    return managedBin ?? configuredDshBin();
+  });
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
 

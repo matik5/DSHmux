@@ -310,3 +310,29 @@ the unchanged configured-path and discovery launch contracts.
 - Package the 0.4.7 VSIX and inspect its contents/version.
 - Record `verification.md`, reconcile `plan.md`, then generate `summary.md` and
   `TODO.md` mechanically from final task states.
+
+## 7. Approved install-location amendment
+
+Doctor's repair confirmation has two primary choices plus one location helper:
+
+```text
+Install globally
+Install to shown location
+Change…
+Cancel (native VS Code button only)
+```
+
+The initially shown location is the project-specific npm prefix
+`<workspace>/.dshmux/managed-dsh/0.1.5-rc.2`. Choosing **Change…** switches the
+shown destination to `<selected-parent>/deepseek-harness`; confirming that
+location clones the official tested tag, runs pnpm 11.7.0 install/build through
+the already-resolved npm launcher, and verifies `apps/cli/lib/bin.js`.
+
+The selected checkout bin is stored in workspace state. Launch and Doctor
+candidate order is remembered checkout, project-managed install, legacy
+globalStorage managed install, configured path, then ordinary discovery.
+Global npm installation is explicit and validates the discovered global shim.
+
+Affected call sites are `runManagedInstall`, the activation-time binary
+provider, Doctor's managed candidate, and installer tests. Existing macOS/POSIX
+npm execution remains shell-free and uses the same structured argv contract.

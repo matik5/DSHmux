@@ -9,6 +9,10 @@ import {
   managedDshRoot,
   managedDshBin,
   buildManagedInstallSpec,
+  buildGlobalInstallSpec,
+  buildSourceCheckoutSpec,
+  buildSourceCloneArgs,
+  buildPnpmExecArgs,
   buildManagedNpmLaunchSpec,
   resolveNpmLaunchSpec,
   isSupportedNodeVersion,
@@ -54,6 +58,32 @@ test("managed npm spec is pinned, structured, and non-global", () => {
   assert.ok(!spec.args.includes("-g"));
   assert.ok(!spec.args.includes("--global"));
   assert.equal(spec.packageSpec, `@deepseek-ai/dsh@${TESTED_DSH_VERSION}`);
+  assert.equal(spec.scope, "managed");
+});
+
+test("global npm spec is explicit, pinned, and independent of project storage", () => {
+  const spec = buildGlobalInstallSpec("C:\\Projects\\Current");
+  assert.equal(spec.scope, "global");
+  assert.equal(spec.cwd, "C:\\Projects\\Current");
+  assert.deepEqual(spec.args, [
+    "install", "--global", "--no-audit", "--no-fund",
+    `@deepseek-ai/dsh@${TESTED_DSH_VERSION}`,
+  ]);
+});
+
+test("custom location is a normal official deepseek-harness checkout", () => {
+  const spec = buildSourceCheckoutSpec("D:\\My Projects", "win32");
+  assert.equal(spec.scope, "source");
+  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness");
+  assert.equal(spec.binPath, "D:\\My Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js");
+  assert.match(spec.packageSpec, /deepseek-ai\/deepseek-harness\.git#dsh-v0\.1\.5-rc\.2$/);
+  assert.deepEqual(buildSourceCloneArgs(spec.cwd), [
+    "clone", "--branch", "dsh-v0.1.5-rc.2", "--depth", "1",
+    "https://github.com/deepseek-ai/deepseek-harness.git", spec.cwd,
+  ]);
+  assert.deepEqual(buildPnpmExecArgs(["build"]), [
+    "exec", "--yes", "--package=pnpm@11.7.0", "--", "pnpm", "build",
+  ]);
 });
 
 test("Windows managed npm launch preserves spaced argv without a shell", () => {

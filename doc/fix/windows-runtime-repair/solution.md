@@ -69,3 +69,16 @@ continues to use `npm`, structured argv, and `shell: false`.
 4. Add regressions for Windows npm layouts, resolver agreement, cache refresh,
    and post-repair start; retain explicit POSIX/macOS assertions.
 5. Compile, run the complete test suite, and record verification.
+
+## 6. Approved install-location UX amendment
+
+- Keep two install choices: pinned global npm, or project-specific managed npm.
+- Project-specific default is
+  `<workspace>/.dshmux/managed-dsh/0.1.5-rc.2`.
+- Do not pass an explicit Cancel item; VS Code supplies it.
+- **Change…** selects a parent and changes the second choice into a normal
+  `<parent>/deepseek-harness` checkout, with no `.dshmux` segment.
+- Clone the official tested tag, invoke the upstream-pinned pnpm 11.7.0 through
+  the resolved npm launcher, build, verify the source CLI, and remember it in
+  workspace state.
+- Retain the previous globalStorage managed CLI as a read-only fallback.

@@ -12,3 +12,9 @@ Node is still required because the official DSH CLI is a Node application. The r
 Quality gates passed: TypeScript compilation, 202/202 tests, a real isolated official-package install and web-server launch, source invariants, and VSIX packaging. Windows managed repair preserves structured arguments without a shell, shares Doctor's Node/npm PATH, waits for cancellation shutdown, refreshes the launcher on **Check again**, and suppresses ineffective global upgrades. The deliverable is `dshmux-0.4.7.vsix`.
 
 See [verification.md](verification.md) for evidence and the one non-blocking physical-Windows acceptance gap.
+
+The approved location amendment replaces the hidden globalStorage default with
+two explicit choices: global npm install or a project-specific `.dshmux`
+install. **Change…** instead creates a normal official `deepseek-harness`
+checkout beneath the selected parent, builds and verifies it, and remembers
+its CLI for that workspace. The old globalStorage install remains a fallback.

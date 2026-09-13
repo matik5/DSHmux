@@ -13,13 +13,17 @@
 | Node installed after an earlier miss | Regression proves misses are not cached and the next resolution finds Node |
 | Repair leaves launcher stopped | Regression proves a Doctor refresh transition to `ready` invokes one start |
 | macOS/POSIX regression | Existing minimal macOS PATH test passes; POSIX npm remains `npm`, structured argv, `shell: false` |
+| Install-choice UX | Tests require global + shown-location + Change actions and prove no explicit Cancel is passed |
+| Project destination | Exact default is `<workspace>/.dshmux/managed-dsh/0.1.5-rc.2` |
+| Changed destination | Exact target is `<selected>/deepseek-harness`; official tag, revision and pnpm 11.7.0 are pinned |
 
 ## Executed checks
 
 - `npm run compile`: PASS.
-- `npm test`: PASS, 207/207 tests.
+- `npm test`: PASS, 212/212 tests.
 - Real Windows Doctor/toolchain smoke: PASS.
 - Real isolated Windows managed npm install and exact `dsh --version` validation: PASS.
+- VSIX packaging and forced local install: PASS; `matik5.dshmux@0.4.7`.
 - `git diff --check`: PASS (Git emitted only the repository's normal LF/CRLF conversion notices).
 
 ## Notes

@@ -11,6 +11,7 @@ export const TESTED_SOURCE_TREE_URL =
   TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_TAG;
 
 export const DSH_PACKAGE_NAME = "@deepseek-ai/dsh";
+export const TESTED_PNPM_VERSION = "11.7.0";
 export const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
 
 export interface ManagedInstallSpec {
@@ -19,6 +20,7 @@ export interface ManagedInstallSpec {
   cwd: string;
   binPath: string;
   packageSpec: string;
+  scope: "managed" | "global" | "source";
 }
 
 export interface ManagedInstallCheck {
@@ -97,7 +99,52 @@ export function buildManagedInstallSpec(
     cwd,
     binPath: managedDshBin(storageDir, platform),
     packageSpec,
+    scope: "managed",
   };
+}
+
+/** Explicit global alternative selected by the user in Doctor. */
+export function buildGlobalInstallSpec(cwd: string): ManagedInstallSpec {
+  const packageSpec = `${DSH_PACKAGE_NAME}@${TESTED_DSH_VERSION}`;
+  return {
+    command: "npm",
+    args: ["install", "--global", "--no-audit", "--no-fund", packageSpec],
+    cwd,
+    binPath: "dsh",
+    packageSpec,
+    scope: "global",
+  };
+}
+
+/** Official checkout selected through Change…; the chosen directory is a parent. */
+export function buildSourceCheckoutSpec(
+  parentDir: string,
+  platform: NodeJS.Platform = process.platform
+): ManagedInstallSpec {
+  const api = pathApi(platform);
+  const cwd = api.join(parentDir, "deepseek-harness");
+  return {
+    command: "npm",
+    args: [],
+    cwd,
+    binPath: api.join(cwd, "apps", "cli", "lib", "bin.js"),
+    packageSpec: `${TESTED_SOURCE_REPO}#${TESTED_SOURCE_TAG}`,
+    scope: "source",
+  };
+}
+
+export function buildSourceCloneArgs(targetDir: string): string[] {
+  return [
+    "clone", "--branch", TESTED_SOURCE_TAG, "--depth", "1",
+    TESTED_SOURCE_REPO, targetDir,
+  ];
+}
+
+export function buildPnpmExecArgs(pnpmArgs: string[]): string[] {
+  return [
+    "exec", "--yes", `--package=pnpm@${TESTED_PNPM_VERSION}`,
+    "--", "pnpm", ...pnpmArgs,
+  ];
 }
 
 /**

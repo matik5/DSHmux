@@ -97,3 +97,26 @@ users must not depend on the `matik5` fork, Git, pnpm, or a source build.
 6. Repository search finds no runtime/test reference to the fork patch branch
    or “patched source recommended” flow.
 7. Compile, unit tests, smoke test, and VSIX packaging pass for 0.4.7.
+
+## R2 amendment — visible install choices
+
+**Status**: APPROVED (2026-09-13, user clarification)
+
+This amendment supersedes R2's single hidden-globalStorage destination, while
+retaining its confirmation, logging, cancellation, pinning, and verification
+requirements.
+
+- Doctor offers two install choices: global npm installation, or a
+  project-specific installation.
+- Project-specific installation defaults to
+  `<workspace>/.dshmux/managed-dsh/0.1.5-rc.2`.
+- The dialog displays that exact path and has a **Change…** action.
+- **Change…** selects a parent directory for a normal official checkout at
+  `<selected>/deepseek-harness`; it does not create `.dshmux` there.
+- The checkout uses official tag `dsh-v0.1.5-rc.2`, installs with the upstream
+  pinned pnpm version, builds, verifies `apps/cli/lib/bin.js`, and becomes the
+  remembered workspace-host DSH candidate.
+- The modal supplies no explicit Cancel action because VS Code provides the
+  native Cancel button.
+- Existing extension-globalStorage installs remain discoverable as a legacy
+  fallback, but are no longer the default destination.

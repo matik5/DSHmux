@@ -13,6 +13,9 @@ let outputChannels;
 let progressCalls;
 let quickPickAnswers;
 let quickPickCalls;
+let informationCalls;
+let folderAnswers;
+const workspaceValues = new Map();
 
 function reset() {
   modalAnswer = undefined;
@@ -23,11 +26,17 @@ function reset() {
   progressCalls = [];
   quickPickAnswers = [];
   quickPickCalls = 0;
+  informationCalls = [];
+  folderAnswers = [];
+  workspaceValues.clear();
 }
 
 const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
 const fakeVscode = {
-  Uri: { parse: (value) => ({ toString: () => value, fsPath: value }) },
+  Uri: {
+    parse: (value) => ({ toString: () => value, fsPath: value }),
+    file: (value) => ({ toString: () => value, fsPath: value }),
+  },
   ProgressLocation: { Notification: 15 },
   env: {
     language: "en",
@@ -35,16 +44,21 @@ const fakeVscode = {
     openExternal: async (uri) => opened.push(uri.toString()),
   },
   workspace: {
+    workspaceFolders: [{ uri: { fsPath: "C:\\Projects\\Current" } }],
     getConfiguration: () => ({
       inspect: () => undefined,
       get: (_key, fallback) => fallback,
     }),
   },
   window: {
-    showInformationMessage: async (message, options) => {
+    showInformationMessage: async (message, options, ...items) => {
       messages.push(message);
-      return options && options.modal ? modalAnswer : undefined;
+      informationCalls.push({ message, options, items });
+      return options && options.modal
+        ? Array.isArray(modalAnswer) ? modalAnswer.shift() : modalAnswer
+        : undefined;
     },
+    showOpenDialog: async () => folderAnswers.shift(),
     showErrorMessage: async (message) => { errors.push(message); return undefined; },
     showQuickPick: async () => {
       quickPickCalls++;
@@ -83,6 +97,10 @@ function fresh() {
 
 const context = {
   globalStorageUri: { fsPath: "C:\\Users\\me\\Code Storage" },
+  workspaceState: {
+    get: (key) => workspaceValues.get(key),
+    update: async (key, value) => { workspaceValues.set(key, value); },
+  },
 };
 
 function runtime(overrides = {}) {
@@ -111,7 +129,13 @@ test("managed install cancellation at confirmation makes no changes", async () =
   assert.equal(await svc.runManagedInstall(context, rt.value), false);
   assert.equal(messages.length, 1);
   assert.match(messages[0], /@deepseek-ai\/dsh@0\.1\.5-rc\.2/);
-  assert.match(messages[0], /Code Storage/);
+  assert.match(messages[0], /Projects\\Current\\\.dshmux/);
+  assert.deepEqual(informationCalls[0].items, [
+    "Install globally",
+    "Install to shown location",
+    "Change…",
+  ]);
+  assert.ok(!informationCalls[0].items.includes("Cancel"));
   assert.deepEqual(rt.calls.mkdir, []);
   assert.deepEqual(rt.calls.run, []);
   assert.equal(outputChannels.length, 0);
@@ -119,7 +143,7 @@ test("managed install cancellation at confirmation makes no changes", async () =
 
 test("managed install runs exact pinned non-global npm spec and verifies it", async () => {
   const svc = fresh();
-  modalAnswer = "Install";
+  modalAnswer = "Install to shown location";
   const rt = runtime();
   assert.equal(await svc.runManagedInstall(context, rt.value), true);
   assert.equal(rt.calls.mkdir.length, 1);
@@ -139,11 +163,57 @@ test("managed install runs exact pinned non-global npm spec and verifies it", as
   assert.match(outputChannels[0].text, /npm install --prefix/);
   assert.match(outputChannels[0].text, /installed/);
   assert.ok(messages.some((message) => /installed and verified/.test(message)));
+  assert.equal(workspaceValues.get("dsh.managedStorageDir"), "C:\\Projects\\Current\\.dshmux");
+});
+
+test("Change selects a parent for an ordinary deepseek-harness checkout", async () => {
+  const svc = fresh();
+  modalAnswer = ["Change…", "Install to shown location"];
+  folderAnswers.push([{ fsPath: "D:\\My Projects" }]);
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value), true);
+
+  assert.equal(informationCalls.filter((call) => call.options?.modal).length, 2);
+  assert.match(informationCalls[1].message, /D:\\My Projects\\deepseek-harness/);
+  assert.equal(rt.calls.run[0].cwd, "D:\\My Projects\\deepseek-harness");
+  assert.equal(rt.calls.run[0].scope, "source");
+  assert.equal(
+    workspaceValues.get("dsh.sourceCheckoutBin"),
+    "D:\\My Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+  );
+  assert.equal(workspaceValues.has("dsh.managedStorageDir"), false);
+});
+
+test("global choice runs the pinned npm global install and does not persist a project path", async () => {
+  const svc = fresh();
+  modalAnswer = "Install globally";
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value), true);
+
+  assert.deepEqual(rt.calls.run[0].args, [
+    "install", "--global", "--no-audit", "--no-fund",
+    "@deepseek-ai/dsh@0.1.5-rc.2",
+  ]);
+  assert.equal(rt.calls.run[0].scope, "global");
+  assert.deepEqual(rt.calls.mkdir, []);
+  assert.equal(workspaceValues.has("dsh.managedStorageDir"), false);
+});
+
+test("remembered source checkout precedes project and legacy managed installs", () => {
+  const svc = fresh();
+  const source = "D:\\Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js";
+  workspaceValues.set("dsh.sourceCheckoutBin", source);
+  const bins = svc.managedBinsForContext(context);
+  assert.equal(bins[0], source);
+  assert.ok(bins.some((bin) => bin.includes("Current\\.dshmux\\managed-dsh")));
+  assert.ok(bins.some((bin) => bin.includes("Code Storage\\managed-dsh")));
 });
 
 test("cancelled child is not validated or reported as success", async () => {
   const svc = fresh();
-  modalAnswer = "Install";
+  modalAnswer = "Install to shown location";
   const rt = runtime({
     run: async () => ({ ok: false, cancelled: true, exitCode: null }),
   });
@@ -207,7 +277,7 @@ test("managed npm launch inherits Doctor's resolved Node directory", () => {
 
 test("nonzero npm exit reports one concise failure", async () => {
   const svc = fresh();
-  modalAnswer = "Install";
+  modalAnswer = "Install to shown location";
   const rt = runtime({
     run: async (_spec, _token, onOutput) => {
       onOutput("npm ERR simulated\n");
@@ -222,7 +292,7 @@ test("nonzero npm exit reports one concise failure", async () => {
 
 test("successful npm with wrong or missing CLI fails verification and can retry", async () => {
   const svc = fresh();
-  modalAnswer = "Install";
+  modalAnswer = "Install to shown location";
   let attempt = 0;
   const rt = runtime({
     validate: () => ++attempt === 1
@@ -237,7 +307,7 @@ test("successful npm with wrong or missing CLI fails verification and can retry"
 
 test("Doctor output is bounded", async () => {
   const svc = fresh();
-  modalAnswer = "Install";
+  modalAnswer = "Install to shown location";
   const rt = runtime({
     run: async (_spec, _token, onOutput) => {
       onOutput("x".repeat(100_000));
@@ -279,7 +349,10 @@ test("Doctor Check again refreshes the launcher before reopening", async () => {
   let refreshCalls = 0;
 
   await svc.runDoctorCommand(
-    { globalStorageUri: { fsPath: "/tmp/dshmux-doctor-test" } },
+    {
+      globalStorageUri: { fsPath: "/tmp/dshmux-doctor-test" },
+      workspaceState: { get: () => undefined, update: async () => {} },
+    },
     () => { refreshCalls++; }
   );
 
@@ -287,12 +360,13 @@ test("Doctor Check again refreshes the launcher before reopening", async () => {
   assert.equal(quickPickCalls, 2);
 });
 
-test("install service has no global config write or source-clone flow", () => {
+test("install service does not rewrite global dshPath configuration", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "installService.ts"), "utf8");
   assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"/);
-  assert.doesNotMatch(source, /git clone|pnpm install|runPrimaryInstallFlow/);
+  assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"|runPrimaryInstallFlow/);
+  assert.match(source, /TESTED_SOURCE_REPO/);
 });
 
 test("generic upgrade UI is suppressed for a version-pinned managed DSH", () => {

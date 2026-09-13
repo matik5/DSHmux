@@ -24,6 +24,8 @@
 | R4: repeated Doctor messages do not duplicate controls | T4 | Static-single-button and repeated-message test |
 | R4: only ready auto-starts; Doctor failure keeps fallback | T4 | Launcher state matrix tests |
 | Release 0.4.7 passes compile/tests/smoke/package | T5, T6 | Version assertions, `npm test`, VSIX inspection, recorded verification |
+| R2 amendment: global or project install, one Cancel | T7 | Action-list and exact npm argv tests |
+| R2 amendment: Change creates an official checkout | T7 | Checkout path, clone tag, pnpm version, persistence and validation tests |
 
 ## Tasks
 
@@ -219,6 +221,33 @@ rg -n "Node.js 20|Node 20" src package.nls.json package.nls.zh-cn.json
 
 **Completion criteria**: tests and packaging pass, 0.4.7 VSIX exists, every
 requirement is evidenced, and `TODO.md` truthfully reflects remaining work.
+
+### T7 — Visible install choices and checkout location — ✅
+
+**Files**: `src/dshInstallService.ts`, `src/installService.ts`,
+`src/extension.ts`, `src/i18nStrings.ts`, `test/dshInstallService.test.js`,
+`test/installService.test.js`
+
+- [x] Default the project install to
+  `<workspace>/.dshmux/managed-dsh/0.1.5-rc.2`.
+- [x] Add explicit global and shown-location install actions plus **Change…**;
+  rely on VS Code's native Cancel only.
+- [x] Make **Change…** select a parent for `<parent>/deepseek-harness`, clone
+  the official tested tag, run pinned pnpm install/build, and verify the CLI.
+- [x] Persist a verified checkout path in workspace state and retain the old
+  globalStorage managed path as a fallback.
+- [x] Test exact paths, global argv, action count, custom checkout construction,
+  remembered precedence, i18n parity, and unchanged POSIX npm behavior.
+
+```ts
+project: <workspace>/.dshmux/managed-dsh/0.1.5-rc.2
+changed: <selected-parent>/deepseek-harness
+global:  npm install --global @deepseek-ai/dsh@0.1.5-rc.2
+```
+
+**Completion criteria**: two install choices are visible, only one Cancel is
+rendered, project and changed destinations follow their distinct contracts,
+and every accepted result is verified before selection.
 
 ## Execution order
 
