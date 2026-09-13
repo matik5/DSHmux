@@ -10,6 +10,13 @@ export const TESTED_SOURCE_REVISION = "fb2c4b9e698e30edb738bca4cf0618587db7d203"
 export const TESTED_SOURCE_TREE_URL =
   TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_TAG;
 
+/** Compatibility-patched source alternative maintained for DSHmux. */
+export const PATCHED_SOURCE_REPO = "https://github.com/matik5/deepseek-harness.git";
+export const PATCHED_SOURCE_BRANCH = "matik/dsh-patches-0.1.5-rc.2";
+export const PATCHED_SOURCE_REVISION = "5f54644c4fcc83e18bc6cbf8055997390cc21969";
+export const PATCHED_SOURCE_TREE_URL =
+  PATCHED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + PATCHED_SOURCE_BRANCH;
+
 export const DSH_PACKAGE_NAME = "@deepseek-ai/dsh";
 export const TESTED_PNPM_VERSION = "11.7.0";
 export const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
@@ -21,7 +28,26 @@ export interface ManagedInstallSpec {
   binPath: string;
   packageSpec: string;
   scope: "managed" | "global" | "source";
+  source?: SourceCheckout;
 }
+
+export interface SourceCheckout {
+  repo: string;
+  ref: string;
+  revision: string;
+}
+
+export const OFFICIAL_SOURCE: SourceCheckout = {
+  repo: TESTED_SOURCE_REPO,
+  ref: TESTED_SOURCE_TAG,
+  revision: TESTED_SOURCE_REVISION,
+};
+
+export const PATCHED_SOURCE: SourceCheckout = {
+  repo: PATCHED_SOURCE_REPO,
+  ref: PATCHED_SOURCE_BRANCH,
+  revision: PATCHED_SOURCE_REVISION,
+};
 
 export interface ManagedInstallCheck {
   valid: boolean;
@@ -53,6 +79,16 @@ export interface ManagedInstallProbe {
 
 function pathApi(platform: NodeJS.Platform): typeof path.posix | typeof path.win32 {
   return platform === "win32" ? path.win32 : path.posix;
+}
+
+/** Keep Windows ESM module URLs on one drive-letter spelling. */
+export function normalizeWindowsDriveLetter(
+  value: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return platform === "win32"
+    ? value.replace(/^([a-z]):/, (_match, drive: string) => `${drive.toUpperCase()}:`)
+    : value;
 }
 
 /** Versioned extension-owned prefix; old versions are deliberately retained. */
@@ -119,24 +155,36 @@ export function buildGlobalInstallSpec(cwd: string): ManagedInstallSpec {
 /** Official checkout selected through Change…; the chosen directory is a parent. */
 export function buildSourceCheckoutSpec(
   parentDir: string,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  source: SourceCheckout = OFFICIAL_SOURCE
 ): ManagedInstallSpec {
   const api = pathApi(platform);
-  const cwd = api.join(parentDir, "deepseek-harness");
+  const cwd = normalizeWindowsDriveLetter(api.join(parentDir, "deepseek-harness"), platform);
   return {
     command: "npm",
     args: [],
     cwd,
     binPath: api.join(cwd, "apps", "cli", "lib", "bin.js"),
-    packageSpec: `${TESTED_SOURCE_REPO}#${TESTED_SOURCE_TAG}`,
+    packageSpec: `${source.repo}#${source.ref}`,
     scope: "source",
+    source,
   };
 }
 
-export function buildSourceCloneArgs(targetDir: string): string[] {
+export function buildPatchedSourceCheckoutSpec(
+  parentDir: string,
+  platform: NodeJS.Platform = process.platform
+): ManagedInstallSpec {
+  return buildSourceCheckoutSpec(parentDir, platform, PATCHED_SOURCE);
+}
+
+export function buildSourceCloneArgs(
+  targetDir: string,
+  source: SourceCheckout = OFFICIAL_SOURCE
+): string[] {
   return [
-    "clone", "--branch", TESTED_SOURCE_TAG, "--depth", "1",
-    TESTED_SOURCE_REPO, targetDir,
+    "clone", "--branch", source.ref, "--depth", "1",
+    source.repo, targetDir,
   ];
 }
 
@@ -145,6 +193,13 @@ export function buildPnpmExecArgs(pnpmArgs: string[]): string[] {
     "exec", "--yes", `--package=pnpm@${TESTED_PNPM_VERSION}`,
     "--", "pnpm", ...pnpmArgs,
   ];
+}
+
+/** Recreate Windows workspace links so mixed drive-letter targets cannot survive a repair. */
+export function buildSourceInstallArgs(
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  return ["install", "--frozen-lockfile", ...(platform === "win32" ? ["--force"] : [])];
 }
 
 /**

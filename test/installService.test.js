@@ -133,6 +133,7 @@ test("managed install cancellation at confirmation makes no changes", async () =
   assert.deepEqual(informationCalls[0].items, [
     "Install globally",
     "Install to shown location",
+    "Use patched source build",
     "Change…",
   ]);
   assert.ok(!informationCalls[0].items.includes("Cancel"));
@@ -183,6 +184,38 @@ test("Change selects a parent for an ordinary deepseek-harness checkout", async 
     "D:\\My Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js"
   );
   assert.equal(workspaceValues.has("dsh.managedStorageDir"), false);
+});
+
+test("patched source is offered as a project checkout under .dshmux", async () => {
+  const svc = fresh();
+  modalAnswer = ["Use patched source build", "Install to shown location"];
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value), true);
+
+  assert.equal(informationCalls.filter((call) => call.options?.modal).length, 2);
+  assert.match(informationCalls[1].message, /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.1\.5-rc\.2/);
+  assert.match(informationCalls[1].message, /Projects\\Current\\\.dshmux\\deepseek-harness/);
+  assert.equal(rt.calls.run[0].cwd, "C:\\Projects\\Current\\.dshmux\\deepseek-harness");
+  assert.equal(rt.calls.run[0].source.repo, "https://github.com/matik5/deepseek-harness.git");
+  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.1.5-rc.2");
+  assert.equal(
+    workspaceValues.get("dsh.sourceCheckoutBin"),
+    "C:\\Projects\\Current\\.dshmux\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+  );
+});
+
+test("Change from patched source installs the repo directly under the chosen parent", async () => {
+  const svc = fresh();
+  modalAnswer = ["Use patched source build", "Change…", "Install to shown location"];
+  folderAnswers.push([{ fsPath: "d:\\My Projects" }]);
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value), true);
+
+  assert.equal(rt.calls.run[0].cwd, "D:\\My Projects\\deepseek-harness");
+  assert.doesNotMatch(rt.calls.run[0].cwd, /\.dshmux/i);
+  assert.equal(rt.calls.run[0].source.repo, "https://github.com/matik5/deepseek-harness.git");
 });
 
 test("global choice runs the pinned npm global install and does not persist a project path", async () => {
@@ -366,7 +399,7 @@ test("install service does not rewrite global dshPath configuration", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "installService.ts"), "utf8");
   assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"/);
   assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"|runPrimaryInstallFlow/);
-  assert.match(source, /TESTED_SOURCE_REPO/);
+  assert.match(source, /buildPatchedSourceCheckoutSpec/);
 });
 
 test("generic upgrade UI is suppressed for a version-pinned managed DSH", () => {

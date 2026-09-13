@@ -10,7 +10,46 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { WebSocketServer } = require("ws");
 
-const { relayHttp, WsRelay } = require("../out/bridgeCore.js");
+const { isAgentScopeFailure, relayHttp, rpcFailureDetail, WsRelay } = require("../out/bridgeCore.js");
+
+function responseBody(value) {
+  const bytes = Buffer.from(JSON.stringify(value));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+test("agent-scope RPC failures are detected through their hidden reason", () => {
+  const failure = rpcFailureDetail({
+    type: "http-res",
+    id: 1,
+    status: 200,
+    statusText: "OK",
+    headers: { "content-type": "application/json" },
+    body: responseBody({
+      result: {
+        ok: false,
+        error: {
+          code: "session/agent-busy",
+          message: "prompt rejected",
+          details: { reason: "file-upload: operation requires the Agent's own scope" },
+        },
+      },
+    }),
+  });
+  assert.deepEqual(failure, {
+    code: "session/agent-busy",
+    message: "prompt rejected",
+    reason: "file-upload: operation requires the Agent's own scope",
+  });
+  assert.equal(isAgentScopeFailure(failure), true);
+});
+
+test("unrelated and malformed RPC responses do not trigger the agent-scope recommendation", () => {
+  assert.equal(isAgentScopeFailure({ code: "session/agent-busy", message: "prompt rejected" }), false);
+  assert.equal(rpcFailureDetail({
+    type: "http-res", id: 1, status: 200, statusText: "OK", headers: {},
+    body: responseBody({ result: { ok: true, value: { accepted: true } } }),
+  }), undefined);
+});
 
 function tmpdir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-bh-"));

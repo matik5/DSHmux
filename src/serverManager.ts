@@ -457,26 +457,45 @@ export function resolveDshPath(
 export const CHECKOUT_BIN_REL = "apps/cli/lib/bin.js";
 
 /**
+ * Node's Windows ESM cache keys retain drive-letter case. Loading one source
+ * workspace through both `C:` and `c:` can therefore duplicate modules whose
+ * private Symbols must be process-singletons (notably @deepseek-ai/dsh-scope).
+ */
+export function normalizeWindowsDriveLetter(
+  value: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return platform === "win32"
+    ? value.replace(/^([a-z]):/, (_match, drive: string) => `${drive.toUpperCase()}:`)
+    : value;
+}
+
+/**
  * Resolve a configured `dshPath` that points at a source-checkout DIRECTORY
  * to its built CLI entry (`<dir>/apps/cli/lib/bin.js`) (04-install R10).
  * Anything else — file paths, unbuilt checkouts, missing paths — is returned
  * unchanged so callers apply their existing exists/discovery handling.
  */
-export function resolveConfiguredDshPath(p: string): string {
+export function resolveConfiguredDshPath(
+  p: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const normalized = normalizeWindowsDriveLetter(p, platform);
   try {
-    if (fs.statSync(p).isDirectory()) {
-      const bin = path.join(p, CHECKOUT_BIN_REL);
+    if (fs.statSync(normalized).isDirectory()) {
+      const bin = path.join(normalized, CHECKOUT_BIN_REL);
       if (fs.existsSync(bin)) return bin;
     }
   } catch {
     /* not stat-able (missing, permissions) — treat as a plain file path */
   }
-  return p;
+  return normalized;
 }
 
 /**
  * Choose which binary to spawn for a start. An explicit `opts.dshBin` is
- * authoritative (used as-is, even if missing). The configured `dshPath` is
+ * authoritative (apart from Windows drive-letter canonicalization, even if
+ * missing). The configured `dshPath` is
  * best-effort: a source-checkout directory is resolved to its built CLI
  * entry; if the result does not exist on this host — e.g. a local path
  * carried onto a remote via synced or workspace settings — it is ignored and
@@ -489,10 +508,13 @@ export function resolveStartBin(
   platform: NodeJS.Platform = process.platform
 ): { path: string | null; tried: string[] } {
   const explicitBin = opts.dshBin?.trim();
+  const normalizedExplicit = explicitBin
+    ? normalizeWindowsDriveLetter(explicitBin, platform)
+    : undefined;
   const configuredPath =
-    configuredBin !== undefined ? resolveConfiguredDshPath(configuredBin) : undefined;
+    configuredBin !== undefined ? resolveConfiguredDshPath(configuredBin, platform) : undefined;
   const configuredValid = configuredPath !== undefined && fs.existsSync(configuredPath);
-  const preferredBin = explicitBin ?? (configuredValid ? configuredPath : undefined);
+  const preferredBin = normalizedExplicit ?? (configuredValid ? configuredPath : undefined);
   return preferredBin
     ? { path: preferredBin, tried: [preferredBin] }
     : resolveDshPath(home, platform);

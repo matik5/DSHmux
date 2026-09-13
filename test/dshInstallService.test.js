@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DSH_PACKAGE_NAME,
+  PATCHED_SOURCE_REPO,
+  PATCHED_SOURCE_BRANCH,
+  PATCHED_SOURCE_REVISION,
+  PATCHED_SOURCE_TREE_URL,
   TESTED_SOURCE_REPO,
   TESTED_SOURCE_TAG,
   TESTED_SOURCE_REVISION,
@@ -10,8 +14,10 @@ import {
   managedDshBin,
   buildManagedInstallSpec,
   buildGlobalInstallSpec,
+  buildPatchedSourceCheckoutSpec,
   buildSourceCheckoutSpec,
   buildSourceCloneArgs,
+  buildSourceInstallArgs,
   buildPnpmExecArgs,
   buildManagedNpmLaunchSpec,
   resolveNpmLaunchSpec,
@@ -29,6 +35,16 @@ test("official source metadata is pinned", () => {
     "https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-rc.2"
   );
   assert.equal(DSH_PACKAGE_NAME, "@deepseek-ai/dsh");
+});
+
+test("patched source alternative is pinned to the maintained DSHmux branch", () => {
+  assert.equal(PATCHED_SOURCE_REPO, "https://github.com/matik5/deepseek-harness.git");
+  assert.equal(PATCHED_SOURCE_BRANCH, "matik/dsh-patches-0.1.5-rc.2");
+  assert.equal(PATCHED_SOURCE_REVISION, "5f54644c4fcc83e18bc6cbf8055997390cc21969");
+  assert.equal(
+    PATCHED_SOURCE_TREE_URL,
+    "https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.5-rc.2"
+  );
 });
 
 test("managed paths are versioned and platform-correct", () => {
@@ -84,6 +100,27 @@ test("custom location is a normal official deepseek-harness checkout", () => {
   assert.deepEqual(buildPnpmExecArgs(["build"]), [
     "exec", "--yes", "--package=pnpm@11.7.0", "--", "pnpm", "build",
   ]);
+});
+
+test("patched checkout uses the fork branch and canonical Windows drive casing", () => {
+  const spec = buildPatchedSourceCheckoutSpec("d:\\My Projects", "win32");
+  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness");
+  assert.equal(spec.packageSpec, `${PATCHED_SOURCE_REPO}#${PATCHED_SOURCE_BRANCH}`);
+  assert.deepEqual(spec.source, {
+    repo: PATCHED_SOURCE_REPO,
+    ref: PATCHED_SOURCE_BRANCH,
+    revision: PATCHED_SOURCE_REVISION,
+  });
+  assert.deepEqual(buildSourceCloneArgs(spec.cwd, spec.source), [
+    "clone", "--branch", PATCHED_SOURCE_BRANCH, "--depth", "1",
+    PATCHED_SOURCE_REPO, spec.cwd,
+  ]);
+});
+
+test("source repair forces workspace-link recreation only on Windows", () => {
+  assert.deepEqual(buildSourceInstallArgs("win32"), ["install", "--frozen-lockfile", "--force"]);
+  assert.deepEqual(buildSourceInstallArgs("darwin"), ["install", "--frozen-lockfile"]);
+  assert.deepEqual(buildSourceInstallArgs("linux"), ["install", "--frozen-lockfile"]);
 });
 
 test("Windows managed npm launch preserves spaced argv without a shell", () => {

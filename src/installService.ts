@@ -14,13 +14,13 @@ import {
 } from "./dshDoctor.js";
 import {
   NODE_DOWNLOAD_URL,
-  TESTED_SOURCE_REPO,
-  TESTED_SOURCE_REVISION,
   buildGlobalInstallSpec,
   buildManagedInstallSpec,
   buildManagedNpmLaunchSpec,
+  buildPatchedSourceCheckoutSpec,
   buildSourceCheckoutSpec,
   buildSourceCloneArgs,
+  buildSourceInstallArgs,
   buildPnpmExecArgs,
   checkManagedInstall,
   managedDshBin,
@@ -251,6 +251,8 @@ async function runChild(
     onOutput(`npm: ${npm.command}${npm.argsPrefix[0] ? ` ${npm.argsPrefix[0]}` : ""}\n`);
     onOutput(`Destination: ${spec.scope === "global" ? "global npm prefix" : spec.cwd}\n\n`);
     if (spec.scope === "source") {
+      if (!spec.source) throw new Error("Source checkout metadata is missing");
+      const source = spec.source;
       const runStep = async (
         command: string,
         args: string[],
@@ -277,7 +279,7 @@ async function runChild(
         if (entries.length > 0) throw new Error(`Checkout destination is not empty: ${spec.cwd}`);
         const clone = await runStep(
           "git",
-          buildSourceCloneArgs(spec.cwd),
+          buildSourceCloneArgs(spec.cwd, source),
           path.dirname(spec.cwd)
         );
         if (!clone.ok) return clone;
@@ -290,7 +292,7 @@ async function runChild(
       );
       if (!remote.ok) return remote;
       const normalizedRemote = remote.output.trim().replace(/^git\+/, "").replace(/\.git$/, "").toLowerCase();
-      if (normalizedRemote !== TESTED_SOURCE_REPO.replace(/\.git$/, "").toLowerCase()) {
+      if (normalizedRemote !== source.repo.replace(/\.git$/, "").toLowerCase()) {
         throw new Error(`Existing checkout has an unexpected origin: ${remote.output.trim()}`);
       }
       const revision = await runStep(
@@ -300,11 +302,11 @@ async function runChild(
         true
       );
       if (!revision.ok) return revision;
-      if (revision.output.trim() !== TESTED_SOURCE_REVISION) {
-        throw new Error(`Existing checkout is not ${TESTED_SOURCE_REVISION}`);
+      if (revision.output.trim() !== source.revision) {
+        throw new Error(`Existing checkout is not ${source.revision}`);
       }
       for (const pnpmArgs of [
-        ["install", "--frozen-lockfile"],
+        buildSourceInstallArgs(process.platform),
         ["build"],
       ]) {
         const result = await runStep(
@@ -372,18 +374,25 @@ export async function chooseManagedInstall(
 ): Promise<ChosenManagedInstall | null> {
   let storageDir = managedStorageForContext(context);
   let sourceParent: string | undefined;
+  let sourceKind: "official" | "patched" = "official";
   const installGlobal = t("install.globalRun");
   const installHere = t("install.localRun");
+  const installPatched = t("install.patchedRun");
+  const installOfficial = t("install.officialRun");
   const change = t("install.changeLocation");
   while (true) {
     const spec = sourceParent
-      ? buildSourceCheckoutSpec(sourceParent, process.platform)
+      ? sourceKind === "patched"
+        ? buildPatchedSourceCheckoutSpec(sourceParent, process.platform)
+        : buildSourceCheckoutSpec(sourceParent, process.platform)
       : buildManagedInstallSpec(storageDir, process.platform);
+    const sourceSwitch = sourceKind === "patched" ? installOfficial : installPatched;
     const choice = await vscode.window.showInformationMessage(
       t("install.managedConfirm", { package: spec.packageSpec, path: spec.cwd }),
       { modal: true },
       installGlobal,
       installHere,
+      sourceSwitch,
       change
     );
     if (choice === installGlobal) {
@@ -395,11 +404,22 @@ export async function chooseManagedInstall(
         ? { spec, sourceBin: spec.binPath }
         : { spec, storageDir };
     }
+    if (choice === installPatched) {
+      sourceParent ??= storageDir;
+      sourceKind = "patched";
+      continue;
+    }
+    if (choice === installOfficial) {
+      sourceKind = "official";
+      continue;
+    }
     if (choice !== change) return null;
 
     const selected = await vscode.window.showOpenDialog({
       title: t("install.selectLocation"),
-      defaultUri: vscode.Uri.file(sourceParent ?? path.dirname(storageDir)),
+      defaultUri: vscode.Uri.file(
+        sourceParent && sourceParent !== storageDir ? sourceParent : path.dirname(storageDir)
+      ),
       openLabel: t("install.selectLocation"),
       canSelectFiles: false,
       canSelectFolders: true,
@@ -430,7 +450,7 @@ export async function runManagedInstall(
     output.append(text);
   };
   append(spec.scope === "source"
-    ? `git ${buildSourceCloneArgs(spec.cwd).join(" ")}\n\n`
+    ? `git ${buildSourceCloneArgs(spec.cwd, spec.source).join(" ")}\n\n`
     : `npm ${spec.args.join(" ")}\n\n`);
   let result: ManagedInstallRunResult;
   try {

@@ -4,7 +4,14 @@
 // spike-notes S2), and posts responses back. Pure relay parts live in
 // bridgeCore.ts (vscode-free, unit-tested).
 import * as vscode from "vscode";
-import { relayHttp, WsRelay, type HttpRequestMsg } from "./bridgeCore.js";
+import {
+  isAgentScopeFailure,
+  relayHttp,
+  rpcFailureDetail,
+  WsRelay,
+  type HttpRequestMsg,
+} from "./bridgeCore.js";
+import { t } from "./i18n.js";
 
 /**
  * Wires one webview to the DSH server: forwards http / ws / clipboard
@@ -14,6 +21,7 @@ import { relayHttp, WsRelay, type HttpRequestMsg } from "./bridgeCore.js";
 export class BridgeHost {
   private wsRelay: WsRelay;
   private disposables: vscode.Disposable[] = [];
+  private agentScopeWarningShown = false;
 
   constructor(
     private webview: vscode.Webview,
@@ -42,6 +50,22 @@ export class BridgeHost {
         case "http": {
           const req = m as unknown as HttpRequestMsg;
           const res = await relayHttp(this.resolveBase(), req, this.fetchImpl, this.cookieProvider);
+          const failure = rpcFailureDetail(res);
+          if (failure) {
+            console.error(
+              `[dsh] RPC ${req.method} ${req.url} failed: ${failure.message} ` +
+              `(${failure.code})${failure.reason ? ` reason=${failure.reason}` : ""}`
+            );
+          }
+          if (isAgentScopeFailure(failure) && !this.agentScopeWarningShown) {
+            this.agentScopeWarningShown = true;
+            const openDoctor = t("error.openDoctor");
+            void vscode.window
+              .showWarningMessage(t("error.agentScopePatchedSuggestion"), openDoctor)
+              .then((choice) => {
+                if (choice === openDoctor) void vscode.commands.executeCommand("dshmux.doctor");
+              });
+          }
           if (res.status >= 400) {
             console.log(`[dsh] relay ${req.method} ${req.url} -> HTTP ${res.status}`);
           }

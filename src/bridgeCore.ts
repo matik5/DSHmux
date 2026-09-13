@@ -20,6 +20,41 @@ export interface HttpResponseMsg {
   body: ArrayBuffer;
 }
 
+export interface RpcFailureDetail {
+  code: string;
+  message: string;
+  reason?: string;
+}
+
+/** Read a Typert business failure carried inside a successful HTTP response. */
+export function rpcFailureDetail(response: HttpResponseMsg): RpcFailureDetail | undefined {
+  if (response.status < 200 || response.status >= 300) return undefined;
+  try {
+    const body = JSON.parse(new TextDecoder().decode(response.body)) as {
+      result?: {
+        ok?: boolean;
+        error?: { code?: unknown; message?: unknown; details?: { reason?: unknown } };
+      };
+    };
+    const error = body.result?.ok === false ? body.result.error : undefined;
+    if (typeof error?.code !== "string" || typeof error.message !== "string") return undefined;
+    return {
+      code: error.code,
+      message: error.message,
+      ...(typeof error.details?.reason === "string" ? { reason: error.details.reason } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function isAgentScopeFailure(failure: RpcFailureDetail | undefined): boolean {
+  if (!failure) return false;
+  return `${failure.message}\n${failure.reason ?? ""}`.includes(
+    "file-upload: operation requires the Agent's own scope"
+  );
+}
+
 /**
  * Relay one http request to the server; returns the response payload.
  * `cookieProvider` (optional) supplies the DSH browser-session cookie for

@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
-const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, resolveConfiguredDshPath, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, resolveConfiguredDshPath, normalizeWindowsDriveLetter, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -480,6 +480,18 @@ test("resolveConfiguredDshPath resolves a source-checkout directory to its built
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("Windows source entry paths use one ESM cache drive-letter spelling", () => {
+  assert.equal(
+    normalizeWindowsDriveLetter("c:\\proj\\deepseek-harness\\apps\\cli\\lib\\bin.js", "win32"),
+    "C:\\proj\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+  );
+  assert.equal(normalizeWindowsDriveLetter("/Users/me/dsh/lib/bin.js", "darwin"), "/Users/me/dsh/lib/bin.js");
+  assert.equal(
+    resolveStartBin({ dshBin: "c:\\proj\\deepseek-harness\\apps\\cli\\lib\\bin.js" }, undefined, "C:\\Users\\me", "win32").path,
+    "C:\\proj\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+  );
 });
 
 test("resolveStartBin spawns a source-checkout directory's built CLI", () => {
