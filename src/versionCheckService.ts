@@ -3,7 +3,12 @@
 // and the upgrade interaction (QuickPick → integrated terminal prefilled, never
 // auto-run). Pure logic lives in versionCheck.ts (unit-tested).
 import * as vscode from "vscode";
-import { isUpdateAvailable, shouldSkipVersionCheck, upgradeCommandFor } from "./versionCheck.js";
+import {
+  isDshmuxManagedPath,
+  isUpdateAvailable,
+  shouldSkipVersionCheck,
+  upgradeCommandFor,
+} from "./versionCheck.js";
 import { t } from "./i18n.js";
 
 const LAST_CHECK_KEY = "dsh.lastVersionCheck";
@@ -102,6 +107,9 @@ export function upgradeInfo(
   currentVersion: string | undefined,
   dshPath: string | undefined
 ): UpgradeInfo | undefined {
+  // A managed CLI lives in a version-pinned prefix. A global/npx upgrade would
+  // not replace it and the manager would keep launching the old managed copy.
+  if (isDshmuxManagedPath(dshPath)) return undefined;
   const latest = cachedLatest(context);
   const next = cachedNext(context);
   const newer = (c: string | undefined) =>

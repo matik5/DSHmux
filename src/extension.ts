@@ -5,25 +5,18 @@
 // Session management (02-session-management T6): multi-panel orchestration,
 // session list + rename in the launcher, reload restore of open panels.
 import * as vscode from "vscode";
-import { DshServerManager } from "./serverManager.js";
+import { DshServerManager, resolveDshVersion } from "./serverManager.js";
 import { registerCommands, workspaceRoot } from "./commands.js";
 import { DshPanel } from "./dshPanel.js";
 import { SessionPanelManager } from "./sessionPanels.js";
-import { DshLauncherView, type DoctorActions } from "./launcherView.js";
-import {
-  runAlternativeInstallFlow,
-  runDoctorCommand,
-  runDoctorForLauncher,
-  runGitInstallGuidance,
-  runNodeInstallGuidance,
-  runPnpmInstallGuidance,
-  runPrimaryInstallFlow,
-} from "./installService.js";
+import { DshLauncherView } from "./launcherView.js";
+import { managedBinForContext, runDoctorCommand } from "./installService.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates, showUpgradeOptions, type UpgradeChannel } from "./versionCheckService.js";
 import { configuredDshBin } from "./configuration.js";
+import { TESTED_DSH_VERSION } from "./versionCheck.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -35,7 +28,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // extension host restarted (the manager instance below is brand-new and
   // starts "stopped" even though the old dsh child may still be alive).
   console.log(`[dsh] activate: wasRunning=${context.workspaceState.get<boolean>(WAS_RUNNING_KEY)} workspace=${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "(none)"}`);
-  manager = new DshServerManager(configuredDshBin);
+  const managedBin = managedBinForContext(context);
+  manager = new DshServerManager(() =>
+    resolveDshVersion(managedBin) === TESTED_DSH_VERSION ? managedBin : configuredDshBin()
+  );
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
 
@@ -139,29 +135,6 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
-  // DSH Doctor + guided install (04-install R1–R3). Every entry point runs on
-  // the WORKSPACE host (remote windows diagnose the remote); the panel's
-  // "Check again" re-opens the full report and refreshes the launcher so the
-  // setup panel reflects any change the user made in the terminal.
-  const doctorActions: DoctorActions = {
-    // The full report (QuickPick); afterwards re-run the doctor so the panel
-    // reflects any machine change (e.g. a dshPath write from the flow).
-    checkAgain: () => {
-      void runDoctorCommand().then(() => launcher?.refresh(true));
-    },
-    primary: () => {
-      void runPrimaryInstallFlow(runDoctorForLauncher()).then(() =>
-        launcher?.refresh(true)
-      );
-    },
-    alternative: () => {
-      void runAlternativeInstallFlow().then(() => launcher?.refresh(true));
-    },
-    node: () => void runNodeInstallGuidance(),
-    git: () => void runGitInstallGuidance(),
-    pnpm: () => void runPnpmInstallGuidance(),
-  };
-
   registerCommands(
     context,
     manager,
@@ -171,7 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Secondary surface: open the editor-tab panel (kept for now).
     () => panels.open(),
     // DSH Doctor (04-install R1): palette command, works pre-start.
-    () => void runDoctorCommand()
+    () => void runDoctorCommand(context, () => launcher?.refresh(true))
   );
 
   // Session handlers: new/open session loads it into the side-panel chat view
@@ -220,8 +193,6 @@ export function activate(context: vscode.ExtensionContext): void {
     // Secondary surface: open the editor tab for the session currently shown
     // in the side-panel chat view (falls back to the default panel when none).
     () => panels.open(chatView?.shownSessionId),
-    // Doctor + setup-panel actions (04-install R1–R3).
-    doctorActions
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(DshLauncherView.viewType, launcher)

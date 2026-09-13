@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.4.7] - 2026-09-13
+
+### Changed
+- First-run setup now uses the official pinned `@deepseek-ai/dsh@0.1.5-rc.2` package in versioned DSHmux-managed storage. Ordinary setup no longer depends on a fork, Git, pnpm, a source build, administrator rights, or the user's global npm prefix.
+- DSH Doctor now owns installation and repair: it confirms the exact package and destination, shows cancellable progress and a bounded log, and trusts the managed CLI only after verifying its exact version.
+- The launcher now shows one compact **Missing deps · Fix** action instead of the large setup panel and compatibility notices. Existing valid global, npx-cache, source, and custom DSH installations remain supported.
+- Node is checked only as a real DSH runtime/install prerequisite. Guidance now reflects the official DSH 0.1.5-rc.2 engine range: Node 22.19+ within 22.x, or Node 24+.
+
+### Fixed
+- Repeated Doctor refreshes could append duplicate missing-dependency links in the launcher because dynamically rebuilt buttons lost the IDs used for cleanup. The single Fix control is now static and only changes visibility.
+- Managed repair now reuses Doctor's resolved Node/npm environment, preserves Windows paths as structured arguments without a command shell, and waits for the owned npm process to close after cancellation.
+- Version-pinned managed installations no longer offer global/npx upgrade commands that cannot replace the active managed copy.
+
+## [0.4.6] - 2026-09-06
+
 ### Changed
 - The extension UI locale set is now ten locales: **en, zh, ja, ko, et, es, pt, fr, de, uk**. Russian was removed and Estonian and Ukrainian were added; a Russian display language now falls back to English.
 - The DSH Doctor is now reachable from the DSHmux panel's own "…" menu (the same menu as "Open in editor" and "Settings", as its last entry) — in addition to the command palette.
@@ -27,7 +42,7 @@
 
 ### Added
 - An explicit DSH compatibility marker in the launcher header. DSHmux 0.4.0 is tested against dsh `0.1.2-alpha.2`; older, newer, or unrecognized versions keep running but show “Compatibility not tested” together with the tested version.
-- A `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a patched source checkout.
+- A `dshmux.dshPath` setting for running a custom DSH executable, including a built CLI from a source checkout.
 - An immediate dimmed loading overlay and progress bar while switching the side-panel chat to another DSH session.
 - A `dshmux.frameFontScale` setting (default `0.9`, range 0.5–1.5) that zooms the embedded side-panel DSH frame; the editor-tab view keeps the upstream size.
 - Per-sound toggles (`dshmux.soundStart`, `dshmux.soundDone`, `dshmux.soundAsk`, all default `true`) so each session sound can be muted independently; `dshmux.completionSound` remains the master switch.

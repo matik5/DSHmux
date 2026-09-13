@@ -558,7 +558,7 @@ test("start() rejects with a helpful message when the binary is missing", async 
   const manager = new DshServerManager();
   await assert.rejects(
     manager.start({ dshBin: "/nonexistent/dsh", cwd: os.tmpdir() }),
-    IS_WIN ? /exited before ready/ : /dsh not found/
+    IS_WIN ? /exited before ready/ : /dsh not found.*DSHmux: Doctor/
   );
   assert.equal(manager.state, "error");
 });

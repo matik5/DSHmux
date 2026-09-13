@@ -1,199 +1,168 @@
-// DSH install plans (04-install R2/R3): pure command builders — they produce
-// the EXACT text the install service prefills into a terminal. Nothing here
-// executes a command or touches the filesystem; I/O (checkout validation)
-// goes through the DoctorProbe seams from dshDoctor.ts.
+// Pure primitives for the Doctor-managed DSH installation. This module never
+// writes files or starts a process; production I/O lives in installService.ts.
+import * as path from "node:path";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
-import { CHECKOUT_BIN_REL } from "./serverManager.js";
-import type { DoctorProbe } from "./dshDoctor.js";
 
-/**
- * Tested source (R3, PRIMARY recommendation). The matik5 fork carries the
- * two compatibility patches missing from mainline (see
- * `doc/dsh-patches/README.md`): the JPEG attachment projection and the
- * pi-ai compaction wire marker. Supported branch for this release:
- * `matik/dsh-patches-0.1.5-rc.2` (tip `5f54644c4f`), which declares
- * @deepseek-ai/dsh 0.1.5-rc.2 (= TESTED_DSH_VERSION).
- */
-export const TESTED_SOURCE_REPO = "https://github.com/matik5/deepseek-harness.git";
-export const TESTED_SOURCE_BRANCH = "matik/dsh-patches-0.1.5-rc.2";
-export const TESTED_SOURCE_REVISION = "5f54644c4f";
-/** R6: the branch page the setup panel links to (derived, not a new string). */
+/** Official upstream pinned for DSHmux 0.4.7. */
+export const TESTED_SOURCE_REPO = "https://github.com/deepseek-ai/deepseek-harness.git";
+export const TESTED_SOURCE_TAG = "dsh-v0.1.5-rc.2";
+export const TESTED_SOURCE_REVISION = "fb2c4b9e698e30edb738bca4cf0618587db7d203";
 export const TESTED_SOURCE_TREE_URL =
-  TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_BRANCH;
+  TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_TAG;
 
-/** Official download pages opened for missing prerequisites (openExternal). */
+export const DSH_PACKAGE_NAME = "@deepseek-ai/dsh";
 export const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
-export const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
-export const PNPM_INSTALL_URL = "https://pnpm.io/installation";
 
-/** One prefilled terminal command with i18n label/purpose keys. */
-export interface InstallCommand {
-  label: string; // i18n key
-  command: string; // exact text to prefill (NEVER auto-executed)
-  purpose: string; // i18n key (one-line plain-language reason)
+export interface ManagedInstallSpec {
+  command: "npm";
+  args: string[];
+  cwd: string;
+  binPath: string;
+  packageSpec: string;
 }
 
-export interface CheckoutCheck {
+export interface ManagedInstallCheck {
   valid: boolean;
-  binPath: string | null; // <checkout>/apps/cli/lib/bin.js
-  version: string | null; // from `node <binPath> --version`
-  dirty: boolean; // `git status --porcelain` non-empty
-  onPatchedBranch: boolean | null; // null: not a git repo
+  binPath: string;
+  version: string | null;
 }
 
-const CHECK_TIMEOUT_MS = 5_000;
-
-/** Wrap a path in double quotes (cmd quoting; path backslashes untouched). */
-function quote(p: string): string {
-  return `"${p}"`;
+export interface ManagedNpmLaunchSpec {
+  command: string;
+  args: string[];
+  shell: false;
 }
 
-/** Platform-pure path join for a trailing relative segment. */
-function joinPath(dir: string, rel: string, platform: NodeJS.Platform): string {
-  const sep = platform === "win32" ? "\\" : "/";
-  const base = dir.replace(/[\\/]+$/, "");
-  const parts = rel.split("/");
-  return `${base}${sep}${parts.join(sep)}`;
+export interface ManagedInstallProbe {
+  exists: (p: string) => boolean;
+  run: (
+    cmd: string,
+    args: string[],
+    opts: { timeoutMs: number; shell?: boolean }
+  ) => { ok: boolean; stdout: string };
 }
 
-/**
- * R3 primary path: clone the patched branch and build the workspace.
- * Four user-confirmed steps (no hidden multi-command script — req R3);
- * every path argument is quoted.
- */
-export function buildSourceClonePlan(
-  parentDir: string,
-  platform: NodeJS.Platform
-): InstallCommand[] {
-  const target = joinPath(parentDir, "deepseek-harness", platform);
-  return [
-    {
-      label: "install.cloneStep1",
-      command: `git clone --branch ${TESTED_SOURCE_BRANCH} ${TESTED_SOURCE_REPO} ${quote(target)}`,
-      purpose: "install.cloneStep1.purpose",
-    },
-    {
-      label: "install.cloneStep2",
-      command: `cd ${quote(target)}`,
-      purpose: "install.cloneStep2.purpose",
-    },
-    {
-      label: "install.cloneStep3",
-      command: "pnpm install",
-      purpose: "install.cloneStep3.purpose",
-    },
-    {
-      label: "install.cloneStep4",
-      command: "pnpm build",
-      purpose: "install.cloneStep4.purpose",
-    },
-  ];
+function pathApi(platform: NodeJS.Platform): typeof path.posix | typeof path.win32 {
+  return platform === "win32" ? path.win32 : path.posix;
 }
 
-/**
- * R3 update path: move an existing source checkout onto the supported branch.
- * Same shape as the clone plan — user-confirmed steps, every path quoted —
- * so an install built on an older patch branch can be refreshed in place:
- * fetch the supported branch, check it out, then rebuild the workspace.
- * (Rebuild steps reuse the clone plan's purposes: they are the same commands.)
- */
-export function buildSourceUpdatePlan(
-  checkoutDir: string,
-  platform: NodeJS.Platform
-): InstallCommand[] {
-  const dir = quote(checkoutDir);
-  return [
-    {
-      label: "install.updateStep1",
-      command: `git -C ${dir} fetch origin ${TESTED_SOURCE_BRANCH}`,
-      purpose: "install.updateStep1.purpose",
-    },
-    {
-      label: "install.updateStep2",
-      command: `git -C ${dir} checkout ${TESTED_SOURCE_BRANCH}`,
-      purpose: "install.updateStep2.purpose",
-    },
-    {
-      label: "install.updateStep3",
-      command: `cd ${dir} && pnpm install`,
-      purpose: "install.cloneStep3.purpose",
-    },
-    {
-      label: "install.updateStep4",
-      command: "pnpm build",
-      purpose: "install.cloneStep4.purpose",
-    },
-  ];
+/** Versioned extension-owned prefix; old versions are deliberately retained. */
+export function managedDshRoot(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathApi(platform).join(storageDir, "managed-dsh", TESTED_DSH_VERSION);
 }
 
-/** R2 alternative (mainline, without the two compatibility patches). */
-export function buildNpmPlan(): InstallCommand {
-  return {
-    label: "install.npmCommand",
-    command: `npm i -g @deepseek-ai/dsh@${TESTED_DSH_VERSION}`,
-    purpose: "install.npmPurpose",
-  };
-}
-
-/** R2 alternative: prime the npx cache (mainline, without the patches). */
-export function buildNpxPlan(): InstallCommand {
-  return {
-    label: "install.npxCommand",
-    command: `npx -y @deepseek-ai/dsh@${TESTED_DSH_VERSION} --version`,
-    purpose: "install.npxPurpose",
-  };
-}
-
-/**
- * R3 existing-checkout validation (read-only). Pure given the probe: the
- * checkout is NEVER modified; it is only reported (dirty / wrong branch are
- * warnings, never blockers — req R3).
- */
-export function checkExistingCheckout(
-  checkoutDir: string,
-  nodePath: string,
-  probe: DoctorProbe
-): CheckoutCheck {
-  const binPath = joinPath(checkoutDir, CHECKOUT_BIN_REL, probe.platform);
-  const binExists = probe.exists(binPath);
-  let version: string | null = null;
-  if (binExists) {
-    const res = probe.run(nodePath, [binPath, "--version"], { timeoutMs: CHECK_TIMEOUT_MS });
-    if (res.ok && res.stdout.trim() !== "") version = res.stdout.trim();
-  }
-  const status = probe.run("git", ["-C", checkoutDir, "status", "--porcelain"], {
-    timeoutMs: CHECK_TIMEOUT_MS,
-  });
-  const dirty = status.ok && status.stdout.trim() !== "";
-  let onPatchedBranch: boolean | null = null;
-  const branch = probe.run("git", ["-C", checkoutDir, "rev-parse", "--abbrev-ref", "HEAD"], {
-    timeoutMs: CHECK_TIMEOUT_MS,
-  });
-  if (branch.ok) onPatchedBranch = branch.stdout.trim() === TESTED_SOURCE_BRANCH;
-  return {
-    valid: version !== null,
-    binPath: binExists ? binPath : null,
-    version,
-    dirty,
-    onPatchedBranch,
-  };
-}
-
-/**
- * Recommended-source checker: does the supported branch exist on the fork?
- * A single bounded `git ls-remote --heads` (read-only; lists the remote ref,
- * never mutates anything). Reuses the DoctorProbe `run` seam so it stays pure
- * and unit-testable like the rest of the install service.
- *  - `true`  — the branch is published on the fork
- *  - `false` — git answered but the branch is not there (rename/deleted)
- *  - `null`  — indeterminate (git missing, no network, or timeout)
- */
-export function recommendedSourceBranchExists(probe: DoctorProbe): boolean | null {
-  const res = probe.run(
-    "git",
-    ["ls-remote", "--heads", TESTED_SOURCE_REPO, `refs/heads/${TESTED_SOURCE_BRANCH}`],
-    { timeoutMs: CHECK_TIMEOUT_MS }
+/** Direct JS entry avoids global-prefix and Windows npm-shim ambiguity. */
+export function managedDshBin(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathApi(platform).join(
+    managedDshRoot(storageDir, platform),
+    "node_modules",
+    "@deepseek-ai",
+    "dsh",
+    "lib",
+    "bin.js"
   );
-  if (!res.ok) return null;
-  return res.stdout.trim() !== "";
+}
+
+/** Structured argv for a pinned, non-global, extension-managed npm install. */
+export function buildManagedInstallSpec(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): ManagedInstallSpec {
+  const cwd = managedDshRoot(storageDir, platform);
+  const packageSpec = `${DSH_PACKAGE_NAME}@${TESTED_DSH_VERSION}`;
+  return {
+    command: "npm",
+    args: [
+      "install",
+      "--prefix",
+      cwd,
+      "--no-save",
+      "--no-audit",
+      "--no-fund",
+      packageSpec,
+    ],
+    cwd,
+    binPath: managedDshBin(storageDir, platform),
+    packageSpec,
+  };
+}
+
+/**
+ * Preserve argv boundaries when starting npm. POSIX can execute the npm shim
+ * directly; Windows `.cmd` shims require a shell, which would flatten and
+ * reinterpret paths. Run npm's JS entry through the resolved Node executable
+ * instead (or a native npm.exe shim when provided by a version manager).
+ */
+export function buildManagedNpmLaunchSpec(
+  install: ManagedInstallSpec,
+  nodePath: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  exists: (candidate: string) => boolean
+): ManagedNpmLaunchSpec {
+  if (platform !== "win32") {
+    return { command: "npm", args: [...install.args], shell: false };
+  }
+
+  const pathValue = Object.entries(env)
+    .find(([key]) => key.toLowerCase() === "path")?.[1] ?? "";
+  const directories: string[] = [];
+  const addDirectory = (candidate: string): void => {
+    const value = candidate.trim().replace(/^"|"$/g, "");
+    if (!value) return;
+    if (!directories.some((entry) => entry.toLowerCase() === value.toLowerCase())) {
+      directories.push(value);
+    }
+  };
+  if (path.win32.isAbsolute(nodePath)) addDirectory(path.win32.dirname(nodePath));
+  for (const entry of pathValue.split(";")) addDirectory(entry);
+
+  for (const directory of directories) {
+    const npmCli = path.win32.join(directory, "node_modules", "npm", "bin", "npm-cli.js");
+    if (exists(npmCli)) {
+      return { command: nodePath, args: [npmCli, ...install.args], shell: false };
+    }
+    const npmExe = path.win32.join(directory, "npm.exe");
+    if (exists(npmExe)) {
+      return { command: npmExe, args: [...install.args], shell: false };
+    }
+  }
+  throw new Error("npm was detected, but its Windows executable could not be resolved safely");
+}
+
+/** Official 0.1.5-rc.2 engine range: ^22.19.0 OR >=24.0.0 (Node 23 excluded). */
+export function isSupportedNodeVersion(version: string | null | undefined): boolean {
+  if (!version) return false;
+  const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  if (major === 22) return minor >= 19;
+  return major >= 24;
+}
+
+/** Verify an installed managed CLI before the manager or Doctor trusts it. */
+export function checkManagedInstall(
+  binPath: string,
+  nodePath: string,
+  platform: NodeJS.Platform,
+  probe: ManagedInstallProbe
+): ManagedInstallCheck {
+  if (!probe.exists(binPath)) return { valid: false, binPath, version: null };
+  const result = probe.run(nodePath, [binPath, "--version"], {
+    timeoutMs: 5_000,
+    shell: platform === "win32" && !/[\\/]node(?:\.exe)?$/i.test(nodePath),
+  });
+  const version = result.ok ? result.stdout.trim().split(/\r?\n/)[0] || null : null;
+  return {
+    valid: version === TESTED_DSH_VERSION,
+    binPath,
+    version,
+  };
 }

@@ -8,14 +8,9 @@ import { workspaceRoot } from "./commands.js";
 import { t, langCode } from "./i18n.js";
 import { sessionTitleOf } from "./workspaceTracker.js";
 import { upgradeInfo, type UpgradeChannel } from "./versionCheckService.js";
-import {
-  dshCompatibility,
-  isUpdateAvailable,
-  TESTED_DSH_VERSION,
-} from "./versionCheck.js";
+import { isUpdateAvailable } from "./versionCheck.js";
 import type { DoctorReport } from "./dshDoctor.js";
-import { doctorWarningTexts, runDoctorForLauncher } from "./installService.js";
-import { TESTED_SOURCE_TREE_URL } from "./dshInstallService.js";
+import { runDoctorForLauncher } from "./installService.js";
 
 /** Session-list polling interval while the launcher is visible and ready. */
 const SESSIONS_POLL_MS = 5_000;
@@ -38,33 +33,8 @@ interface LauncherInit {
   latestVersion?: string;
   /** Prerelease dsh version from the `next` dist-tag (upgrade hint, 03 R2). */
   nextVersion?: string;
-  /**
-   * First doctor report (04-install R1). Present when a missing-state setup
-   * panel should render below the header; `warnings` are already localized.
-   */
-  doctor?: { report: DoctorReport; warnings: string[] };
-}
-
-/**
- * Doctor + setup-panel actions, wired by extension.ts (T8). Optional: when
- * absent the panel still renders but its buttons are inert (no crash).
- */
-export interface DoctorActions {
-  checkAgain: () => void;
-  primary: () => void;
-  alternative: () => void;
-  node: () => void;
-  git: () => void;
-  pnpm: () => void;
-}
-
-/** States that render the setup panel (dsh-unrunnable does NOT — the binary exists). */
-function isSetupState(
-  state: DoctorReport["state"] | undefined
-): state is "node-missing" | "dsh-missing" | "source-prerequisites-missing" {
-  return (
-    state === "node-missing" || state === "dsh-missing" || state === "source-prerequisites-missing"
-  );
+  /** Doctor readiness only; dependency details belong to the Doctor command. */
+  doctorState?: DoctorReport["state"];
 }
 
 function launcherHtml(init: LauncherInit): string {
@@ -85,40 +55,7 @@ function launcherHtml(init: LauncherInit): string {
   const showReady = init.state === "ready";
   const showLatest = init.state === "ready" && init.latestVersion !== undefined;
   const showNext = init.state === "ready" && init.nextVersion !== undefined;
-  const compatibilityText =
-    init.state === "ready" && dshCompatibility(init.version) !== "tested"
-      ? t("launcher.compatibilityUntested")
-      : "";
-
-  // Setup panel (04-install R1): rendered only for missing states; ready and
-  // dsh-unrunnable machines keep the exact existing UI (no first-run prompt).
-  const setup = init.doctor !== undefined && isSetupState(init.doctor.report.state);
-  let setupSummary = "";
-  let setupWarnings = "";
-  let setupToolLinks = "";
-  if (setup) {
-    const r = init.doctor!.report;
-    setupSummary =
-      r.state === "node-missing"
-        ? t("install.summaryNode")
-        : r.state === "dsh-missing"
-          ? t("install.summaryDsh")
-          : t("install.summaryPrereq");
-    if (init.doctor!.warnings.length > 0) {
-      setupWarnings = `<div class="setup-warn">⚠ ${init.doctor!.warnings.join("<br>⚠ ")}</div>`;
-    }
-    // Tool links for genuinely missing tools only (unprobed tools stay silent).
-    if (r.state === "node-missing") {
-      setupToolLinks = `<button class="tool-link" id="setupNode" aria-label="${t("install.nodeMissing")}">${t("install.nodeMissing")}<span class="arrow">→ ${t("install.openDownload")}</span></button>`;
-    } else if (r.state === "source-prerequisites-missing") {
-      if (!r.git.available) {
-        setupToolLinks += `<button class="tool-link" id="setupGit" aria-label="${t("install.gitMissing")}">${t("install.gitMissing")}<span class="arrow">→ ${t("install.gitPage")}</span></button>`;
-      }
-      if (!r.pnpm.available) {
-        setupToolLinks += `<button class="tool-link" id="setupPnpm" aria-label="${t("install.pnpmMissing")}">${t("install.pnpmMissing")}<span class="arrow">→ ${t("install.pnpmPage")}</span></button>`;
-      }
-    }
-  }
+  const showDependencyFix = init.doctorState !== undefined && init.doctorState !== "ready";
 
   return `<!DOCTYPE html>
 <html lang="${langCode()}">
@@ -155,20 +92,18 @@ body {
 }
 .status-block { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
 .status-main { min-width: 0; display: flex; align-items: center; gap: 10px; }
-.compatibility-warning {
-  display: block;
-  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
-  font-size: 11.5px; line-height: 1.4;
-}
-/* Two stacked lines (message / tested version) so the warning never
-   competes with the version row or the action buttons for width. */
-.compatibility-warning span { display: block; }
 /* Compact action buttons on the header row (ready state). */
 .status-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 button.mini {
   width: auto; padding: 2px 8px; font-size: 11.5px; line-height: 1.5;
   border-radius: 3px; white-space: nowrap; flex: 0 0 auto;
 }
+button.dependency-fix {
+  background: transparent;
+  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow, #d29922));
+  border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+}
+button.dependency-fix:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,.1)); }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .dot.stopped { background: var(--vscode-descriptionForeground, #8b949e); opacity: .55; }
 .dot.starting { background: var(--vscode-charts-yellow, #d29922); animation: pulse 1.1s ease-in-out infinite; }
@@ -226,26 +161,6 @@ button.upgrade:hover { background: var(--vscode-list-hoverBackground, rgba(128,1
 .session-rename-input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-focusBorder)); border-radius: 3px; padding: 2px 6px; }
 .sessions-empty, .sessions-error, .sessions-archived { font-size: 11.5px; color: var(--vscode-descriptionForeground); padding: 2px 6px; }
 .sessions-archived { border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border)); margin-top: 4px; padding-top: 6px; }
-/* Setup panel (04-install R1): shown only in missing states, never on ready machines. */
-.setup {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 12px; border-radius: 6px;
-  border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
-  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-}
-.setup-summary { font-size: 12.5px; line-height: 1.45; }
-.setup-warn {
-  font-size: 11.5px; line-height: 1.4;
-  color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow));
-}
-button.tool-link {
-  display: inline-flex; align-items: center; gap: 6px;
-  width: auto; padding: 2px 4px; background: none; border: none;
-  font-size: 12px; text-align: left; cursor: pointer;
-  color: var(--vscode-textLink-foreground);
-}
-button.tool-link:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground); }
-button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground); }
 </style>
 </head>
 <body>
@@ -260,8 +175,8 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
         <span class="dot ${dotClass}" id="dot"></span>
         <span class="status-inline" id="status">${statusText}</span>
       </div>
-      <span class="compatibility-warning" id="compatibilityWarning" style="display:${compatibilityText ? "block" : "none"}"><span id="compatibilityLine1">⚠ ${compatibilityText}</span><span id="compatibilityLine2">${t("launcher.compatibilityTestedVersion", { version: TESTED_DSH_VERSION })}</span></span>
     </div>
+    <button class="mini dependency-fix" id="dependencyFix" style="display:${showDependencyFix ? "block" : "none"}" aria-label="${t("launcher.missingDepsFix")}">${t("launcher.missingDepsFix")}</button>
     <div class="status-actions" id="statusActions" style="display:${showReady ? "flex" : "none"}">
       <button class="mini secondary" id="newSession">${t("sessions.new")}</button>
       <button class="mini secondary" id="stop">${t("button.stop")}</button>
@@ -286,17 +201,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
     <button class="upgrade" id="upgradeNext" style="display:${showNext ? "inline-flex" : "none"}" title="${showNext ? t("upgrade.nextChip", { version: init.nextVersion! }) : ""}" aria-label="${showNext ? t("upgrade.nextChip", { version: init.nextVersion! }) : ""}">${showNext ? `${init.nextVersion} →` : ""}</button>
   </div>
 
-  <div class="setup" id="setupPanel" style="display:${setup ? "flex" : "none"}" role="region" aria-label="${t("install.setupTitle")}">
-    <div class="setup-summary" id="setupSummary">${setupSummary}</div>
-    ${setupWarnings}
-    ${setupToolLinks}
-    <button class="primary" id="setupPrimary" aria-label="${t("install.setupPrimary")}">${t("install.setupPrimary")}</button>
-    <button class="secondary" id="setupAlternative" aria-label="${t("install.setupAlternative")}">${t("install.setupAlternative")}</button>
-    <button class="secondary" id="setupCheckAgain" aria-label="${t("doctor.checkAgain")}">${t("doctor.checkAgain")}</button>
-    <button class="tool-link" id="setupSource" aria-label="${t("install.sourceOnGitHub")}">${t("install.sourceOnGitHub")} →</button>
-  </div>
-
-  <div class="actions" id="actions" style="display:${setup ? "none" : showStart ? "flex" : "none"}">
+  <div class="actions" id="actions" style="display:${showDependencyFix ? "none" : showStart ? "flex" : "none"}">
     <button class="primary" id="start">${t("button.start")}</button>
   </div>
 
@@ -320,9 +225,8 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
   vscode.postMessage({ type: "view-ready" });
   var dot = document.getElementById("dot");
   var status = document.getElementById("status");
-  var compatibilityWarning = document.getElementById("compatibilityWarning");
-  var compatibilityLine1 = document.getElementById("compatibilityLine1");
-  var compatibilityLine2 = document.getElementById("compatibilityLine2");
+  var dependencyFix = document.getElementById("dependencyFix");
+  var depsMissing = ${JSON.stringify(showDependencyFix)};
   var start = document.getElementById("start");
   var actions = document.getElementById("actions");
   var statusActions = document.getElementById("statusActions");
@@ -344,73 +248,17 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
   }
   start.onclick = function(){ vscode.postMessage({ type: "start" }); };
   stop.onclick = function(){ vscode.postMessage({ type: "stop" }); };
-  // Setup panel (04-install R1): visible only in missing states.
-  var setupPanel = document.getElementById("setupPanel");
-  var setupSummary = document.getElementById("setupSummary");
-  var setupPrimary = document.getElementById("setupPrimary");
-  var setupAlternative = document.getElementById("setupAlternative");
-  var setupCheckAgain = document.getElementById("setupCheckAgain");
-  setupPrimary.onclick = function(){ vscode.postMessage({ type: "install-primary" }); };
-  setupAlternative.onclick = function(){ vscode.postMessage({ type: "install-alternative" }); };
-  setupCheckAgain.onclick = function(){ vscode.postMessage({ type: "doctor-check-again" }); };
-  // R6: the tested-branch link — extension opens it externally, nothing local.
-  var setupSource = document.getElementById("setupSource");
-  setupSource.onclick = function(){ vscode.postMessage({ type: "install-source" }); };
-  var setupNode = document.getElementById("setupNode");
-  var setupGit = document.getElementById("setupGit");
-  var setupPnpm = document.getElementById("setupPnpm");
-  if (setupNode) setupNode.onclick = function(){ vscode.postMessage({ type: "install-node" }); };
-  if (setupGit) setupGit.onclick = function(){ vscode.postMessage({ type: "install-git" }); };
-  if (setupPnpm) setupPnpm.onclick = function(){ vscode.postMessage({ type: "install-pnpm" }); };
+  dependencyFix.onclick = function(){ vscode.postMessage({ type: "open-doctor" }); };
   function applyDoctor(d) {
-    // d: { state, warnings[], node, git, pnpm }
-    var missing = d.state === "node-missing" || d.state === "dsh-missing" || d.state === "source-prerequisites-missing";
-    setupPanel.style.display = missing ? "flex" : "none";
-    // In missing states the panel REPLACES the Start button (solution §2.1);
-    // restoring a ready/unrunnable state brings the normal buttons back.
+    var missing = d.state !== "ready";
+    depsMissing = missing;
+    dependencyFix.style.display = missing ? "block" : "none";
     if (!missing) {
       actions.style.display =
         currentState === "stopped" || currentState === "error" ? "flex" : "none";
     } else {
       actions.style.display = "none";
     }
-    if (!missing) return;
-    setupSummary.textContent = d.state === "node-missing"
-      ? ${JSON.stringify(t("install.summaryNode"))}
-      : d.state === "dsh-missing"
-        ? ${JSON.stringify(t("install.summaryDsh"))}
-        : ${JSON.stringify(t("install.summaryPrereq"))};
-    // Rebuild the warning block (after the summary div).
-    var oldWarn = setupPanel.querySelector(".setup-warn");
-    if (oldWarn) oldWarn.remove();
-    if (d.warnings && d.warnings.length > 0) {
-      var warn = document.createElement("div");
-      warn.className = "setup-warn";
-      warn.textContent = d.warnings.map(function (w) { return "⚠ " + w; }).join("\\n");
-      warn.style.whiteSpace = "pre-line";
-      setupSummary.insertAdjacentElement("afterend", warn);
-    }
-    // Rebuild tool links: remove old, add rows for the missing tools.
-    ["setupNode", "setupGit", "setupPnpm"].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.remove();
-    });
-    var links = [];
-    if (d.state === "node-missing") {
-      links.push(["install-node", ${JSON.stringify(t("install.nodeMissing"))}, ${JSON.stringify(t("install.openDownload"))}]);
-    } else if (d.state === "source-prerequisites-missing") {
-      if (!d.git || !d.git.available) links.push(["install-git", ${JSON.stringify(t("install.gitMissing"))}, ${JSON.stringify(t("install.gitPage"))}]);
-      if (!d.pnpm || !d.pnpm.available) links.push(["install-pnpm", ${JSON.stringify(t("install.pnpmMissing"))}, ${JSON.stringify(t("install.pnpmPage"))}]);
-    }
-    var firstBtn = setupPrimary;
-    links.forEach(function (l) {
-      var b = document.createElement("button");
-      b.className = "tool-link";
-      b.setAttribute("aria-label", l[1]);
-      b.textContent = l[1] + " → " + l[2];
-      b.onclick = function () { vscode.postMessage({ type: l[0] }); };
-      firstBtn.insertAdjacentElement("beforebegin", b);
-    });
   }
   upgradeLatest.onclick = function(){ vscode.postMessage({ type: "upgrade", channel: "latest" }); };
   upgradeNext.onclick = function(){ vscode.postMessage({ type: "upgrade", channel: "next" }); };
@@ -575,19 +423,8 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
     currentState = state;
     dot.className = "dot " + state;
     status.textContent = text;
-    actions.style.display = state === "stopped" || state === "error" ? "flex" : "none";
+    actions.style.display = !depsMissing && (state === "stopped" || state === "error") ? "flex" : "none";
     statusActions.style.display = state === "ready" ? "flex" : "none";
-    if (state !== "ready") compatibilityWarning.style.display = "none";
-  }
-  function setCompatibility(version) {
-    var tested = typeof version === "string" && version.trim() === ${JSON.stringify(TESTED_DSH_VERSION)};
-    compatibilityWarning.style.display = tested ? "none" : "block";
-    // Two child lines (message / tested version); textContent on the wrapper
-    // would destroy both spans.
-    compatibilityLine1.textContent = "⚠ " + ${JSON.stringify(t("launcher.compatibilityUntested"))};
-    compatibilityLine2.textContent = ${JSON.stringify(
-      t("launcher.compatibilityTestedVersion", { version: TESTED_DSH_VERSION })
-    )};
   }
   function setUpgrade(latest, next) {
     upgradeRow.style.display = latest || next ? "flex" : "none";
@@ -604,7 +441,7 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
     var m = e.data;
     if (!m || typeof m !== "object") return;
     if (m.type === "doctor") {
-      // Re-render the setup panel without a page reload (same pattern as upgrade-info).
+      // Toggle the single dependency action without rebuilding any DOM nodes.
       applyDoctor(m);
       return;
     }
@@ -634,7 +471,6 @@ button.tool-link .arrow { flex: none; color: var(--vscode-descriptionForeground)
         ? ${JSON.stringify(t("launcher.readyVersion", { version: "{version}" }))}.replace("{version}", m.version)
         : ${JSON.stringify(t("launcher.ready"))};
       set("ready", readyText);
-      setCompatibility(m.version);
       setUpgrade(m.latestVersion, m.nextVersion);
     }
     else if (m.state === "error") set("error", ${JSON.stringify(t("launcher.error", { message: "{message}" }))}.replace("{message}", m.message || "unknown"));
@@ -651,9 +487,8 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private pollTimer?: NodeJS.Timeout;
   private isPolling = false;
-  /** Cached first doctor report (04-install R1); re-pushed on view-ready. */
+  /** Cached Doctor readiness; re-pushed on view-ready. */
   private doctorReport?: DoctorReport;
-  private doctorWarnings: string[] = [];
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -661,14 +496,10 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
     private readonly onUpgrade: (channel: UpgradeChannel) => void,
     private readonly sessionHandlers: SessionHandlers,
     /** Secondary surface: open the editor-tab panel (kept, no longer default). */
-    private readonly onOpenInEditor: () => void,
-    /** Doctor + setup-panel actions (wired in T8; absent → inert panel buttons). */
-    private readonly doctorActions?: DoctorActions
+    private readonly onOpenInEditor: () => void
   ) {
     manager.on("state", (info: ServerInfo) => {
       this.postStatus(info);
-      // Keep the setup panel in sync with state transitions — in particular
-      // after an explicit start failure in a missing state (solution §2.1).
       this.postDoctor();
       this.syncPolling();
     });
@@ -677,14 +508,11 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
   /**
    * Re-run the (bounded) doctor and push the report to the webview without a
    * reload. Returns the fresh report so the caller can react to its state.
-   * (The panel's "Check again" button always uses this light path — plan T7;
-   * the full-report `doctorActions.checkAgain` is the palette-side action.)
    */
   private async refreshDoctor(): Promise<DoctorReport | undefined> {
     try {
-      const report = runDoctorForLauncher();
+      const report = runDoctorForLauncher(this.context);
       this.doctorReport = report;
-      this.doctorWarnings = doctorWarningTexts(report);
       this.postDoctor();
       return report;
     } catch {
@@ -692,21 +520,12 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
     }
   }
 
-  /** Push the cached doctor report (state + localized warnings) to the webview. */
+  /** The launcher deliberately receives only readiness, never dependency noise. */
   private postDoctor(): void {
     if (!this.view || !this.doctorReport) return;
-    const r = this.doctorReport;
     void this.view.webview.postMessage({
       type: "doctor",
-      state: r.state,
-      hostLabel: r.host.label,
-      node: r.node,
-      npm: r.npm,
-      npx: r.npx,
-      git: r.git,
-      pnpm: r.pnpm,
-      dsh: r.dsh,
-      warnings: this.doctorWarnings,
+      state: this.doctorReport.state,
     });
   }
 
@@ -737,47 +556,6 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
         // Re-push the cached doctor report with the status (the postMessage
         // right after webview.html= can land before the page listener exists).
         this.postDoctor();
-      } else if (m.type === "doctor-check-again") {
-        // Check again (plan T7): the host re-runs the doctor and pushes
-        // doctor + status without a webview reload (upgrade-info pattern).
-        // Wired (T8) → the full report (QuickPick) + launcher refresh;
-        // unwired → the light re-run below (the unit-test path).
-        const actions = this.doctorActions;
-        if (actions?.checkAgain) {
-          actions.checkAgain();
-          return;
-        }
-        void this.refreshDoctor().then(() => this.postStatusNow());
-      } else if (m.type === "install-source") {
-        // R6: open the exact tested branch in the external browser.
-        void vscode.env.openExternal(vscode.Uri.parse(TESTED_SOURCE_TREE_URL));
-      } else if (
-        m.type === "install-primary" ||
-        m.type === "install-alternative" ||
-        m.type === "install-node" ||
-        m.type === "install-git" ||
-        m.type === "install-pnpm"
-      ) {
-        // Setup-panel actions (04-install R1/R2/R3); absent wiring = inert.
-        const actions = this.doctorActions;
-        if (!actions) return;
-        switch (m.type) {
-          case "install-primary":
-            void actions.primary();
-            break;
-          case "install-alternative":
-            void actions.alternative();
-            break;
-          case "install-node":
-            void actions.node();
-            break;
-          case "install-git":
-            void actions.git();
-            break;
-          case "install-pnpm":
-            void actions.pnpm();
-            break;
-        }
       } else if (m.type === "start") {
         void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
           /* state machine drives the launcher */
@@ -813,20 +591,15 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
         this.pollTimer = undefined;
       }
     });
-    // Doctor pre-check (04-install R1): the bounded probe (worst case ~5 s,
-    // typically < 1 s) replaces the blind auto-start — a missing DSH must not
-    // spawn a doomed process; it renders the setup panel instead. A probe
-    // failure falls back to the previous blind-start behavior.
+    // Bounded Doctor pre-check gates auto-start. Probe failure retains the
+    // previous blind-start fallback so diagnostics cannot disable working DSH.
     try {
-      this.doctorReport = runDoctorForLauncher();
-      this.doctorWarnings = doctorWarningTexts(this.doctorReport);
+      this.doctorReport = runDoctorForLauncher(this.context);
     } catch {
       this.doctorReport = undefined;
     }
     const doctorAllowsStart =
-      this.doctorReport === undefined ||
-      this.doctorReport.state === "ready" ||
-      this.doctorReport.state === "dsh-unrunnable";
+      this.doctorReport === undefined || this.doctorReport.state === "ready";
     const currentVersion = this.manager.dshVersion;
     const upd = upgradeInfo(this.context, currentVersion, this.manager.dshBinPath);
     const extVersion = this.context.extension.packageJSON.version as string | undefined;
@@ -836,10 +609,7 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
       extVersion,
       latestVersion: upd && isUpdateAvailable(currentVersion, upd.latest) ? upd.latest : undefined,
       nextVersion: upd && isUpdateAvailable(currentVersion, upd.next) ? upd.next : undefined,
-      doctor:
-        this.doctorReport !== undefined
-          ? { report: this.doctorReport, warnings: this.doctorWarnings }
-          : undefined,
+      doctorState: this.doctorReport?.state,
     });
     this.postStatus({
       state: this.manager.state,
@@ -848,12 +618,7 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
     });
     this.postDoctor();
 
-    // UX optimization (2026-08-18, gated 04-install R1): opening the launcher
-    // icon means "I want to use DSH" — auto-start when the doctor says the
-    // binary is resolvable (ready, or dsh-unrunnable: let the manager produce
-    // the precise error). start() is idempotent (already-running returns the
-    // URL), so this is safe on repeat clicks; missing states render the setup
-    // panel and do NOT spawn.
+    // Opening the launcher means "use DSH"; only a ready report auto-starts.
     if (
       doctorAllowsStart &&
       !this.manager.isRunning &&
@@ -870,10 +635,8 @@ export class DshLauncherView implements vscode.WebviewViewProvider {
     this.syncPolling();
   }
 
-  /** Re-push the current status so late-arriving data (e.g. version check
-   *  result) reaches the webview without a reload. With `doctor`, also re-run
-   *  the bounded doctor and push the fresh report — used after install flows
-   *  that may have changed the machine (04-install R3, e.g. a dshPath write). */
+  /** Re-push current status; with `doctor`, re-run the bounded readiness check
+   *  after a managed install or repair. */
   refresh(doctor = false): void {
     if (doctor) {
       void this.refreshDoctor().then(() => this.postStatusNow());

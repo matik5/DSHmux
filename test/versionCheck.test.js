@@ -7,6 +7,7 @@ import {
   TESTED_DSH_VERSION,
   compareVersions,
   dshCompatibility,
+  isDshmuxManagedPath,
   isUpdateAvailable,
   upgradeCommandFor,
   shouldPassNoOpen,
@@ -101,6 +102,16 @@ test("upgradeCommandFor: npm global paths", () => {
 test("upgradeCommandFor: unknown/custom path returns null", () => {
   assert.equal(upgradeCommandFor(undefined), null);
   assert.equal(upgradeCommandFor("/opt/custom/bin/dsh"), null);
+});
+
+test("managed DSH paths never receive global or npx upgrade commands", () => {
+  const posix = "/storage/managed-dsh/0.1.5-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js";
+  const windows = "C:\\Code Storage\\managed-dsh\\0.1.5-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
+  assert.equal(isDshmuxManagedPath(posix), true);
+  assert.equal(isDshmuxManagedPath(windows), true);
+  assert.equal(upgradeCommandFor(posix), null);
+  assert.equal(upgradeCommandFor(windows, "next"), null);
+  assert.equal(isDshmuxManagedPath("/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"), false);
 });
 
 test("shouldCheckVersion: 24h gate", () => {

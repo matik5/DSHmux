@@ -28,7 +28,7 @@
 - **Remote windows** — works in Remote SSH, WSL, and dev containers: DSHmux runs on the workspace host and maps DSH's loopback port into the webview, so the embedded UI reaches the remote DSH process.
 - **Session manager** — the sidebar lists active sessions with title and relative activity time, supports inline rename/archive, and switches the single primary chat view between sessions.
 - **Auto-start from the icon** — clicking the activity-bar icon starts dsh for you when it is not running.
-- **dsh compatibility + easy upgrade** — the launcher shows the running dsh version and warns when it differs from the exact version tested with this DSHmux release (including the tested version in the warning). When a registry update exists, one click offers the right upgrade command for your install method (npx / npm global / nvm) prefilled into a terminal (24h check gate, offline-safe).
+- **Quiet dependency repair** — when something required is missing, the launcher shows one compact **Missing deps · Fix** action. Doctor installs the tested official DSH release into extension-owned storage; existing global, npx, source, and custom installs continue to work.
 - **Clipboard works** — copy/paste in the embedded UI goes through a transport bridge (VS Code webviews block clipboard inside iframes; the bridge routes it via `vscode.env.clipboard`).
 - **Event sounds** — distinct Web Audio cues announce task start, task completion, and requests for user input. A master switch (`dshmux.completionSound`, default `true`) plus per-sound toggles (`dshmux.soundStart`, `dshmux.soundDone`, `dshmux.soundAsk`, all default `true`) let you mute any of them independently.
 - **Compact side-panel typography** — the sidebar frame is zoomed to 90% by default (`dshmux.frameFontScale`, range 0.5–1.5); the editor-tab view keeps the upstream size.
@@ -39,7 +39,8 @@
 
 ## Requirements
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installed: `npm i -g @deepseek-ai/dsh` (in Remote SSH/WSL/container windows, on the remote host)
+- Node.js 22.19+ within the 22.x line, or Node.js 24+. Node is required because DeepSeek Harness is a Node.js CLI and server.
+- DeepSeek Harness can be installed automatically with **DSHmux: Doctor**. It installs the pinned official `@deepseek-ai/dsh@0.1.5-rc.2` package on the workspace host (including Remote SSH, WSL, and containers).
 - VS Code ≥ 1.90 (the extension also works in Antigravity via Open VSX)
 
 ## Install

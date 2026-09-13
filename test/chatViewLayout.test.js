@@ -72,16 +72,12 @@ test("custom DSH executable is host-overridable and safe in remote workspaces", 
   );
 });
 
-test("launcher warns when the running DSH version is outside the tested build", () => {
-  assert.match(launcherSource, /id="compatibilityWarning"/);
-  assert.match(launcherSource, /dshCompatibility\(init\.version\) !== "tested"/);
-  assert.match(launcherSource, /setCompatibility\(m\.version\)/);
-  assert.match(
-    launcherSource,
-    /class="status-main">[\s\S]*id="status">\$\{statusText\}<\/span>[\s\S]*<\/div>[\s\S]*id="compatibilityWarning"/,
-    "compatibility warning must be rendered below the DSH version row"
-  );
-  assert.match(launcherSource, /compatibilityWarning\.style\.display = tested \? "none" : "block"/);
+test("launcher has one compact Doctor-owned dependency action and no notice panel", () => {
+  assert.equal((launcherSource.match(/id="dependencyFix"/g) ?? []).length, 1);
+  assert.match(launcherSource, /class="mini dependency-fix" id="dependencyFix"/);
+  assert.match(launcherSource, /dependencyFix\.onclick[^\n]*open-doctor/);
+  assert.doesNotMatch(launcherSource, /id="compatibilityWarning"|id="setupPanel"/);
+  assert.doesNotMatch(launcherSource, /install-primary|install-alternative|install-source/);
 });
 
 test("activation reveals the DSHmux chat after registering its provider", () => {

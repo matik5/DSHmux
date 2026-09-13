@@ -105,6 +105,7 @@ export function upgradeCommandFor(
   // Normalize separators to forward slashes so the same feature checks work
   // on every platform (Windows D:\...\_npx\... -> D:/.../_npx/...).
   const p = dshPath.replace(/\\/g, "/");
+  if (isDshmuxManagedPath(p)) return null;
   const spec = `@deepseek-ai/dsh@${channel}`;
   if (p.includes("/_npx/")) return `npx -y ${spec} --version`;
   if (p.includes("/.nvm/versions/node/")) return `npm i -g ${spec}`;
@@ -114,6 +115,15 @@ export function upgradeCommandFor(
   // npm prefix bin (e.g. /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js).
   if (p.includes("node_modules/@deepseek-ai/dsh/")) return `npm i -g ${spec}`;
   return null;
+}
+
+/** Managed versions are upgraded only by a matching DSHmux/Doctor release. */
+export function isDshmuxManagedPath(dshPath: string | undefined): boolean {
+  if (!dshPath) return false;
+  const normalized = dshPath.replace(/\\/g, "/");
+  return /(?:^|\/)managed-dsh\/[^/]+\/node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js$/i.test(
+    normalized
+  );
 }
 
 /**

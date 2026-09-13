@@ -666,7 +666,7 @@ export class DshServerManager extends EventEmitter {
             ? `Node.js was not found while launching ${bin}. Install Node.js or add ${nodeCommand} to PATH.`
             : err.code === "ENOENT"
               ? `dsh not found. Tried: ${["PATH", ...resolved.tried].join(", ")}. ` +
-                `Install with: npm i -g @deepseek-ai/dsh`
+                `Run DSHmux: Doctor to install or repair it.`
               : err.message;
         this.settleError(new Error(msg));
       });

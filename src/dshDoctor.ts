@@ -22,18 +22,20 @@ import {
   spawnEnvironment,
   spawnSpec,
 } from "./serverManager.js";
-import { dshCompatibility, type DshCompatibility } from "./versionCheck.js";
+import { dshCompatibility, TESTED_DSH_VERSION, type DshCompatibility } from "./versionCheck.js";
+import { isSupportedNodeVersion } from "./dshInstallService.js";
 
 /** How DSH was installed (inferred from the resolved binary path). */
-export type DoctorInstallType = "npm-global" | "npx-cache" | "source" | "custom" | "none";
+export type DoctorInstallType = "managed" | "npm-global" | "npx-cache" | "source" | "custom" | "none";
 
 /** One actionable classification for the whole environment. */
 export type DoctorState =
   | "ready"
   | "node-missing"
+  | "node-unsupported"
+  | "npm-missing"
   | "dsh-missing"
-  | "dsh-unrunnable"
-  | "source-prerequisites-missing";
+  | "dsh-unrunnable";
 
 export interface ToolInfo {
   available: boolean;
@@ -43,13 +45,14 @@ export interface ToolInfo {
 export interface DoctorReport {
   /** Workspace host identity (in remote windows this is the remote host). */
   host: { platform: string; arch: string; label: string };
-  node: { available: boolean; path: string | null; version: string | null; runnable: boolean };
+  node: {
+    available: boolean;
+    path: string | null;
+    version: string | null;
+    runnable: boolean;
+    supported: boolean;
+  };
   npm: ToolInfo;
-  npx: ToolInfo;
-  /** Required for the primary (patched source clone) install path. */
-  git: ToolInfo;
-  /** Required for the primary (patched source clone) install path. */
-  pnpm: ToolInfo;
   dsh: {
     /**
      * `dshmux.dshPath` as configured (empty/missing → undefined); a
@@ -94,6 +97,8 @@ export interface DoctorProbe {
   hostLabel: string;
   /** Configured `dshmux.dshPath`, if any (non-empty). */
   configuredDshPath: string | undefined;
+  /** Extension-owned, versioned DSH entry, if a context supplied one. */
+  managedDshPath?: string;
   /** Bounded existence check (fs.existsSync semantics). */
   exists: (p: string) => boolean;
   /** Real path (symlink-resolved) or null when it cannot be resolved. */
@@ -121,12 +126,13 @@ const PROBE_TIMEOUT_MS = 5_000;
 /** Production probe: real fs + bounded spawnSync with the Node runtime PATH. */
 export function realDoctorProbe(
   hostLabel: string,
-  configuredDshPath: string | undefined
+  configuredDshPath: string | undefined,
+  managedDshPath?: string
 ): DoctorProbe {
   const env = process.env;
   const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), env);
   // Give every probe the same PATH the server manager would give its children,
-  // so `npm`/`npx`/`git`/`pnpm` resolve the same way a DSH launch would.
+  // so Node, npm, and DSH resolve the same way a DSH launch would.
   const spec = spawnSpec(node, process.platform, process.execPath, os.homedir(), env);
   const childEnv = spawnEnvironment(spec, env, process.platform);
   return {
@@ -137,6 +143,7 @@ export function realDoctorProbe(
     env: childEnv,
     hostLabel,
     configuredDshPath,
+    managedDshPath,
     exists: (p) => fs.existsSync(p),
     realPath: (p) => {
       try {
@@ -209,13 +216,8 @@ function firstVersionLine(stdout: string): string {
 
 /**
  * Run the full report. Classification (solution.md rules):
- *  - node not runnable                    → node-missing
- *  - dsh missing; git|pnpm also missing   → source-prerequisites-missing
- *  - dsh missing                          → dsh-missing
- *  - dsh resolved but `--version` fails   → dsh-unrunnable
- *  - otherwise                            → ready (untested version = warning only)
- * A stale configured path, an untested version, and missing git/pnpm (with
- * dsh present) are warnings, never state changes.
+ * A runnable DSH is ready regardless of setup-tool availability. Only when no
+ * DSH can run do Node/npm become actionable prerequisites for managed repair.
  */
 export function runDoctor(probe: DoctorProbe): DoctorReport {
   const warnings: string[] = [];
@@ -231,35 +233,40 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
     path: nodeAbs,
     version: nodeVersion,
     runnable: nodeProbe.ok,
+    supported: isSupportedNodeVersion(nodeVersion),
   };
 
-  // --- npm / npx (only meaningful when Node runs) ----------------------------
+  // --- npm (only meaningful when Node runs) ----------------------------------
   const probeTool = (cmd: string): ToolInfo => {
     if (!node.runnable) return { available: false };
     const res = probe.run(cmd, ["--version"], { timeoutMs: PROBE_TIMEOUT_MS, shell: probe.platform === "win32" });
     return res.ok ? { available: true, version: firstVersionLine(res.stdout) } : { available: false };
   };
   const npm = probeTool("npm");
-  const npx = probeTool("npx");
-
-  // --- git / pnpm (prerequisites of the primary source path) ------------------
-  const git = probeTool("git");
-  const pnpm = probeTool("pnpm");
 
   // --- DSH (reuse the single discovery algorithm) ------------------------------
+  const managed = probe.managedDshPath?.trim() || undefined;
+  const managedVersion = managed && probe.exists(managed) ? probe.dshVersion(managed) : null;
+  const managedValid = managedVersion === TESTED_DSH_VERSION;
   const configured = probe.configuredDshPath?.trim() || undefined;
   // A source-checkout directory is resolved to its built CLI entry — the same
   // rule as the launch path (resolveStartBin → resolveConfiguredDshPath).
   const configuredPath =
     configured !== undefined ? resolveConfiguredDshPath(configured) : undefined;
   const configuredValid = configuredPath !== undefined && probe.exists(configuredPath);
-  const resolved = configuredValid
-    ? { path: configuredPath, tried: [configuredPath] }
-    : probe.resolveDsh(probe.home, probe.platform);
+  const resolved = managedValid
+    ? { path: managed!, tried: [managed!] }
+    : configuredValid
+      ? { path: configuredPath, tried: [configuredPath] }
+      : probe.resolveDsh(probe.home, probe.platform);
   if (configured !== undefined && !configuredValid && resolved.path !== configuredPath) {
     warnings.push("stale-configured-path");
   }
-  const version = resolved.path ? probe.dshVersion(resolved.path) : null;
+  const version = resolved.path === managed && managedValid
+    ? managedVersion
+    : resolved.path
+      ? probe.dshVersion(resolved.path)
+      : null;
   const dsh: DoctorReport["dsh"] = {
     configuredPath: configuredPath,
     configuredValid,
@@ -267,35 +274,33 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
     tried: resolved.tried.map((t) => redactPath(t, probe.home)),
     version,
     compatibility: dshCompatibility(version ?? undefined),
-    installType: classifyInstallType(resolved.path, probe),
+    installType: resolved.path === managed && managedValid
+      ? "managed"
+      : classifyInstallType(resolved.path, probe),
   };
 
   // --- State -------------------------------------------------------------------
   let state: DoctorState;
-  if (!node.runnable) {
-    state = "node-missing";
-  } else if (resolved.path === null) {
-    state = git.available && pnpm.available ? "dsh-missing" : "source-prerequisites-missing";
-  } else if (version === null) {
-    state = "dsh-unrunnable";
-  } else {
+  if (version !== null) {
     state = "ready";
+  } else if (resolved.path !== null) {
+    state = "dsh-unrunnable";
+  } else if (!node.runnable) {
+    state = "node-missing";
+  } else if (!node.supported) {
+    state = "node-unsupported";
+  } else if (!npm.available) {
+    state = "npm-missing";
+  } else {
+    state = "dsh-missing";
   }
   if (state === "ready" && dsh.compatibility !== "tested") {
     warnings.push(`untested-version:${dsh.compatibility}`);
   }
-  if (state === "ready" && (!git.available || !pnpm.available)) {
-    // Warning only: the user already has a working DSH; source path is blocked.
-    warnings.push("source-tools-missing");
-  }
-
   return {
     host: { platform: probe.platform, arch: probe.arch, label: probe.hostLabel },
     node,
     npm,
-    npx,
-    git,
-    pnpm,
     dsh,
     state,
     warnings,
