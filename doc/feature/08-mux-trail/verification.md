@@ -52,6 +52,9 @@
   performs a real waste-Ace-to-foundation click move and checks draggable/drop
   listeners, patterned stock back, all four empty suit slots, and a dedicated
   visible rank+suit corner on a stacked face-up card.
+  A focused engine regression proves a red 8 (including its valid child run)
+  moves onto a black 9, while DOM assertions prove the visible destination card
+  itself owns the drop listener and the corner cannot intercept pointer events.
 
 ## Executed checks
 

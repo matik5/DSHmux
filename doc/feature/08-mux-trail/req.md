@@ -65,6 +65,9 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Valitud kaart on tugeva focus-outline'iga eristatav ja keelatud sihtkoha
   klõps/drop näitab lühikest lokaliseeritud veateadet, mitte ei vaheta
   vaikides valikut.
+- Kaardi nähtav rank+mast marker ei tohi püüda pointer-event'i; face-up kaardi
+  enda hitbox ja kogu tableau tulp peavad mõlemad olema drop-target'id. Punane
+  8 koos kehtiva allreaga peab liikuma musta 9 peale.
 - Stock jagab ühe kaardi korraga ja tühjenedes saab waste'i piiramatult tagasi
   stock'i pöörata. Uus jaotus on alati nupust saadaval.
 - Mittetühi stock kuvatakse selge mustrilise kaarditaguse ja allesolevate

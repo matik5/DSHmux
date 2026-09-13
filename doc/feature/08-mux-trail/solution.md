@@ -276,6 +276,9 @@ ainult `❌`/`⏭️` ridadest ning kirjuta `summary.md`.
   mastisümboliga.
 - Renderda face-up kaardi rank ja mast eraldi absoluutse `.dshmux-solitaire-corner`
   elemendina ning suurenda face-up tableau sammu nii, et kogu marker jääb nähtavaks.
+- Sea corner-markerile `pointer-events:none` ja registreeri iga nähtav kaart
+  otseselt sama tableau destination'i dragover/drop target'iks; see väldib
+  Chromiumis nested draggable nupu peale kinni jäävat drop'i.
 - Laienda fake-DOM testi, et see tõendaks stock back'i, foundation slot'e,
   draggable/drop hook'e, rank+suit corner'it ja päris click-source/click-destination move'i.
 

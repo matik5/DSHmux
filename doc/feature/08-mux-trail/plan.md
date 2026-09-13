@@ -245,6 +245,8 @@ loop'i ja taastub sama sessiooni järgmisel ooteajal.
 - [x] Kuva stock mustrilise kaarditaguse ning allesoleva arvuga.
 - [x] Tee kattuvate tableau tagakülgede servad ja vahed eristatavaks.
 - [x] Hoia iga face-up kaardi rank+mast fikseeritud ülanurgas ja virnas nähtav.
+- [x] Tee corner pointer-transparent'iks ja iga kaart otseseks drop-target'iks.
+- [x] Lisa punane 8 (+ allrida) → must 9 regressioonitest.
 - [x] Kuva neli tühja foundation-slot'i mastisümboli ja tugeva outline'iga.
 - [x] Tõenda fake-DOM testiga slot'id, drag/drop hook'id ja click-move.
 

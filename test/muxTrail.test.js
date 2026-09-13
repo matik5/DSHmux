@@ -169,6 +169,17 @@ test("Solitaire enforces alternating tableau and ascending same-suit foundations
   state.tableau[1] = [redQueen, { suit: 3, rank: 11, faceUp: true }];
   assert.equal(moveSolitaireTableau(state, 1, 0, 0), true);
   assert.deepEqual(state.tableau[0].map((card) => card.rank), [13, 12, 11]);
+
+  const reportedMove = {
+    stock: [], waste: [], foundations: [[], [], [], []],
+    tableau: [
+      [{ suit: 1, rank: 8, faceUp: true }, { suit: 3, rank: 7, faceUp: true }],
+      [{ suit: 0, rank: 9, faceUp: true }], [], [], [], [], [],
+    ],
+    selected: null, won: false, moves: 0,
+  };
+  assert.equal(moveSolitaireTableau(reportedMove, 0, 0, 1), true, "red 8 run must move onto black 9");
+  assert.deepEqual(reportedMove.tableau[1].map((card) => card.rank), [9, 8, 7]);
 });
 
 test("Solitaire stock recycles and versioned snapshots reject duplicate cards", () => {
@@ -381,6 +392,7 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   assert.equal(corner.className, "dshmux-solitaire-corner");
   assert.ok(corner.children[0].textContent, "stacked card exposes its rank at the top");
   assert.match(corner.children[1].textContent, /^[♠♥♦♣]$/, "stacked card exposes its suit at the top");
+  assert.ok(exposedCard.listeners.has("drop"), "the visible destination card itself accepts a drop");
   assert.match(solitaire.children[0].children[0].children[0].className, /covered stock/, "stock must look like a card back");
   for (let slot = 3; slot < 7; slot++) {
     assert.match(solitaire.children[0].children[slot].children[0].className, /foundation/, "empty suit homes stay visible");

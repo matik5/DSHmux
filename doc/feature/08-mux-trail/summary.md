@@ -35,6 +35,8 @@ immediately dismiss it.
   remaining-card count, and all four empty foundation homes stay visible with
   suit symbols. Every face-up card keeps its rank and suit in a fixed exposed
   top-corner marker. Invalid destinations preserve selection and explain the error.
+- Tableau destination cards now accept drops directly and corner labels are
+  pointer-transparent, fixing moves such as red 8 onto black 9 in Chromium.
 
 ## Verification result
 

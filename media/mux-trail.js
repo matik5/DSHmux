@@ -623,7 +623,7 @@
         ".dshmux-mux-game-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 8px}.dshmux-mux-game-tab{min-width:0;padding:5px 8px;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));font:12px var(--vscode-font-family);cursor:pointer}.dshmux-mux-game-tab[aria-selected=true]{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}",
         ".dshmux-mux-trail-canvas{display:block;width:100%;max-height:min(58vh,360px);aspect-ratio:1;border:1px solid var(--vscode-contrastBorder,var(--vscode-widget-border));border-radius:6px;background:var(--vscode-editor-background)}",
         ".dshmux-solitaire{display:grid;gap:8px;min-height:300px}.dshmux-solitaire[hidden],.dshmux-mux-trail-canvas[hidden]{display:none!important}.dshmux-solitaire-top,.dshmux-solitaire-tableau{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.dshmux-solitaire-tableau{min-height:250px}.dshmux-solitaire-pile{position:relative;min-width:0;min-height:48px}.dshmux-solitaire-slot,.dshmux-solitaire-card{width:100%;height:48px;box-sizing:border-box;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;padding:3px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:bold 12px/1 var(--vscode-editor-font-family,var(--vscode-font-family));cursor:pointer}.dshmux-solitaire-slot{color:var(--vscode-descriptionForeground);background:color-mix(in srgb,var(--vscode-editor-background) 82%,var(--vscode-foreground));border-style:dashed}.dshmux-solitaire-card{position:absolute;left:0;top:0;text-align:left;box-shadow:0 2px 3px rgba(0,0,0,.3)}.dshmux-solitaire-card.red{color:var(--vscode-errorForeground,#d33)}.dshmux-solitaire-card.covered{color:var(--vscode-button-foreground);border-color:var(--vscode-focusBorder);background:repeating-linear-gradient(135deg,var(--vscode-button-background) 0 4px,var(--vscode-button-hoverBackground,var(--vscode-focusBorder)) 4px 8px);box-shadow:inset 0 3px 0 color-mix(in srgb,var(--vscode-button-foreground) 45%,transparent),0 2px 3px rgba(0,0,0,.35)}.dshmux-solitaire-card.stock{text-align:center;font-size:15px}.dshmux-solitaire-card.selected{outline:3px solid var(--vscode-focusBorder);outline-offset:1px}.dshmux-solitaire-slot.foundation{font-size:18px;text-align:center;border:2px dashed var(--vscode-focusBorder);background:color-mix(in srgb,var(--vscode-editor-background) 88%,var(--vscode-focusBorder))}.dshmux-solitaire-empty{position:absolute;inset:0}",
-        ".dshmux-solitaire-corner{position:absolute;top:3px;left:3px;display:inline-flex;align-items:center;gap:1px;max-width:calc(100% - 6px);font:bold 11px/14px var(--vscode-editor-font-family,var(--vscode-font-family));letter-spacing:-.4px;white-space:nowrap}.dshmux-solitaire-corner .suit{font-size:10px}",
+        ".dshmux-solitaire-corner{pointer-events:none;position:absolute;top:3px;left:3px;display:inline-flex;align-items:center;gap:1px;max-width:calc(100% - 6px);font:bold 11px/14px var(--vscode-editor-font-family,var(--vscode-font-family));letter-spacing:-.4px;white-space:nowrap}.dshmux-solitaire-corner .suit{font-size:10px}",
         ".dshmux-mux-trail-foot{display:flex;align-items:center;gap:8px;min-height:30px;margin-top:8px}.dshmux-mux-trail-status{min-width:0;flex:1;color:var(--vscode-descriptionForeground);font-size:11px;line-height:1.35}.dshmux-mux-trail-restart{border:0;border-radius:4px;padding:5px 9px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font:12px var(--vscode-font-family);cursor:pointer}",
         "@media(max-width:260px){.dshmux-mux-trail{padding:6px}.dshmux-mux-trail-dialog{width:calc(100vw - 12px);padding:8px}.dshmux-mux-trail-head{gap:4px}.dshmux-mux-trail-title{font-size:13px}.dshmux-mux-trail-foot{align-items:flex-start;flex-direction:column}}",
         "@media(prefers-reduced-motion:reduce){#dshmux-mux-trail-launch,.dshmux-mux-trail{transition:none;animation:none}}",
@@ -869,10 +869,12 @@
       node.addEventListener("dragover", function (event) {
         if (!solitaireGame.selected) return;
         event.preventDefault();
+        event.stopPropagation();
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
       });
       node.addEventListener("drop", function (event) {
         event.preventDefault();
+        event.stopPropagation();
         if (!trySolitaireDestination(kind, pile)) rejectSolitaireMove();
       });
     }
@@ -994,6 +996,10 @@
               var cardNode = solitaireCardButton(card, colorClass + selectedClass);
               cardNode.style.top = topOffset + "px";
               cardNode.style.zIndex = String(index + 1);
+              // Register the visible card itself, not only its column, as a
+              // destination. Chromium can otherwise keep a nested draggable
+              // button as the drag target and never dispatch drop to the pile.
+              makeSolitaireDropTarget(cardNode, "tableau", columnIndex);
               cardNode.draggable = !!card.faceUp;
               if (card.faceUp) {
                 cardNode.addEventListener("dragstart", function (event) {
