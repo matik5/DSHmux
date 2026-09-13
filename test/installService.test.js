@@ -4,6 +4,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
+
+const workspaceDir = process.platform === "win32" ? "C:\\Projects\\Current" : "/Projects/Current";
+const globalStorageDir = process.platform === "win32"
+  ? "C:\\Users\\me\\Code Storage"
+  : "/Users/me/Code Storage";
+const alternateParent = process.platform === "win32" ? "D:\\My Projects" : "/My Projects";
+const managedStorageDir = path.join(workspaceDir, ".dshmux");
+const managedCheckoutDir = path.join(managedStorageDir, "deepseek-harness");
+const alternateCheckoutDir = path.join(alternateParent, "deepseek-harness");
+const sourceBinFor = (checkoutDir) => path.join(checkoutDir, "apps", "cli", "lib", "bin.js");
 
 let modalAnswer;
 let messages;
@@ -44,7 +55,7 @@ const fakeVscode = {
     openExternal: async (uri) => opened.push(uri.toString()),
   },
   workspace: {
-    workspaceFolders: [{ uri: { fsPath: "C:\\Projects\\Current" } }],
+    workspaceFolders: [{ uri: { fsPath: workspaceDir } }],
     getConfiguration: () => ({
       inspect: () => undefined,
       get: (_key, fallback) => fallback,
@@ -96,7 +107,7 @@ function fresh() {
 }
 
 const context = {
-  globalStorageUri: { fsPath: "C:\\Users\\me\\Code Storage" },
+  globalStorageUri: { fsPath: globalStorageDir },
   workspaceState: {
     get: (key) => workspaceValues.get(key),
     update: async (key, value) => { workspaceValues.set(key, value); },
@@ -129,7 +140,7 @@ test("managed install cancellation at confirmation makes no changes", async () =
   assert.equal(await svc.runManagedInstall(context, rt.value), false);
   assert.equal(messages.length, 1);
   assert.match(messages[0], /@deepseek-ai\/dsh@0\.1\.5-rc\.2/);
-  assert.match(messages[0], /Projects\\Current\\\.dshmux/);
+  assert.ok(messages[0].includes(managedStorageDir));
   assert.deepEqual(informationCalls[0].items, [
     "Install globally",
     "Install to shown location",
@@ -164,24 +175,24 @@ test("managed install runs exact pinned non-global npm spec and verifies it", as
   assert.match(outputChannels[0].text, /npm install --prefix/);
   assert.match(outputChannels[0].text, /installed/);
   assert.ok(messages.some((message) => /installed and verified/.test(message)));
-  assert.equal(workspaceValues.get("dsh.managedStorageDir"), "C:\\Projects\\Current\\.dshmux");
+  assert.equal(workspaceValues.get("dsh.managedStorageDir"), managedStorageDir);
 });
 
 test("Change selects a parent for an ordinary deepseek-harness checkout", async () => {
   const svc = fresh();
   modalAnswer = ["Change…", "Install to shown location"];
-  folderAnswers.push([{ fsPath: "D:\\My Projects" }]);
+  folderAnswers.push([{ fsPath: alternateParent }]);
   const rt = runtime();
 
   assert.equal(await svc.runManagedInstall(context, rt.value), true);
 
   assert.equal(informationCalls.filter((call) => call.options?.modal).length, 2);
-  assert.match(informationCalls[1].message, /D:\\My Projects\\deepseek-harness/);
-  assert.equal(rt.calls.run[0].cwd, "D:\\My Projects\\deepseek-harness");
+  assert.ok(informationCalls[1].message.includes(alternateCheckoutDir));
+  assert.equal(rt.calls.run[0].cwd, alternateCheckoutDir);
   assert.equal(rt.calls.run[0].scope, "source");
   assert.equal(
     workspaceValues.get("dsh.sourceCheckoutBin"),
-    "D:\\My Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+    sourceBinFor(alternateCheckoutDir)
   );
   assert.equal(workspaceValues.has("dsh.managedStorageDir"), false);
 });
@@ -195,25 +206,25 @@ test("patched source is offered as a project checkout under .dshmux", async () =
 
   assert.equal(informationCalls.filter((call) => call.options?.modal).length, 2);
   assert.match(informationCalls[1].message, /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.1\.5-rc\.2/);
-  assert.match(informationCalls[1].message, /Projects\\Current\\\.dshmux\\deepseek-harness/);
-  assert.equal(rt.calls.run[0].cwd, "C:\\Projects\\Current\\.dshmux\\deepseek-harness");
+  assert.ok(informationCalls[1].message.includes(managedCheckoutDir));
+  assert.equal(rt.calls.run[0].cwd, managedCheckoutDir);
   assert.equal(rt.calls.run[0].source.repo, "https://github.com/matik5/deepseek-harness.git");
   assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.1.5-rc.2");
   assert.equal(
     workspaceValues.get("dsh.sourceCheckoutBin"),
-    "C:\\Projects\\Current\\.dshmux\\deepseek-harness\\apps\\cli\\lib\\bin.js"
+    sourceBinFor(managedCheckoutDir)
   );
 });
 
 test("Change from patched source installs the repo directly under the chosen parent", async () => {
   const svc = fresh();
   modalAnswer = ["Use patched source build", "Change…", "Install to shown location"];
-  folderAnswers.push([{ fsPath: "d:\\My Projects" }]);
+  folderAnswers.push([{ fsPath: alternateParent }]);
   const rt = runtime();
 
   assert.equal(await svc.runManagedInstall(context, rt.value), true);
 
-  assert.equal(rt.calls.run[0].cwd, "D:\\My Projects\\deepseek-harness");
+  assert.equal(rt.calls.run[0].cwd, alternateCheckoutDir);
   assert.doesNotMatch(rt.calls.run[0].cwd, /\.dshmux/i);
   assert.equal(rt.calls.run[0].source.repo, "https://github.com/matik5/deepseek-harness.git");
 });
@@ -236,12 +247,12 @@ test("global choice runs the pinned npm global install and does not persist a pr
 
 test("remembered source checkout precedes project and legacy managed installs", () => {
   const svc = fresh();
-  const source = "D:\\Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js";
+  const source = sourceBinFor(path.join(path.dirname(workspaceDir), "deepseek-harness"));
   workspaceValues.set("dsh.sourceCheckoutBin", source);
   const bins = svc.managedBinsForContext(context);
   assert.equal(bins[0], source);
-  assert.ok(bins.some((bin) => bin.includes("Current\\.dshmux\\managed-dsh")));
-  assert.ok(bins.some((bin) => bin.includes("Code Storage\\managed-dsh")));
+  assert.ok(bins.some((bin) => bin.includes(path.join("Current", ".dshmux", "managed-dsh"))));
+  assert.ok(bins.some((bin) => bin.includes(path.join("Code Storage", "managed-dsh"))));
 });
 
 test("cancelled child is not validated or reported as success", async () => {

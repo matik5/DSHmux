@@ -242,9 +242,11 @@ export function resolveNodeExecutable(
         path.posix.join(home, ".nvm", "versions", "node", "*", "bin", nodeName),
         path.posix.join(home, ".local", "share", "fnm", "node-versions", "*", "installation", "bin", nodeName),
         path.posix.join(home, ".fnm", "node-versions", "*", "installation", "bin", nodeName),
-        "/opt/homebrew/bin/node",
-        "/usr/local/bin/node",
-        "/usr/bin/node",
+        ...(platform === process.platform
+          ? platform === "darwin"
+            ? ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]
+            : ["/usr/local/bin/node", "/usr/bin/node"]
+          : []),
       ];
   const found = firstExisting(candidates);
   if (found) {
