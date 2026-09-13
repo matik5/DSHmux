@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { normalizePath } from "./workspaceTracker.js";
 import { shouldPassNoOpen } from "./versionCheck.js";
+import { repairProfileLinkCasing } from "./profileLinkRepair.js";
 
 /**
  * Compare two filesystem paths for workspace matching. Normalized comparison
@@ -651,6 +652,14 @@ export class DshServerManager extends EventEmitter {
     const passNoOpen = noOpenProbe ?? shouldPassNoOpen(version ?? undefined);
     if (passNoOpen) args.push("--no-open");
     args.push(...(opts.extraArgs ?? []));
+
+    try {
+      const count = repairProfileLinkCasing(env.DSH_HOME || path.join(os.homedir(), ".dsh"));
+      if (count) this.emit("log", `Repaired Windows drive-letter casing in ${count} DSH profile links`);
+    } catch (error) {
+      this.settleError(error instanceof Error ? error : new Error(String(error)));
+      return Promise.reject(error);
+    }
 
     const spec = spawnSpec(bin);
     const childEnv = spawnEnvironment(spec, env);
