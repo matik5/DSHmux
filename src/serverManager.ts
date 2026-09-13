@@ -62,6 +62,17 @@ export interface SessionSummary {
   title: string | null;
 }
 
+/** One bounded DSH message-content search result. */
+export interface SessionSearchItem {
+  sessionId: string;
+  snippet: string;
+}
+
+export interface SessionSearchResult {
+  items: SessionSearchItem[];
+  hasMore: boolean;
+}
+
 // DSH >= 0.1.2-alpha prints the launch URL with its auth token
 // (`dsh web: http://127.0.0.1:<port>/?token=<base64url>`); pre-auth DSH
 // prints the bare origin. Capture the full URL so the token survives parsing.
@@ -1103,6 +1114,26 @@ export class DshServerManager extends EventEmitter {
       .filter((s: any) => ids.has(s.sessionId) && archivedSet.has(s.sessionId))
       .map(toSummary);
     return { items, archivedItems };
+  }
+
+  /** Search visible DSH session message content without activating a session. */
+  async searchSessions(query: string): Promise<SessionSearchResult> {
+    const value = await this.api("session.search", { query });
+    const items: SessionSearchItem[] = Array.isArray(value?.items)
+      ? value.items
+          .filter(
+            (item: unknown): item is { sessionId: string; snippet: string } =>
+              !!item &&
+              typeof item === "object" &&
+              typeof (item as { sessionId?: unknown }).sessionId === "string" &&
+              typeof (item as { snippet?: unknown }).snippet === "string"
+          )
+          .map((item: { sessionId: string; snippet: string }) => ({
+            sessionId: item.sessionId,
+            snippet: item.snippet,
+          }))
+      : [];
+    return { items, hasMore: value?.hasMore === true };
   }
 
   /** Create a session bound to a workspace; returns the new sessionId. */

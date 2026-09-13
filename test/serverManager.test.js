@@ -733,6 +733,56 @@ test("token-auth unary RPC falls back to the legacy dot endpoint only after 404"
   }
 });
 
+test("searchSessions uses the legacy query envelope and normalizes results", async () => {
+  const manager = apiManager();
+  let sent;
+  const restore = mockFetch((req) => {
+    sent = req;
+    return { result: { ok: true, value: {
+      items: [
+        { sessionId: "s1", snippet: "matched text" },
+        { sessionId: 42, snippet: "invalid" },
+        { sessionId: "s2", snippet: null },
+      ],
+      hasMore: true,
+    } } };
+  });
+  try {
+    assert.deepEqual(await manager.searchSessions("needle"), {
+      items: [{ sessionId: "s1", snippet: "matched text" }],
+      hasMore: true,
+    });
+    assert.equal(sent.method, "session.search");
+    assert.deepEqual(sent.payload, { query: "needle" });
+  } finally {
+    restore();
+  }
+});
+
+test("searchSessions uses the token-auth Remote request envelope", async () => {
+  const manager = apiManager();
+  manager.cookie = "dsh-auth-search=value";
+  let pathName;
+  let sent;
+  const realFetch = global.fetch;
+  global.fetch = async (requestUrl, opts) => {
+    pathName = new URL(requestUrl).pathname;
+    sent = JSON.parse(opts.body);
+    return new Response(
+      JSON.stringify({ result: { ok: true, value: { items: [], hasMore: "yes" } } }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+  try {
+    assert.deepEqual(await manager.searchSessions("words"), { items: [], hasMore: false });
+    assert.equal(pathName, "/api/session/search");
+    assert.equal(sent.method, "session/search");
+    assert.deepEqual(sent.payload, { args: { request: { query: "words" } } });
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
 test("listWorkspaceSessions filters session.list to the cwd workspace", async () => {
   const manager = apiManager();
   const restore = mockFetch((req) => {

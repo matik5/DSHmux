@@ -17,6 +17,51 @@ test("session helpers validate, sort by recency, and filter titles", () => {
   assert.deepEqual(chrome.filterSessions(items, " ALP ").map((item) => item.sessionId), ["old"]);
 });
 
+test("pinned sessions preserve pin order and full-text groups deduplicate pins", () => {
+  const active = [
+    { sessionId: "a", title: "Active", updatedAt: 3 },
+    { sessionId: "b", title: "Second", updatedAt: 2 },
+  ];
+  const archived = [{ sessionId: "z", title: "Archived", updatedAt: 1, archived: true }];
+  assert.deepEqual(
+    chrome.pinnedSessions(active, archived, ["z", "missing", "a", "z"]).map((item) => item.sessionId),
+    ["z", "a"]
+  );
+  const groups = chrome.groupedSearchResults([
+    { ...active[0], snippet: "<b>plain text</b>" },
+    { ...active[0], snippet: "duplicate" },
+    { ...active[1], snippet: "active" },
+    { ...archived[0], snippet: "old" },
+  ], ["a"]);
+  assert.deepEqual(groups.pinned.map((item) => item.sessionId), ["a"]);
+  assert.equal(groups.pinned[0].snippet, "<b>plain text</b>");
+  assert.deepEqual(groups.active.map((item) => item.sessionId), ["b"]);
+  assert.deepEqual(groups.archived.map((item) => item.sessionId), ["z"]);
+});
+
+test("process menu action follows server state and Doctor gating", () => {
+  const copy = {
+    start: "Start DSH", stop: "Stop DSH", retryDsh: "Retry DSH",
+    openDoctor: "Open Doctor", starting: "Starting", stopping: "Stopping",
+  };
+  assert.deepEqual(chrome.processActionFor("ready", "ready", copy), {
+    command: "stop", label: "Stop DSH", disabled: false,
+  });
+  assert.deepEqual(chrome.processActionFor("stopped", "ready", copy), {
+    command: "start", label: "Start DSH", disabled: false,
+  });
+  assert.deepEqual(chrome.processActionFor("error", "ready", copy), {
+    command: "start", label: "Retry DSH", disabled: false,
+  });
+  assert.deepEqual(chrome.processActionFor("error", "dsh-missing", copy), {
+    command: "open-doctor", label: "Open Doctor", disabled: false,
+  });
+  assert.equal(chrome.processActionFor("starting", "ready", copy).disabled, true);
+  assert.equal(chrome.processActionFor("stopping", "ready", copy).command, "");
+  assert.equal(chrome.isLatestSearchResult(4, 4), true);
+  assert.equal(chrome.isLatestSearchResult(3, 4), false);
+});
+
 test("relative time and persisted active-session parsing are deterministic", () => {
   const now = Date.parse("2026-09-13T12:00:00Z");
   assert.equal(chrome.relativeTime(now, now, "now"), "now");
@@ -59,6 +104,11 @@ test("chrome HTML has accessible dialogs and safely serializes user text", () =>
   assert.match(html, /aria-modal="true"/);
   assert.match(html, /id="dshmux-overflow" role="dialog"/);
   assert.match(html, /data-command="toggle-dsh-sidebar"/);
+  assert.match(html, /id="dshmux-current-title" role="button" tabindex="0"/);
+  assert.ok(html.indexOf('id="dshmux-pinned-tab"') < html.indexOf('id="dshmux-active-tab"'));
+  assert.ok(html.indexOf('id="dshmux-active-tab"') < html.indexOf('id="dshmux-archived-tab"'));
+  assert.match(html, /id="dshmux-full-text" type="checkbox"/);
+  assert.match(html, /id="dshmux-process-action"/);
   assert.match(html, /aria-live="polite"/);
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /\\u003c\/script>/);
@@ -74,6 +124,9 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /forced-colors:\s*active/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /data-dshmux-sidebar-occupant-hidden/);
+  assert.match(css, /\.dshmux-session-open\s*\{[^}]*min-height:\s*32px/s);
+  assert.match(css, /grid-template-columns:\s*repeat\(3,/);
+  assert.match(css, /\.dshmux-search-row\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(css, /data-dshmux-sidebar-occupant-hidden[^}]+visibility:\s*hidden/s);
   assert.doesNotMatch(css, /data-dshmux-sidebar-occupant-hidden[^}]+display:\s*none/s);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);
@@ -82,4 +135,7 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
     /if \(editingSessionId\) return/,
     "session polling must not replace an active rename input"
   );
+  assert.match(script, /title\.addEventListener\("dblclick", beginHeaderRename\)/);
+  assert.match(script, /isLatestSearchResult\(message\.requestId, activeSearchRequestId\)/);
+  assert.match(script, /snippet\.textContent = item\.snippet/);
 });

@@ -7,8 +7,10 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const lock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
 const nls = JSON.parse(fs.readFileSync(path.join(root, "package.nls.json"), "utf8"));
 const extensionSource = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+const commandsSource = fs.readFileSync(path.join(root, "src", "commands.ts"), "utf8");
 const chromeSource = fs.readFileSync(path.join(root, "src", "chatChrome.ts"), "utf8");
 const chromeCss = fs.readFileSync(path.join(root, "media", "chat-chrome.css"), "utf8");
 const views = pkg.contributes?.views?.dshmux ?? [];
@@ -34,19 +36,44 @@ test("compact chrome is capped below the approved 44 CSS px budget", () => {
   const headerOrder = ["dshmux-sessions", "dshmux-new-session", "dshmux-current-title", "dshmux-more"]
     .map((id) => chromeSource.indexOf(`id="${id}"`));
   assert.deepEqual(headerOrder, [...headerOrder].sort((a, b) => a - b));
+  const tabOrder = ["dshmux-pinned-tab", "dshmux-active-tab", "dshmux-archived-tab"]
+    .map((id) => chromeSource.indexOf(`id="${id}"`));
+  assert.deepEqual(tabOrder, [...tabOrder].sort((a, b) => a - b));
+  assert.match(chromeSource, /id="dshmux-full-text" type="checkbox"/);
+  assert.match(chromeSource, /id="dshmux-process-action"/);
+  const overflowSource = chromeSource.slice(
+    chromeSource.indexOf('id="dshmux-overflow"'),
+    chromeSource.indexOf('id="dshmux-overlay"')
+  );
+  assert.ok(
+    overflowSource.indexOf('id="dshmux-process-action"') > overflowSource.indexOf('id="dshmux-update-next"'),
+    "process action must remain the final overflow action"
+  );
 });
 
-test("the one provider is registered before the chat is revealed", () => {
+test("activation registers the provider without forcing chat focus", () => {
   const registration = extensionSource.indexOf(
     "registerWebviewViewProvider(DshChatView.viewType, chatView"
   );
-  const reveal = extensionSource.indexOf("revealChat();", registration);
   assert.ok(registration >= 0, "chat provider registration missing");
-  assert.ok(reveal > registration, "chat must be revealed after provider registration");
   assert.equal(
     (extensionSource.match(/registerWebviewViewProvider\(/g) ?? []).length,
     1,
     "only one sidebar provider may remain"
+  );
+  assert.doesNotMatch(
+    extensionSource,
+    /\brevealChat\(\);/,
+    "extension activation must let VS Code retain the selected sidebar view"
+  );
+
+  const startCommand = commandsSource.indexOf('registerCommand("dshmux.start"');
+  const stopCommand = commandsSource.indexOf('registerCommand("dshmux.stop"', startCommand);
+  const explicitStartSource = commandsSource.slice(startCommand, stopCommand);
+  assert.ok(startCommand >= 0 && stopCommand > startCommand, "start command registration missing");
+  assert.ok(
+    explicitStartSource.indexOf("revealChat();") > explicitStartSource.indexOf("await manager.start("),
+    "an explicit successful Start command must still reveal DSHmux"
   );
 });
 
@@ -72,4 +99,10 @@ test("existing extension identity and host-safe configuration remain intact", ()
   assert.equal(setting?.scope, "machine-overridable");
   assert.deepEqual(pkg.extensionKind, ["workspace"]);
   assert.ok(pkg.capabilities?.untrustedWorkspaces?.restrictedConfigurations?.includes("dshmux.dshPath"));
+});
+
+test("feature release manifests agree on version 0.4.8", () => {
+  assert.equal(pkg.version, "0.4.8");
+  assert.equal(lock.version, "0.4.8");
+  assert.equal(lock.packages?.[""]?.version, "0.4.8");
 });

@@ -164,10 +164,6 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );
-  // Activation runs onStartupFinished, including after a window/extension-host
-  // restart. Reveal only after the provider is registered so VS Code can
-  // resolve and focus the contributed webview.
-  revealChat();
 
   context.subscriptions.push({
     dispose: () => {
