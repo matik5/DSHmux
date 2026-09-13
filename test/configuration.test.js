@@ -106,7 +106,6 @@ test("local dictation is disabled and local-only by default", () => {
     enabled: false,
     language: "en-US",
     hostPath: "",
-    modelPath: "",
     audioDevice: "",
   });
 });
@@ -115,13 +114,11 @@ test("local dictation settings trim paths and constrain the language", () => {
   values.dshmux["experimental.localDictation.enabled"] = true;
   values.dshmux["experimental.localDictation.language"] = "et-EE";
   values.dshmux["experimental.localDictation.hostPath"] = "  /opt/dsh-dictation-host  ";
-  values.dshmux["experimental.localDictation.modelPath"] = "  /models/turbo.bin  ";
   values.dshmux["experimental.localDictation.audioDevice"] = "  Mic  ";
   assert.deepEqual(localDictationSettings(), {
     enabled: true,
     language: "et-EE",
     hostPath: "/opt/dsh-dictation-host",
-    modelPath: "/models/turbo.bin",
     audioDevice: "Mic",
   });
   values.dshmux["experimental.localDictation.language"] = "unsupported";

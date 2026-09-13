@@ -144,13 +144,6 @@
           "order": 120,
           "description": "%setting.localDictation.hostPath.description%"
         },
-        "dshmux.experimental.localDictation.modelPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "order": 127,
-          "description": "%setting.localDictation.modelPath.description%"
-        },
         "dshmux.experimental.localDictation.audioDevice": {
           "type": "string",
           "default": "",

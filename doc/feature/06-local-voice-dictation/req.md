@@ -62,8 +62,8 @@ fixes there.
   runtime produces a bounded diagnostic; none of these crash extension
   activation or affect ordinary chat.
 - VS Code Insiders, Linux, Windows Arm64, Intel macOS, VS Code for the Web,
-  Remote SSH, WSL, Dev Containers, and automatic runtime/model installation are
-  not targets for this round.
+  Remote SSH, WSL, Dev Containers, and automatic runtime installation beyond
+  the bundled host are not targets for this round.
 - No DSH server or DSH protocol change is required.
 
 ## R3 — Model, runtime, and local-data boundary

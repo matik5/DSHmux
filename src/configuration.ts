@@ -76,7 +76,6 @@ export interface LocalDictationConfiguration {
   enabled: boolean;
   language: "en-US" | "et-EE";
   hostPath: string;
-  modelPath: string;
   audioDevice: string;
 }
 
@@ -86,7 +85,6 @@ export function localDictationSettings(): LocalDictationConfiguration {
     enabled: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.enabled`, false),
     language: language === "et-EE" ? "et-EE" : "en-US",
     hostPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.hostPath`, "").trim(),
-    modelPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.modelPath`, "").trim(),
     audioDevice: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.audioDevice`, "").trim(),
   };
 }

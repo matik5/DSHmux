@@ -1,18 +1,19 @@
 # 06-local-voice-dictation — Verification
 
-**Date**: 2026-09-13
+**Date**: 2026-09-14
 
-**Status**: IN PROGRESS — native Mac checkpoint PASS; Windows remains
+**Status**: CLOSED — **CONDITIONAL GO**
 
 **Sources**: [req.md](req.md), [solution.md](solution.md), [plan.md](plan.md)
 
 ## Current checkpoint
 
-The earlier external `whisper-cli` Mac implementation passed live English and
-Estonian dictation with the full model. The approved native-host revision is
-implemented, built, and user-verified through the Extension Development Host on
-Mac. Windows compilation and testing remain pending, so no final R1 verdict is
-issued.
+The managed-model and native-host revision is implemented and verified on the
+available boundaries. Mac Arm64 passed live native dictation through the
+Extension Development Host. Windows x64 passes build, package, real executable,
+full-model load, managed-cache, and worker integration checks, but this Windows
+machine exposes no microphone capture endpoint. The final verdict is therefore
+CONDITIONAL GO rather than GO.
 
 ## Reference environment and retained model evidence
 
@@ -23,7 +24,7 @@ issued.
 | Native source | external whisper.cpp v1.9.2 checkout, commit `306c88f4` |
 | Model | official full `ggml-large-v3-turbo.bin`, 1,624,555,275 bytes |
 | Model SHA-1 | `4af2b29d7ec73d781377bfd1758ca957a807e941` |
-| Model path | external user-configured DSHmux model cache |
+| Model path | home-redacted `~/.dshmux/models/ggml-large-v3-turbo.bin` |
 
 The earlier live batch result was exact for both fixed phrases and was not
 automatically sent:
@@ -75,19 +76,44 @@ the new native host's microphone result.
   visible partial/final path, final insertion into the editable DSH composer,
   and unchanged no-auto-Send behavior requested for the retest.
 - TypeScript compile: PASS.
-- Focused configuration, preflight, worker protocol, controller, chrome, and
-  view tests: **53/53 PASS**.
+- Managed-model, configuration, preflight, worker protocol, controller, chrome,
+  and view tests pass, including a real Windows PE fake-host launch.
 - Fake-host integration proves exact argument-array values, JSONL
   ready/partial/final mapping, sanitized metrics, and clean process exit.
 - Preflight tests prove bundled path selection for `darwin-arm64` and
   `win32-x64`, explicit override validation, cached-model validation, and SDL
   capture-id validation.
-- DSHmux-scoped full suite: **256 PASS, 0 FAIL, 1 SKIP**. An unscoped
+- Final DSHmux-scoped full suite: **270 PASS, 0 FAIL, 1 SKIP**. The one skip is
+  the POSIX-shebang worker fixture on Windows; the separate Windows test builds
+  and runs its PE fixture. An earlier unscoped
   `node --test` also discovered the user's untracked `tmp/deepseek-harness`
   checkout; those unrelated results are excluded without modifying the
   checkout.
 - `npx vsce ls` includes the host, SDL2, SDL3, and notices. It excludes the
   model, native build tree, and external whisper.cpp checkout.
+
+## Managed model setup
+
+- `LocalDictationModelManager` is called by `DshChatView` at enabled activation,
+  on a transition to enabled, and before microphone Start. Disabled, remote, and
+  unsupported targets do not call `ensure()`; disposal and disabling cancel it.
+- The identity is fixed to `ggml-large-v3-turbo.bin`, 1,624,555,275 bytes,
+  SHA-1 `4af2b29d7ec73d781377bfd1758ca957a807e941`, from an HTTPS whisper.cpp model
+  URL. There is no user-configurable model path.
+- Deterministic tests cover both home-relative platform paths, offline cache
+  reuse, redirects, streamed and partial writes, exact size/hash enforcement,
+  overflow, short data, checksum mismatch, cancellation, partial cleanup,
+  preservation of an existing canonical file on failure, and single-flight.
+- The Windows file was verified at the former `%LOCALAPPDATA%` location, moved
+  to `%USERPROFILE%\.dshmux\models`, and re-verified. Source is absent; the
+  destination is 1,624,555,275 bytes with the expected SHA-1 and has no sibling
+  `.part` file.
+- A production-manager cache check against that real file completed in 1,973 ms
+  and returned the canonical path without downloading. The deterministic
+  offline test injects a request function that throws if called and proves zero
+  network requests for a verified cache.
+- `npx vsce ls` includes the Mac and Windows hosts and their adjacent SDL
+  libraries. It includes neither the model nor any `.part` file.
 
 ## Windows x64 build checkpoint
 
@@ -111,7 +137,7 @@ the new native host's microphone result.
   email in either packaged artifact.
 - Invalid-argument startup smoke: PASS — one bounded
   `{"event":"error","code":"invalid-arguments"}` event and exit code 2.
-- Full model setup: PASS — `%LOCALAPPDATA%\DSHmux\models\ggml-large-v3-turbo.bin`,
+- Full model setup: PASS — `%USERPROFILE%\.dshmux\models\ggml-large-v3-turbo.bin`,
   1,624,555,275 bytes, SHA-1
   `4af2b29d7ec73d781377bfd1758ca957a807e941`. The packaged host loaded the
   model successfully through the CPU backend.
@@ -122,7 +148,7 @@ the new native host's microphone result.
   is the absence of a present capture endpoint rather than permission or model
   failure. The host emits only `microphone-unavailable` on protocol stdout and
   keeps the detailed device/open reason on ignored stderr.
-- TypeScript compile and DSHmux-scoped suite: **257 PASS, 0 FAIL, 1 SKIP**.
+- TypeScript compile and final DSHmux-scoped suite: **270 PASS, 0 FAIL, 1 SKIP**.
   The Windows-specific worker integration test compiles a temporary PE fixture,
   spawns it with the production-required `shell: false`, and verifies safe
   arguments plus ready/partial/Stop/final/metrics JSONL mapping. The skipped
@@ -130,11 +156,13 @@ the new native host's microphone result.
 - `npx vsce ls` includes both Windows runtime files and notices, and excludes
   the external checkout, build tree, SDL development package, and model.
 
-This checkpoint establishes a buildable and packageable Windows runtime plus
-successful full-model loading. It does not yet establish microphone capture,
-English or Estonian transcript quality, offline behavior, composer insertion,
-cancellation, or performance on Windows because this machine currently exposes
-no capture endpoint.
+The packaged real executable was rerun after the move and loaded the canonical
+model successfully. It again reported `SDL capture devices: 0`, WASAPI
+`Element not found`, and bounded protocol error `microphone-unavailable`.
+Therefore Windows live microphone capture, English/Estonian transcripts,
+composer insertion, cancellation, and performance remain unmeasured on this
+reference machine. Offline model availability and the worker-to-composer
+contract are independently verified, but they do not substitute for live audio.
 
 ## Licenses and redistribution
 
@@ -143,9 +171,37 @@ Those licenses allow modification, linking, and redistribution of the compiled
 runtime. `runtime/THIRD_PARTY_NOTICES.md` accompanies the artifacts. The model
 weights remain outside the repository and package.
 
-## Outstanding evidence
+## Close-out audit
 
-1. Windows live English/Estonian result, offline behavior, model identity and
-   checksum, composer insertion, performance, and lifecycle checks.
-2. Final RTTM/code-called audit, verdict, plan review, summary, and mechanical
-   TODO extraction after both platform checkpoints.
+| Requirement | Called implementation and evidence | Result |
+|---|---|---|
+| R1/R2 | Bundled native hosts, Mac live checkpoint, Windows real-executable and environment probes | Partial: Windows live boundary blocked |
+| R3 | `LocalDictationModelManager` → `DshChatView` → canonical preflight → worker argument array | PASS |
+| R4 | `DshChatView` state events → chrome dictation messages → existing composer insertion seam | PASS on Mac; deterministic Windows contract PASS; Windows live audio blocked |
+| R5 | Opt-in target gate, single-flight setup, bounded child process and audio buffer | PASS |
+| R6 | 270/0/1 suite, package listing, checksums, Mac live evidence, repeated Windows probe | Partial: Windows live phrases/latency/RSS unavailable |
+
+Every plan item marked ✅ has both code and a caller or recorded runtime/package
+evidence. No managed-model implementation is dead code: `DshChatView` owns and
+calls the manager, preflight derives the same canonical path, and the worker
+passes that validated path to the native host without a shell. The only gap is
+T9's live Windows microphone checkpoint.
+
+## Verdict — CONDITIONAL GO
+
+- **Model accuracy**: PASS on the recorded Mac English and Estonian phrases.
+- **Local runtime and data boundary**: PASS. Audio/transcripts stay in the
+  native/local composer path, and the model cache is checksum-verified and
+  external to the extension package.
+- **Microphone capture and composer integration**: PASS on Mac. Windows remains
+  blocked before capture because the reference machine exposes zero endpoints.
+- **Licensing and packaging**: PASS for the prototype: MIT Whisper/whisper.cpp,
+  zlib SDL2, notices included, model excluded.
+- **Portability**: build/load/protocol PASS on Windows x64, but live semantic and
+  performance evidence is incomplete.
+
+Smallest next step: attach or enable one Windows recording endpoint, then rerun
+the two fixed phrases through the Extension Development Host and record
+default/explicit device, Stop/final insertion, Cancel, offline mode, latency,
+peak RSS, no auto-Send, and no temporary audio file. No backend change is needed
+or authorized.

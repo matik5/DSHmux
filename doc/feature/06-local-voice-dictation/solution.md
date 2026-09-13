@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-13
 
-**Status**: DRAFT (managed-model revision; awaiting approval) — 2026-09-13
+**Status**: APPROVED (managed-model revision) — 2026-09-13
 
 **Sources**: [discussion.md](discussion.md), [req.md](req.md)
 

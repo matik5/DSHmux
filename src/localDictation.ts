@@ -1,6 +1,7 @@
 import { ChildProcess, ForkOptions, fork as nodeFork } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { managedModelPath } from "./localDictationModel.js";
 
 export const LOCAL_DICTATION_DSH_VERSION = "0.1.5-rc.2";
 
@@ -38,7 +39,6 @@ export interface LocalDictationSettings {
   enabled: boolean;
   language: LocalDictationLanguage;
   hostPath: string;
-  modelPath: string;
   audioDevice: string;
 }
 
@@ -47,6 +47,7 @@ export interface LocalDictationEnvironment {
   arch: string;
   remoteName?: string;
   extensionPath: string;
+  homePath: string;
 }
 
 export interface ValidatedDictationOptions {
@@ -137,7 +138,7 @@ async function resolveHost(
   );
 }
 
-/** Resolve explicitly configured local dependencies without modifying them. */
+/** Resolve bundled and managed local dependencies without modifying them. */
 export async function preflightLocalDictation(
   environment: LocalDictationEnvironment,
   settings: LocalDictationSettings,
@@ -147,11 +148,12 @@ export async function preflightLocalDictation(
     throw new LocalDictationError("disabled", "Experimental local dictation is disabled.");
   }
   const target = platformKey(environment);
+  const canonicalModelPath = managedModelPath(environment.homePath);
   const modelPath = await requireFile(
     io,
     "model-unavailable",
-    "An absolute readable path to the Whisper large-v3-turbo GGML model is required.",
-    settings.modelPath,
+    "The managed Whisper large-v3-turbo model is unavailable.",
+    canonicalModelPath,
     fs.constants.R_OK
   );
   const hostPath = await resolveHost(environment, settings.hostPath, io);

@@ -2,20 +2,21 @@
 
 **Date**: 2026-09-13
 **Sources**: [discussion.md](discussion.md), [req.md](req.md), [solution.md](solution.md)
+**Status**: APPROVED (managed-model revision) — 2026-09-14
 
 ## RTTM
 
 | Requirement | Task | Verification |
 |---|---|---|
-| R1, R2 | T1, T5 | Separate Mac and Windows results; final verdict waits for both. |
-| R3 | T1, T2, T4 | Pinned local whisper.cpp build; model remains external; package/notices audit. |
-| R4 | T2, T3, T5 | Start/partial/Stop/final/cancel through existing composer path. |
-| R5 | T1, T2, T3 | Spawned process and bounded JSONL; no Node addon/FFI or private VS Code API. |
-| R6 | T4, T5, T6 | Automated, live, offline, package, performance, and close-out evidence. |
+| R1, R2 | T1, T4, T9, T10 | Separate Mac and Windows results; final verdict waits for both. |
+| R3 | T1, T2, T5, T6, T8 | Pinned runtime; canonical external cache; atomic verified download; package exclusion. |
+| R4 | T2, T3, T7, T9 | Setup plus Start/partial/Stop/final/cancel through the existing composer path. |
+| R5 | T1, T3, T5, T7 | Opt-in single-flight model setup; bounded native process; disabled path has no work. |
+| R6 | T4, T8, T9, T10 | Deterministic, live, offline, package, performance, and close-out evidence. |
 
 ### T1 — Build the DSH native streaming host
 
-**Status**: ✅ done (macOS artifact); Windows build execution remains in T5
+**Status**: ✅ done (macOS and Windows artifacts)
 
 **Files**:
 
@@ -62,7 +63,7 @@ path; protocol and memory bounds are visible in called code.
 - [x] Replace external FFmpeg/whisper-cli settings with optional `hostPath`.
 - [x] Default to `runtime/darwin-arm64/dsh-dictation-host` or
   `runtime/win32-x64/dsh-dictation-host.exe` under the extension root.
-- [x] Validate the external cached model and target host before spawn.
+- [x] Validate the managed canonical model and target host before spawn.
 - [x] Convert optional microphone configuration to an SDL capture id.
 - [x] Include runtime files in the local extension package while excluding the
   model.
@@ -132,38 +133,189 @@ npx vsce ls
 **Completion criteria**: automated/package checks pass and the user confirms
 the native host retains the earlier Mac quality and composer behavior.
 
-### T5 — Build and verify Windows x64 runtime
+### T5 — Implement the managed model cache and downloader
 
-**Status**: ⏳ pending (Windows build/package checks complete; live microphone,
-model, offline, and lifecycle evidence remains)
+**Status**: ✅ done
+
+**Files**:
+
+- `src/localDictationModel.ts:1` (new)
+- `test/localDictationModel.test.js:1` (new in T8)
+
+- [x] Define the canonical filename, byte length `1624555275`, published SHA-1
+  `4af2b29d7ec73d781377bfd1758ca957a807e941`, and HTTPS source URL.
+- [x] Resolve both macOS and Windows to
+  `path.join(homePath, ".dshmux", "models", "ggml-large-v3-turbo.bin")`.
+- [x] Validate an existing canonical file by exact size and streamed SHA-1;
+  reuse it without invoking network I/O.
+- [x] Stream the response to a sibling partial file while hashing and counting
+  bytes; reject non-HTTPS redirects, excessive redirects, non-2xx status,
+  overflow, short content, and checksum mismatch.
+- [x] Publish only verified bytes with a same-directory rename. Remove partial
+  data on failure, cancellation, and disposal without deleting a previously
+  verified canonical file.
+- [x] Share one in-flight ensure operation so activation, settings changes, and
+  Start cannot race duplicate downloads.
+- [x] Keep filesystem, HTTP, progress, and cancellation boundaries injectable
+  for deterministic tests; add no production dependency.
+
+```ts
+export const MODEL_FILE = "ggml-large-v3-turbo.bin";
+export function managedModelPath(homePath: string): string {
+  return path.join(homePath, ".dshmux", "models", MODEL_FILE);
+}
+// stream -> sibling .part -> exact size/SHA-1 -> same-directory rename
+```
+
+**Completion criteria**: called code guarantees canonical cross-platform path,
+no network for a valid cache, bounded streaming memory, verified atomic publish,
+single-flight behavior, and cleanup on every terminal path.
+
+### T6 — Replace explicit model configuration with canonical preflight
+
+**Status**: ✅ done
+
+**Files**:
+
+- `src/configuration.ts:74-91`
+- `src/localDictation.ts:35-171`
+- `package.json:120-158`
+- `package.nls.json:12-16`
+- `package.nls.zh-cn.json:12-16`
+- `test/configuration.test.js:104-130`
+- `test/localDictation.test.js:22-116`
+
+- [x] Remove `modelPath` from `LocalDictationConfiguration`, configuration
+  reads, the contributed setting, and both localized setting descriptions.
+- [x] Add `homePath` to the preflight environment and derive the canonical
+  model path with `managedModelPath()` rather than accepting user input.
+- [x] Preserve `ValidatedDictationOptions.modelPath` so the worker/native host
+  contract and safe argument-array spawn remain unchanged.
+- [x] Keep the disabled, remote, unsupported-platform, host, model, and capture
+  gates ordered before native process creation.
+- [x] Update configuration and preflight fixtures for both `darwin-arm64` and
+  `win32-x64` canonical paths.
+
+```ts
+const modelPath = await requireFile(
+  io,
+  "model-unavailable",
+  "The managed Whisper model is unavailable.",
+  managedModelPath(environment.homePath),
+  fs.constants.R_OK
+);
+```
+
+**Completion criteria**: users cannot configure an alternate model path;
+preflight passes the verified canonical path on Mac and Windows and all prior
+fail-closed gates remain covered.
+
+### T7 — Wire opt-in setup into activation, settings, and Start lifecycle
+
+**Status**: ✅ done
+
+**Files**:
+
+- `src/dshChatView.ts:95-156,231-237,460-512`
+- `package.nls.json:12-16`
+- `package.nls.zh-cn.json:12-16`
+- `test/dshChatView.test.js:120-160,780-850`
+
+- [x] Own one managed-model installer in `DshChatView` and start it during
+  construction only when dictation is enabled, local, and on a supported
+  platform.
+- [x] On an `enabled=true` configuration change, start the same ensure;
+  disabling cancels setup and starts no replacement work.
+- [x] Show cancellable VS Code notification progress without logging model
+  bytes, transcript text, user-home paths, or download URLs containing tokens.
+- [x] Await the same in-flight ensure before preflight/microphone start; surface
+  cancellation or failure as bounded `model-unavailable` state while ordinary
+  chat remains usable.
+- [x] Dispose cancels model setup and removes partial content; language/device
+  changes retain existing dictation cancellation semantics.
+
+```ts
+await vscode.window.withProgress(
+  { location: vscode.ProgressLocation.Notification, cancellable: true, title },
+  (progress, token) => this.dictationModel.ensure(progress, token)
+);
+```
+
+**Completion criteria**: enabling is the sole automatic-download authorization,
+enabled-at-startup and newly-enabled flows work, Start reuses/awaits setup, and
+disabled/remote/unsupported flows prove zero filesystem and network work.
+
+### T8 — Verify managed setup and move the current Windows model
+
+**Status**: ✅ done
+
+**Files**:
+
+- `test/localDictationModel.test.js:1` (new)
+- `test/configuration.test.js:104-130`
+- `test/localDictation.test.js:22-116`
+- `test/dshChatView.test.js:780-850`
+- `doc/feature/06-local-voice-dictation/verification.md`
+- external `%USERPROFILE%/.dshmux/models/ggml-large-v3-turbo.bin`
+
+- [x] Test Mac and Windows canonical path resolution, disabled zero-I/O,
+  valid-cache reuse, redirects, streaming success, progress, single-flight,
+  overflow, short data, checksum mismatch, cancellation, cleanup, and atomic
+  publish with deterministic small fixtures.
+- [x] Re-verify the current Windows model at
+  `%LOCALAPPDATA%/DSHmux/models/ggml-large-v3-turbo.bin`, move it to the
+  canonical `%USERPROFILE%/.dshmux/models` path, and verify identical size and
+  SHA-1 after the move.
+- [x] Compile TypeScript, run focused tests and `npm test`, and inspect
+  `npx vsce ls` to prove the model and partial files are excluded.
+- [x] Exercise enabled cached-model setup with networking unavailable on
+  Windows; record the home-redacted canonical path.
+
+```text
+old verified path -> verify -> canonical same-volume move -> verify again
+```
+
+**Completion criteria**: deterministic tests cover every managed-model terminal
+path, the current Windows model exists only at the canonical location, cached
+setup is offline-safe, and packaging excludes all model content.
+
+### T9 — Complete the Windows x64 live checkpoint
+
+**Status**: ❌ blocked — build/package/model-load checks pass, but repeated SDL,
+WASAPI, and DirectShow probes expose zero capture endpoints on this machine.
 
 **Files**:
 
 - `native/dictation-host/build-windows.ps1:1`
-- `runtime/win32-x64/dsh-dictation-host.exe` (generated on Windows)
-- optional `runtime/win32-x64/SDL2.dll` (only if dynamically linked)
+- `runtime/win32-x64/dsh-dictation-host.exe`
+- `runtime/win32-x64/SDL2.dll`
 - `doc/feature/06-local-voice-dictation/verification.md`
 
 - [x] Pull the same branch and pinned whisper.cpp v1.9.2 checkout on Windows.
 - [x] Build x64 host and record compiler, SDL source/version, dependency list,
-  artifact sizes, and checksums.
-- [ ] Run automated tests and live English/Estonian partial/final dictation
-  (automated suite complete; live phrases remain).
-- [ ] Verify offline behavior, default/explicit SDL device, cancellation, model
-  cache, no auto-Send, and no temporary audio files.
-- [ ] Commit the verified Windows runtime files on the same branch.
+  artifact sizes, checksums, full-model load, and bounded missing-microphone
+  failure.
+- [x] Commit the verified Windows runtime files on the same branch
+  (`b7a3288`).
+- [ ] With a present capture endpoint, run live English and Estonian
+  partial/final dictation through the Extension Development Host.
+- [ ] Verify offline behavior, default/explicit SDL device, cancellation,
+  canonical model cache, no auto-Send, no temporary audio files, transcript
+  latency, and observable peak memory.
 
 ```powershell
 native\dictation-host\build-windows.ps1
+npm test
+npx vsce ls
 ```
 
 **Completion criteria**: the bundled Windows host passes the same semantic,
-privacy, lifecycle, and composer criteria as Mac, or the exact blocker is
-recorded.
+privacy, lifecycle, and composer criteria as Mac, or the exact environmental
+blocker remains reproduced and recorded.
 
-### T6 — Close verification, summary, and TODO
+### T10 — Close verification, summary, and TODO
 
-**Status**: ⏳ pending
+**Status**: ✅ done
 
 **Files**:
 
@@ -172,9 +324,9 @@ recorded.
 - `doc/feature/06-local-voice-dictation/summary.md`
 - `doc/feature/06-local-voice-dictation/TODO.md`
 
-- [ ] Recheck every RTTM row and every ✅ item against called code/evidence.
-- [ ] Issue one GO, CONDITIONAL GO, or NO-GO only after Windows evidence.
-- [ ] Write summary and mechanically extract every ❌/⏭️ item into TODO.md; if
+- [x] Recheck every RTTM row and every ✅ item against called code/evidence.
+- [x] Issue one GO, CONDITIONAL GO, or NO-GO only after Windows evidence.
+- [x] Write summary and mechanically extract every ❌/⏭️ item into TODO.md; if
   none exist, state `No outstanding tasks.`
 
 ```text
@@ -187,13 +339,22 @@ misrepresented as complete.
 ## Dependency order
 
 ```text
-T1 ──► T2 ──► T3 ──► T4 (Mac live)
-                         │
-                         ▼
-                    T5 (Windows)
-                         │
-                         ▼
-                         T6
+T1 ──► T2 ──► T3 ──► T4 (Mac native checkpoint)
+              │
+              ▼
+             T5 (model manager) ──► T6 (config/preflight)
+                                           │
+                                           ▼
+                                      T7 (lifecycle)
+                                           │
+                                           ▼
+                                      T8 (tests + move)
+                                           │
+                                           ▼
+                                      T9 (Windows live)
+                                           │
+                                           ▼
+                                      T10 (close-out)
 ```
 
 *Related documents: discussion.md | req.md | solution.md*

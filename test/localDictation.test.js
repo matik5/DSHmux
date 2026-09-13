@@ -33,7 +33,8 @@ function fixture(platform = "darwin") {
   created.push(root);
   const extensionPath = path.join(root, "extension");
   const hostPath = path.join(extensionPath, "runtime", platform === "win32" ? "win32-x64" : "darwin-arm64", platform === "win32" ? "dsh-dictation-host.exe" : "dsh-dictation-host");
-  const modelPath = path.join(root, "models", "ggml-large-v3-turbo.bin");
+  const homePath = path.join(root, "home");
+  const modelPath = path.join(homePath, ".dshmux", "models", "ggml-large-v3-turbo.bin");
   touch(hostPath, true);
   touch(modelPath);
   return {
@@ -41,12 +42,12 @@ function fixture(platform = "darwin") {
       platform,
       arch: platform === "darwin" ? "arm64" : "x64",
       extensionPath,
+      homePath,
     },
     settings: {
       enabled: true,
       language: "en-US",
       hostPath: "",
-      modelPath,
       audioDevice: platform === "win32" ? "2" : "",
     },
     hostPath,
@@ -90,10 +91,6 @@ test("preflight rejects disabled, remote, unsupported and missing/relative depen
   await assert.rejects(
     preflightLocalDictation({ ...item.environment, arch: "x64" }, item.settings),
     (error) => error.code === "unsupported-platform"
-  );
-  await assert.rejects(
-    preflightLocalDictation(item.environment, { ...item.settings, modelPath: "model.bin" }),
-    (error) => error.code === "model-unavailable"
   );
   await assert.rejects(
     preflightLocalDictation(item.environment, { ...item.settings, hostPath: "dsh-dictation-host" }),

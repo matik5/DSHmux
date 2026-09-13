@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -38,6 +39,10 @@ import {
   supportsLocalDictationTarget,
   type LocalDictationEvent,
 } from "./localDictation.js";
+import {
+  LocalDictationModelError,
+  LocalDictationModelManager,
+} from "./localDictationModel.js";
 
 const DIST_DIR_NAME = "dsh-dist";
 const SESSIONS_POLL_MS = 5_000;
@@ -111,6 +116,8 @@ export class DshChatView implements vscode.WebviewViewProvider {
   private doctorReport?: DoctorReport;
   private readonly chromeAssets: ChatChromeAssets;
   private dictation?: LocalDictationController;
+  private readonly dictationModel: LocalDictationModelManager;
+  private modelSetup?: Promise<string>;
   private dictationStartSeq = 0;
   private dictationStarting = false;
   private lastDictationMetrics?: Extract<LocalDictationEvent, { type: "metrics" }>;
@@ -125,6 +132,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       context.workspaceState.get<unknown>(PINNED_SESSION_IDS_KEY)
     );
     this.chromeAssets = loadChatChromeAssets(context.extensionUri.fsPath);
+    this.dictationModel = new LocalDictationModelManager({ homePath: os.homedir() });
     manager.on("state", (info: ServerInfo) => {
       if (info.state !== "ready") {
         this.assembled = false;
@@ -150,10 +158,18 @@ export class DshChatView implements vscode.WebviewViewProvider {
         if (affectsDshmuxConfiguration(event, "frameFontScale")) void this.refresh();
         if (affectsLocalDictationSetting(event)) {
           void this.cancelLocalDictation();
+          if (this.modelTargetEnabled()) {
+            void this.ensureLocalDictationModel().catch((error) => this.showModelSetupError(error));
+          } else {
+            this.dictationModel.cancel();
+          }
           if (this.manager.state === "ready") void this.refresh();
         }
       })
     );
+    if (this.modelTargetEnabled()) {
+      void this.ensureLocalDictationModel().catch((error) => this.showModelSetupError(error));
+    }
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -232,6 +248,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
     if (this.disposed) return;
     this.disposed = true;
     this.dictationStartSeq += 1;
+    this.dictationModel.dispose();
     this.dictation?.dispose();
     this.dictation = undefined;
   }
@@ -468,6 +485,55 @@ export class DshChatView implements vscode.WebviewViewProvider {
     );
   }
 
+  private modelTargetEnabled(): boolean {
+    return (
+      localDictationSettings().enabled &&
+      !vscode.env.remoteName &&
+      supportsLocalDictationTarget(process.platform, process.arch)
+    );
+  }
+
+  private ensureLocalDictationModel(): Promise<string> {
+    if (this.modelSetup) return this.modelSetup;
+    const operation = vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Preparing Whisper large-v3-turbo model",
+        cancellable: true,
+      },
+      async (progress, token) => {
+        let reported = 0;
+        const cancellation = token.onCancellationRequested(() => this.dictationModel.cancel());
+        try {
+          return await this.dictationModel.ensure((downloaded, total) => {
+            const percentage = Math.min(100, Math.floor(downloaded * 100 / total));
+            const increment = percentage - reported;
+            if (increment > 0) {
+              progress.report({ increment });
+              reported = percentage;
+            }
+          });
+        } finally {
+          cancellation.dispose();
+        }
+      }
+    );
+    const tracked = Promise.resolve(operation).finally(() => {
+      if (this.modelSetup === tracked) this.modelSetup = undefined;
+    });
+    this.modelSetup = tracked;
+    return tracked;
+  }
+
+  private showModelSetupError(error: unknown): void {
+    if (error instanceof LocalDictationModelError && error.cancelled) return;
+    void vscode.window.showErrorMessage(
+      error instanceof LocalDictationModelError
+        ? error.message
+        : "The local dictation model could not be prepared."
+    );
+  }
+
   private async startLocalDictation(): Promise<void> {
     if (!this.dictationAvailable() || this.dictationStarting || this.disposed) {
       this.postDictationError(this.dictationStarting ? "busy" : "disabled");
@@ -486,12 +552,14 @@ export class DshChatView implements vscode.WebviewViewProvider {
     });
     try {
       const settings = localDictationSettings();
+      await this.ensureLocalDictationModel();
       const options = await preflightLocalDictation(
         {
           platform: process.platform,
           arch: process.arch,
           remoteName: vscode.env.remoteName,
           extensionPath: this.context.extensionUri.fsPath,
+          homePath: os.homedir(),
         },
         settings
       );
@@ -506,8 +574,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
       await this.dictation.start(options);
     } catch (error) {
       if (seq !== this.dictationStartSeq || this.disposed) return;
+      if (error instanceof LocalDictationModelError) this.showModelSetupError(error);
       this.postDictationError(
-        error instanceof LocalDictationError ? error.code : "worker-failed"
+        error instanceof LocalDictationModelError
+          ? "model-unavailable"
+          : error instanceof LocalDictationError
+            ? error.code
+            : "worker-failed"
       );
     } finally {
       if (seq === this.dictationStartSeq) this.dictationStarting = false;

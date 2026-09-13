@@ -7,12 +7,14 @@ const path = require("node:path");
 
 const executedCommands = [];
 const configurationValues = {};
+let configurationHandlers = [];
 const fakeVscode = {
   Uri: {
     file: (value) => ({ fsPath: value, toString: () => "file://" + value }),
     parse: (value) => ({ toString: () => value }),
   },
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3 },
+  ProgressLocation: { Notification: 15 },
   env: {
     language: "en",
     appRoot: "/mock/code-app",
@@ -26,6 +28,11 @@ const fakeVscode = {
     activeColorTheme: { kind: 2 },
     onDidChangeActiveColorTheme: () => ({ dispose() {} }),
     showWarningMessage: async () => undefined,
+    showErrorMessage: async () => undefined,
+    withProgress: async (_options, task) => task(
+      { report() {} },
+      { onCancellationRequested: () => ({ dispose() {} }) }
+    ),
   },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: "/workspace" } }],
@@ -35,7 +42,10 @@ const fakeVscode = {
         : { globalValue: configurationValues[`${namespace}.${key}`] },
       get: (key, fallback) => configurationValues[`${namespace}.${key}`] ?? fallback,
     }),
-    onDidChangeConfiguration: () => ({ dispose() {} }),
+    onDidChangeConfiguration: (callback) => {
+      configurationHandlers.push(callback);
+      return { dispose() {} };
+    },
   },
 };
 
@@ -50,9 +60,11 @@ let nextAssemblyError;
 const daPath = require.resolve("../out/documentAssembly.js");
 const installPath = require.resolve("../out/installService.js");
 const localDictationPath = require.resolve("../out/localDictation.js");
+const localDictationModelPath = require.resolve("../out/localDictationModel.js");
 const versionServicePath = require.resolve("../out/versionCheckService.js");
 const originalCache = new Map(
-  [daPath, installPath, localDictationPath, versionServicePath].map((key) => [key, require.cache[key]])
+  [daPath, installPath, localDictationPath, localDictationModelPath, versionServicePath]
+    .map((key) => [key, require.cache[key]])
 );
 
 let doctorState = "ready";
@@ -61,6 +73,7 @@ let upgradeCalls = [];
 let availableUpgrade;
 let dictationPreflightCalls = [];
 let dictationControllers = [];
+let dictationModelManagers = [];
 
 class FakeLocalDictationError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -100,6 +113,23 @@ class FakeLocalDictationController {
   dispose() { this.disposed = true; }
 
   emit(event) { this.options.onEvent(event); }
+}
+
+class FakeLocalDictationModelManager {
+  constructor(options) {
+    this.options = options;
+    this.ensureCalls = 0;
+    this.cancelCalls = 0;
+    this.disposed = false;
+    dictationModelManagers.push(this);
+  }
+  async ensure(onProgress) {
+    this.ensureCalls += 1;
+    onProgress?.(4, 4);
+    return "/home/.dshmux/models/ggml-large-v3-turbo.bin";
+  }
+  cancel() { this.cancelCalls += 1; }
+  dispose() { this.disposed = true; }
 }
 
 require.cache[daPath] = {
@@ -149,6 +179,17 @@ require.cache[localDictationPath] = {
     },
   },
 };
+require.cache[localDictationModelPath] = {
+  id: localDictationModelPath,
+  filename: localDictationModelPath,
+  loaded: true,
+  exports: {
+    LocalDictationModelError: class extends Error {
+      constructor(cancelled, message) { super(message); this.cancelled = cancelled; }
+    },
+    LocalDictationModelManager: FakeLocalDictationModelManager,
+  },
+};
 require.cache[versionServicePath] = {
   id: versionServicePath,
   filename: versionServicePath,
@@ -181,6 +222,8 @@ test.beforeEach(() => {
   availableUpgrade = undefined;
   dictationPreflightCalls = [];
   dictationControllers = [];
+  dictationModelManagers = [];
+  configurationHandlers = [];
   for (const key of Object.keys(configurationValues)) delete configurationValues[key];
   fakeVscode.env.remoteName = undefined;
 });
@@ -775,6 +818,7 @@ test("dictation stays hidden and cannot preflight while disabled", async () => {
   view.emitMessage({ type: "dshmux-dictation-start" });
   await flush();
   assert.equal(dictationPreflightCalls.length, 0);
+  assert.equal(dictationModelManagers[0].ensureCalls, 0);
   assert.deepEqual(lastPosted(view, "dshmux-dictation-state"), {
     type: "dshmux-dictation-state",
     generation: null,
@@ -791,6 +835,7 @@ test("enabled dictation lazily preflights, routes lifecycle events, and never us
   controller.resolveWebviewView(view);
   await flush();
   assert.match(assembleCalls.at(-1).chromeHtml, /<button id="dshmux-dictation-toggle"/);
+  assert.equal(dictationModelManagers[0].ensureCalls, 1);
 
   view.emitMessage({ type: "dshmux-dictation-start" });
   await flush();
@@ -822,6 +867,23 @@ test("enabled dictation lazily preflights, routes lifecycle events, and never us
   assert.equal(dictationControllers[0].cancelCalls, 1);
   controller.dispose();
   assert.equal(dictationControllers[0].disposed, true);
+  assert.equal(dictationModelManagers[0].disposed, true);
+});
+
+test("enabling the setting starts managed setup and disabling cancels it", async () => {
+  const controller = new DshChatView(makeContext(), makeManager());
+  const event = {
+    affectsConfiguration: (key) => key === "dshmux.experimental.localDictation",
+  };
+  assert.equal(dictationModelManagers[0].ensureCalls, 0);
+  configurationValues["dshmux.experimental.localDictation.enabled"] = true;
+  configurationHandlers[0](event);
+  await flush();
+  assert.equal(dictationModelManagers[0].ensureCalls, 1);
+  configurationValues["dshmux.experimental.localDictation.enabled"] = false;
+  configurationHandlers[0](event);
+  assert.equal(dictationModelManagers[0].cancelCalls, 1);
+  controller.dispose();
 });
 
 test("remote host and untested DSH version fail closed before native work", async () => {
@@ -831,6 +893,7 @@ test("remote host and untested DSH version fail closed before native work", asyn
   const remoteView = makeWebviewView();
   remote.resolveWebviewView(remoteView);
   await flush();
+  assert.equal(dictationModelManagers[0].ensureCalls, 0);
   assert.doesNotMatch(assembleCalls.at(-1).chromeHtml, /<button id="dshmux-dictation-toggle"/);
   remoteView.emitMessage({ type: "dshmux-dictation-start" });
   await flush();
