@@ -214,6 +214,190 @@
     };
   }
 
+  var SUITS = ["♠", "♥", "♦", "♣"];
+
+  function newSolitaire(random) {
+    var deck = [];
+    for (var suit = 0; suit < 4; suit++) {
+      for (var rank = 1; rank <= 13; rank++) deck.push({ suit: suit, rank: rank, faceUp: false });
+    }
+    for (var i = deck.length - 1; i > 0; i--) {
+      var swap = boundedRandomIndex(random, i + 1);
+      var card = deck[i];
+      deck[i] = deck[swap];
+      deck[swap] = card;
+    }
+    var tableau = [[], [], [], [], [], [], []];
+    for (var column = 0; column < 7; column++) {
+      for (var row = 0; row <= column; row++) {
+        var dealt = deck.pop();
+        dealt.faceUp = row === column;
+        tableau[column].push(dealt);
+      }
+    }
+    return {
+      stock: deck,
+      waste: [],
+      foundations: [[], [], [], []],
+      tableau: tableau,
+      selected: null,
+      won: false,
+      moves: 0,
+    };
+  }
+
+  function solitaireCardKey(card) {
+    return card.suit + ":" + card.rank;
+  }
+
+  function oppositeColor(a, b) {
+    return (a.suit === 1 || a.suit === 2) !== (b.suit === 1 || b.suit === 2);
+  }
+
+  function canPlaceTableau(card, target) {
+    return target ? !!target.faceUp && oppositeColor(card, target) && card.rank + 1 === target.rank : card.rank === 13;
+  }
+
+  function canPlaceFoundation(card, foundation) {
+    if (!foundation.length) return card.rank === 1;
+    var top = foundation[foundation.length - 1];
+    return top.suit === card.suit && card.rank === top.rank + 1;
+  }
+
+  function finishSolitaireMove(state) {
+    state.selected = null;
+    state.moves += 1;
+    state.won = state.foundations.reduce(function (sum, pile) { return sum + pile.length; }, 0) === 52;
+    return true;
+  }
+
+  function drawSolitaireStock(state) {
+    state.selected = null;
+    if (state.stock.length) {
+      var card = state.stock.pop();
+      card.faceUp = true;
+      state.waste.push(card);
+      state.moves += 1;
+      return true;
+    }
+    if (!state.waste.length) return false;
+    while (state.waste.length) {
+      var recycled = state.waste.pop();
+      recycled.faceUp = false;
+      state.stock.push(recycled);
+    }
+    state.moves += 1;
+    return true;
+  }
+
+  function flipSolitaireTableau(state, column) {
+    var pile = state.tableau[column];
+    if (!pile || !pile.length || pile[pile.length - 1].faceUp) return false;
+    pile[pile.length - 1].faceUp = true;
+    return finishSolitaireMove(state);
+  }
+
+  function moveSolitaireWaste(state, destinationKind, destination) {
+    var card = state.waste[state.waste.length - 1];
+    if (!card) return false;
+    if (destinationKind === "tableau") {
+      var targetPile = state.tableau[destination];
+      if (!targetPile || !canPlaceTableau(card, targetPile[targetPile.length - 1])) return false;
+      targetPile.push(state.waste.pop());
+      return finishSolitaireMove(state);
+    }
+    var foundation = state.foundations[destination];
+    if (!foundation || destination !== card.suit || !canPlaceFoundation(card, foundation)) return false;
+    foundation.push(state.waste.pop());
+    return finishSolitaireMove(state);
+  }
+
+  function validTableauRun(cards) {
+    if (!cards.length || !cards[0].faceUp) return false;
+    for (var i = 1; i < cards.length; i++) {
+      if (!cards[i].faceUp || !oppositeColor(cards[i - 1], cards[i]) || cards[i - 1].rank !== cards[i].rank + 1) return false;
+    }
+    return true;
+  }
+
+  function moveSolitaireTableau(state, fromColumn, fromIndex, toColumn) {
+    if (fromColumn === toColumn) return false;
+    var source = state.tableau[fromColumn];
+    var target = state.tableau[toColumn];
+    if (!source || !target || fromIndex < 0 || fromIndex >= source.length) return false;
+    var moving = source.slice(fromIndex);
+    if (!validTableauRun(moving) || !canPlaceTableau(moving[0], target[target.length - 1])) return false;
+    state.tableau[toColumn] = target.concat(moving);
+    source.splice(fromIndex);
+    return finishSolitaireMove(state);
+  }
+
+  function moveSolitaireTableauToFoundation(state, column, foundationIndex) {
+    var source = state.tableau[column];
+    var card = source && source[source.length - 1];
+    var foundation = state.foundations[foundationIndex];
+    if (!card || !card.faceUp || !foundation || foundationIndex !== card.suit || !canPlaceFoundation(card, foundation)) return false;
+    foundation.push(source.pop());
+    return finishSolitaireMove(state);
+  }
+
+  function moveSolitaireFoundationToTableau(state, foundationIndex, column) {
+    var foundation = state.foundations[foundationIndex];
+    var target = state.tableau[column];
+    var card = foundation && foundation[foundation.length - 1];
+    if (!card || !target || !canPlaceTableau(card, target[target.length - 1])) return false;
+    target.push(foundation.pop());
+    return finishSolitaireMove(state);
+  }
+
+  function snapshotSolitaire(state) {
+    if (!state || state.won) return null;
+    function copyPile(pile) {
+      return pile.map(function (card) { return { suit: card.suit, rank: card.rank, faceUp: !!card.faceUp }; });
+    }
+    return {
+      stock: copyPile(state.stock),
+      waste: copyPile(state.waste),
+      foundations: state.foundations.map(copyPile),
+      tableau: state.tableau.map(copyPile),
+      selected: null,
+      won: false,
+      moves: Math.max(0, Math.floor(Number(state.moves) || 0)),
+    };
+  }
+
+  function restoreSolitaire(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || snapshot.won) return null;
+    if (!Array.isArray(snapshot.stock) || !Array.isArray(snapshot.waste)
+      || !Array.isArray(snapshot.foundations) || snapshot.foundations.length !== 4
+      || !Array.isArray(snapshot.tableau) || snapshot.tableau.length !== 7) return null;
+    var piles = [snapshot.stock, snapshot.waste].concat(snapshot.foundations, snapshot.tableau);
+    var seen = new Set();
+    var count = 0;
+    for (var p = 0; p < piles.length; p++) {
+      if (!Array.isArray(piles[p])) return null;
+      for (var c = 0; c < piles[p].length; c++) {
+        var card = piles[p][c];
+        if (!card || !Number.isInteger(card.suit) || card.suit < 0 || card.suit > 3
+          || !Number.isInteger(card.rank) || card.rank < 1 || card.rank > 13) return null;
+        var key = solitaireCardKey(card);
+        if (seen.has(key)) return null;
+        seen.add(key);
+        count += 1;
+      }
+    }
+    if (count !== 52) return null;
+    var restored = snapshotSolitaire({
+      stock: snapshot.stock,
+      waste: snapshot.waste,
+      foundations: snapshot.foundations,
+      tableau: snapshot.tableau,
+      won: false,
+      moves: snapshot.moves,
+    });
+    return restored;
+  }
+
   /** A DOM-free delayed-offer state machine, also used directly by tests. */
   function createOfferGate(options) {
     var schedule = options.setTimeout;
@@ -274,30 +458,45 @@
     var random = typeof config.random === "function" ? config.random : Math.random;
     var strings = config.strings || {};
     var text = {
-      open: strings.open || "Play Mux Trail while DSH works",
-      close: strings.close || "Close Mux Trail",
-      description: strings.description || "Guide the signal and collect packets.",
+      open: strings.open || "Play while DSH works",
+      close: strings.close || "Close Mux Arcade",
+      title: strings.title || "Mux Arcade",
+      trail: strings.trail || "Mux Trail",
+      solitaire: strings.solitaire || "Solitaire",
+      description: strings.description || "Choose Mux Trail or Solitaire while DSH works.",
       score: strings.score || "Score {score} · Best {maxScore}",
+      solitaireProgress: strings.solitaireProgress || "Home {count}/52",
       instructions: strings.instructions || "Arrows / WASD · Esc closes",
+      solitaireInstructions: strings.solitaireInstructions || "Select a card, then its destination. Click a covered card to turn it.",
       ready: strings.ready || "Choose a direction to start",
       gameOver: strings.gameOver || "Signal lost",
       won: strings.won || "Grid complete",
+      solitaireWon: strings.solitaireWon || "All suits are home",
       restart: strings.restart || "Play again",
+      newDeal: strings.newDeal || "New deal",
+      stock: strings.stock || "Stock",
+      waste: strings.waste || "Waste",
+      foundation: strings.foundation || "Foundation",
     };
     var style;
     var launcher;
     var overlay;
     var dialog;
+    var trailTab;
+    var solitaireTab;
     var canvas;
+    var solitaireBoard;
     var scoreLabel;
     var statusLabel;
     var restartButton;
     var resizeObserver;
     var tickTimer;
     var game;
+    var solitaireGame;
     var storage;
-    var storedState = { version: 1, maxScore: 0, rounds: {} };
+    var storedState = { version: 1, maxScore: 0, rounds: {}, solitaireRounds: {}, selectedGames: {} };
     var activeSessionKey;
+    var activeGameType = "trail";
     var open = false;
     var destroyed = false;
 
@@ -332,6 +531,8 @@
         var maxScore = Number(value.maxScore);
         storedState.maxScore = Number.isInteger(maxScore) && maxScore >= 0 ? maxScore : 0;
         storedState.rounds = value.rounds && typeof value.rounds === "object" ? value.rounds : {};
+        storedState.solitaireRounds = value.solitaireRounds && typeof value.solitaireRounds === "object" ? value.solitaireRounds : {};
+        storedState.selectedGames = value.selectedGames && typeof value.selectedGames === "object" ? value.selectedGames : {};
       } catch (error) {
         if (win.console && typeof win.console.error === "function") {
           win.console.error("[dsh-mux-trail] state load failed", error);
@@ -351,12 +552,20 @@
     }
 
     function persistGame() {
-      if (!game) return;
-      storedState.maxScore = Math.max(storedState.maxScore, game.score);
+      if (!game && !solitaireGame) return;
+      if (game) storedState.maxScore = Math.max(storedState.maxScore, game.score);
       if (activeSessionKey) {
-        var snapshot = snapshotGame(game);
-        if (snapshot) storedState.rounds[activeSessionKey] = snapshot;
-        else delete storedState.rounds[activeSessionKey];
+        if (game) {
+          var trailSnapshot = snapshotGame(game);
+          if (trailSnapshot) storedState.rounds[activeSessionKey] = trailSnapshot;
+          else delete storedState.rounds[activeSessionKey];
+        }
+        if (solitaireGame) {
+          var solitaireSnapshot = snapshotSolitaire(solitaireGame);
+          if (solitaireSnapshot) storedState.solitaireRounds[activeSessionKey] = solitaireSnapshot;
+          else delete storedState.solitaireRounds[activeSessionKey];
+        }
+        storedState.selectedGames[activeSessionKey] = activeGameType;
       }
       writeStoredState();
     }
@@ -366,6 +575,16 @@
       var restored = restoreGame(storedState.rounds[activeSessionKey]);
       if (!restored && storedState.rounds[activeSessionKey]) {
         delete storedState.rounds[activeSessionKey];
+        writeStoredState();
+      }
+      return restored;
+    }
+
+    function restoredSolitaireForSession() {
+      if (!activeSessionKey) return null;
+      var restored = restoreSolitaire(storedState.solitaireRounds[activeSessionKey]);
+      if (!restored && storedState.solitaireRounds[activeSessionKey]) {
+        delete storedState.solitaireRounds[activeSessionKey];
         writeStoredState();
       }
       return restored;
@@ -399,11 +618,13 @@
         ".dshmux-mux-trail-dialog{width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:10px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));box-shadow:0 8px 30px rgba(0,0,0,.35)}",
         ".dshmux-mux-trail-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}.dshmux-mux-trail-title{min-width:0;flex:1;margin:0;font-size:14px;line-height:24px}.dshmux-mux-trail-score{color:var(--vscode-descriptionForeground);font-size:12px;white-space:nowrap}",
         ".dshmux-mux-trail-close{width:28px;height:28px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--vscode-foreground);font:18px/1 var(--vscode-font-family);cursor:pointer}.dshmux-mux-trail-close:hover{background:var(--vscode-toolbar-hoverBackground,var(--vscode-list-hoverBackground))}",
+        ".dshmux-mux-game-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 8px}.dshmux-mux-game-tab{min-width:0;padding:5px 8px;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));font:12px var(--vscode-font-family);cursor:pointer}.dshmux-mux-game-tab[aria-selected=true]{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}",
         ".dshmux-mux-trail-canvas{display:block;width:100%;max-height:min(58vh,360px);aspect-ratio:1;border:1px solid var(--vscode-contrastBorder,var(--vscode-widget-border));border-radius:6px;background:var(--vscode-editor-background)}",
+        ".dshmux-solitaire{display:grid;gap:8px;min-height:300px}.dshmux-solitaire[hidden],.dshmux-mux-trail-canvas[hidden]{display:none!important}.dshmux-solitaire-top,.dshmux-solitaire-tableau{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.dshmux-solitaire-tableau{min-height:250px}.dshmux-solitaire-pile{position:relative;min-width:0;min-height:48px}.dshmux-solitaire-slot,.dshmux-solitaire-card{width:100%;height:48px;box-sizing:border-box;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;padding:2px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:bold 12px/1 var(--vscode-editor-font-family,var(--vscode-font-family));cursor:pointer}.dshmux-solitaire-slot{color:var(--vscode-descriptionForeground);background:transparent}.dshmux-solitaire-card{position:absolute;left:0;top:0;text-align:left;box-shadow:0 1px 2px rgba(0,0,0,.22)}.dshmux-solitaire-card.red{color:var(--vscode-errorForeground,#d33)}.dshmux-solitaire-card.covered{color:var(--vscode-button-foreground);background:repeating-linear-gradient(135deg,var(--vscode-button-background) 0 4px,var(--vscode-button-hoverBackground,var(--vscode-focusBorder)) 4px 8px)}.dshmux-solitaire-card.selected{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}.dshmux-solitaire-empty{position:absolute;inset:0}",
         ".dshmux-mux-trail-foot{display:flex;align-items:center;gap:8px;min-height:30px;margin-top:8px}.dshmux-mux-trail-status{min-width:0;flex:1;color:var(--vscode-descriptionForeground);font-size:11px;line-height:1.35}.dshmux-mux-trail-restart{border:0;border-radius:4px;padding:5px 9px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font:12px var(--vscode-font-family);cursor:pointer}",
         "@media(max-width:260px){.dshmux-mux-trail{padding:6px}.dshmux-mux-trail-dialog{width:calc(100vw - 12px);padding:8px}.dshmux-mux-trail-head{gap:4px}.dshmux-mux-trail-title{font-size:13px}.dshmux-mux-trail-foot{align-items:flex-start;flex-direction:column}}",
         "@media(prefers-reduced-motion:reduce){#dshmux-mux-trail-launch,.dshmux-mux-trail{transition:none;animation:none}}",
-        "@media(forced-colors:active){#dshmux-mux-trail-launch,.dshmux-mux-trail-dialog,.dshmux-mux-trail-canvas{border:1px solid CanvasText}.dshmux-mux-trail{forced-color-adjust:auto}}",
+        "@media(forced-colors:active){#dshmux-mux-trail-launch,.dshmux-mux-trail-dialog,.dshmux-mux-trail-canvas,.dshmux-solitaire-card,.dshmux-solitaire-slot{border:1px solid CanvasText}.dshmux-mux-trail{forced-color-adjust:auto}}",
       ].join("");
 
       launcher = button(text.open, "");
@@ -429,7 +650,7 @@
       var head = addClass(doc.createElement("div"), "dshmux-mux-trail-head");
       var title = addClass(doc.createElement("h2"), "dshmux-mux-trail-title");
       title.id = "dshmux-mux-trail-title";
-      title.textContent = "Mux Trail";
+      title.textContent = text.title;
       scoreLabel = addClass(doc.createElement("span"), "dshmux-mux-trail-score");
       var closeButton = button(text.close, "dshmux-mux-trail-close");
       closeButton.textContent = "×";
@@ -437,6 +658,19 @@
       head.appendChild(title);
       head.appendChild(scoreLabel);
       head.appendChild(closeButton);
+
+      var tabs = addClass(doc.createElement("div"), "dshmux-mux-game-tabs");
+      tabs.setAttribute("role", "tablist");
+      trailTab = button(text.trail, "dshmux-mux-game-tab");
+      trailTab.textContent = text.trail;
+      trailTab.setAttribute("role", "tab");
+      trailTab.addEventListener("click", function () { switchGame("trail"); });
+      solitaireTab = button(text.solitaire, "dshmux-mux-game-tab");
+      solitaireTab.textContent = text.solitaire;
+      solitaireTab.setAttribute("role", "tab");
+      solitaireTab.addEventListener("click", function () { switchGame("solitaire"); });
+      tabs.appendChild(trailTab);
+      tabs.appendChild(solitaireTab);
 
       var description = doc.createElement("p");
       description.id = "dshmux-mux-trail-description";
@@ -453,6 +687,10 @@
       canvas.setAttribute("role", "img");
       canvas.setAttribute("aria-label", text.description);
 
+      solitaireBoard = addClass(doc.createElement("div"), "dshmux-solitaire");
+      solitaireBoard.setAttribute("aria-label", text.solitaire);
+      solitaireBoard.hidden = true;
+
       var foot = addClass(doc.createElement("div"), "dshmux-mux-trail-foot");
       statusLabel = addClass(doc.createElement("div"), "dshmux-mux-trail-status");
       restartButton = button(text.restart, "dshmux-mux-trail-restart");
@@ -463,8 +701,10 @@
       foot.appendChild(restartButton);
 
       dialog.appendChild(head);
+      dialog.appendChild(tabs);
       dialog.appendChild(description);
       dialog.appendChild(canvas);
+      dialog.appendChild(solitaireBoard);
       dialog.appendChild(foot);
       overlay.appendChild(dialog);
       doc.head.appendChild(style);
@@ -485,8 +725,8 @@
       return value || fallback;
     }
 
-    function render() {
-      if (!open || !game || !canvas) return;
+    function renderTrail() {
+      if (!open || activeGameType !== "trail" || !game || !canvas) return;
       var rect = canvas.getBoundingClientRect();
       var cssSize = Math.max(180, Math.floor(Math.min(rect.width || 320, rect.height || rect.width || 320)));
       var ratio = Math.max(1, Math.min(2, Number(win.devicePixelRatio) || 1));
@@ -579,6 +819,166 @@
       }
     }
 
+    function solitaireRank(rank) {
+      return rank === 1 ? "A" : rank === 11 ? "J" : rank === 12 ? "Q" : rank === 13 ? "K" : String(rank);
+    }
+
+    function solitaireCardLabel(card) {
+      return solitaireRank(card.rank) + SUITS[card.suit];
+    }
+
+    function solitaireSelected(kind, pile, index) {
+      var selected = solitaireGame && solitaireGame.selected;
+      return !!selected && selected.kind === kind && selected.pile === pile
+        && (index === undefined || selected.index === index);
+    }
+
+    function afterSolitaireAction(changed) {
+      if (!changed) return false;
+      persistGame();
+      render();
+      return true;
+    }
+
+    function selectSolitaire(value) {
+      solitaireGame.selected = value;
+      render();
+    }
+
+    function trySolitaireDestination(kind, pile) {
+      var selected = solitaireGame.selected;
+      if (!selected) return false;
+      var moved = false;
+      if (selected.kind === "waste") moved = moveSolitaireWaste(solitaireGame, kind, pile);
+      else if (selected.kind === "tableau" && kind === "tableau") {
+        moved = moveSolitaireTableau(solitaireGame, selected.pile, selected.index, pile);
+      } else if (selected.kind === "tableau" && kind === "foundation") {
+        var sourcePile = solitaireGame.tableau[selected.pile];
+        if (sourcePile && selected.index === sourcePile.length - 1) {
+          moved = moveSolitaireTableauToFoundation(solitaireGame, selected.pile, pile);
+        }
+      } else if (selected.kind === "foundation" && kind === "tableau") {
+        moved = moveSolitaireFoundationToTableau(solitaireGame, selected.pile, pile);
+      }
+      return afterSolitaireAction(moved);
+    }
+
+    function solitaireCardButton(card, className) {
+      var node = button(solitaireCardLabel(card), "dshmux-solitaire-card " + className);
+      node.textContent = card.faceUp ? solitaireCardLabel(card) : "";
+      if (!card.faceUp) node.setAttribute("aria-label", text.stock);
+      return node;
+    }
+
+    function renderSolitaire() {
+      if (!open || activeGameType !== "solitaire" || !solitaireGame || !solitaireBoard) return;
+      if (typeof solitaireBoard.replaceChildren === "function") solitaireBoard.replaceChildren();
+      else solitaireBoard.textContent = "";
+
+      var top = addClass(doc.createElement("div"), "dshmux-solitaire-top");
+      for (var slotIndex = 0; slotIndex < 7; slotIndex++) {
+        var slot = addClass(doc.createElement("div"), "dshmux-solitaire-pile");
+        if (slotIndex === 0) {
+          var stock = button(text.stock, "dshmux-solitaire-slot");
+          stock.textContent = solitaireGame.stock.length ? "◆" : (solitaireGame.waste.length ? "↻" : "");
+          stock.addEventListener("click", function () { afterSolitaireAction(drawSolitaireStock(solitaireGame)); });
+          slot.appendChild(stock);
+        } else if (slotIndex === 1) {
+          var wasteCard = solitaireGame.waste[solitaireGame.waste.length - 1];
+          if (wasteCard) {
+            var waste = solitaireCardButton(wasteCard, solitaireSelected("waste", 0) ? "selected" : "");
+            waste.addEventListener("click", function () { selectSolitaire({ kind: "waste", pile: 0 }); });
+            waste.addEventListener("dblclick", function () {
+              var topWaste = solitaireGame.waste[solitaireGame.waste.length - 1];
+              if (topWaste) afterSolitaireAction(moveSolitaireWaste(solitaireGame, "foundation", topWaste.suit));
+            });
+            slot.appendChild(waste);
+          } else {
+            var wasteSlot = button(text.waste, "dshmux-solitaire-slot");
+            wasteSlot.textContent = "";
+            slot.appendChild(wasteSlot);
+          }
+        } else if (slotIndex >= 3) {
+          (function (foundationIndex) {
+            var foundation = solitaireGame.foundations[foundationIndex];
+            var topCard = foundation[foundation.length - 1];
+            var foundationNode = topCard
+              ? solitaireCardButton(topCard, solitaireSelected("foundation", foundationIndex) ? "selected" : "")
+              : button(text.foundation + " " + SUITS[foundationIndex], "dshmux-solitaire-slot");
+            if (!topCard) foundationNode.textContent = SUITS[foundationIndex];
+            foundationNode.addEventListener("click", function () {
+              if (trySolitaireDestination("foundation", foundationIndex)) return;
+              if (topCard) selectSolitaire({ kind: "foundation", pile: foundationIndex });
+            });
+            slot.appendChild(foundationNode);
+          })(slotIndex - 3);
+        }
+        top.appendChild(slot);
+      }
+
+      var tableau = addClass(doc.createElement("div"), "dshmux-solitaire-tableau");
+      for (var column = 0; column < 7; column++) {
+        (function (columnIndex) {
+          var pile = solitaireGame.tableau[columnIndex];
+          var pileNode = addClass(doc.createElement("div"), "dshmux-solitaire-pile");
+          if (!pile.length) {
+            var empty = button(text.foundation, "dshmux-solitaire-slot dshmux-solitaire-empty");
+            empty.textContent = "";
+            empty.addEventListener("click", function () { trySolitaireDestination("tableau", columnIndex); });
+            pileNode.appendChild(empty);
+          }
+          var offset = 0;
+          for (var cardIndex = 0; cardIndex < pile.length; cardIndex++) {
+            (function (index, topOffset) {
+              var card = pile[index];
+              var selectedClass = solitaireSelected("tableau", columnIndex, index) ? " selected" : "";
+              var colorClass = card.faceUp && (card.suit === 1 || card.suit === 2) ? "red" : card.faceUp ? "" : "covered";
+              var cardNode = solitaireCardButton(card, colorClass + selectedClass);
+              cardNode.style.top = topOffset + "px";
+              cardNode.style.zIndex = String(index + 1);
+              cardNode.addEventListener("click", function () {
+                if (!card.faceUp) {
+                  if (index === pile.length - 1) afterSolitaireAction(flipSolitaireTableau(solitaireGame, columnIndex));
+                  return;
+                }
+                if (trySolitaireDestination("tableau", columnIndex)) return;
+                selectSolitaire({ kind: "tableau", pile: columnIndex, index: index });
+              });
+              cardNode.addEventListener("dblclick", function () {
+                if (card.faceUp && index === pile.length - 1) {
+                  afterSolitaireAction(moveSolitaireTableauToFoundation(solitaireGame, columnIndex, card.suit));
+                }
+              });
+              pileNode.appendChild(cardNode);
+            })(cardIndex, offset);
+            offset += pile[cardIndex].faceUp ? 21 : 10;
+          }
+          pileNode.style.minHeight = Math.max(48, offset + 48) + "px";
+          tableau.appendChild(pileNode);
+        })(column);
+      }
+      solitaireBoard.appendChild(top);
+      solitaireBoard.appendChild(tableau);
+      var homeCount = solitaireGame.foundations.reduce(function (sum, pile) { return sum + pile.length; }, 0);
+      scoreLabel.textContent = interpolate(text.solitaireProgress, { count: String(homeCount) });
+      statusLabel.textContent = solitaireGame.won ? text.solitaireWon : text.solitaireInstructions;
+      restartButton.textContent = text.newDeal;
+      restartButton.hidden = false;
+    }
+
+    function render() {
+      if (!open) return;
+      var trailActive = activeGameType === "trail";
+      if (trailTab) trailTab.setAttribute("aria-selected", trailActive ? "true" : "false");
+      if (solitaireTab) solitaireTab.setAttribute("aria-selected", trailActive ? "false" : "true");
+      if (canvas) canvas.hidden = !trailActive;
+      if (solitaireBoard) solitaireBoard.hidden = trailActive;
+      if (trailActive) {
+        restartButton.textContent = text.restart;
+        renderTrail();
+      } else renderSolitaire();
+    }
+
     function clearTick() {
       if (tickTimer !== undefined) win.clearTimeout(tickTimer);
       tickTimer = undefined;
@@ -586,7 +986,7 @@
 
     function scheduleTick() {
       clearTick();
-      if (!open || !game || !game.started || game.over || doc.visibilityState === "hidden") return;
+      if (!open || activeGameType !== "trail" || !game || !game.started || game.over || doc.visibilityState === "hidden") return;
       tickTimer = win.setTimeout(function () {
         tickTimer = undefined;
         stepGame(game, random);
@@ -599,16 +999,31 @@
     function restartGame() {
       if (!open || !gate.state().offered) return;
       clearTick();
-      game = createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
+      if (activeGameType === "solitaire") solitaireGame = newSolitaire(random);
+      else game = createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
       persistGame();
       render();
+      dialog.focus();
+    }
+
+    function switchGame(kind) {
+      if (!open || (kind !== "trail" && kind !== "solitaire") || kind === activeGameType) return;
+      clearTick();
+      if (solitaireGame) solitaireGame.selected = null;
+      persistGame();
+      activeGameType = kind;
+      persistGame();
+      render();
+      if (kind === "trail") scheduleTick();
       dialog.focus();
     }
 
     function openDialog() {
       if (!gate.state().offered || !ensureDom()) return;
       clearTick();
+      activeGameType = activeSessionKey && storedState.selectedGames[activeSessionKey] === "solitaire" ? "solitaire" : "trail";
       game = restoredGameForSession() || createGame(random, DEFAULT_COLUMNS, DEFAULT_ROWS);
+      solitaireGame = restoredSolitaireForSession() || newSolitaire(random);
       open = true;
       launcher.hidden = true;
       overlay.hidden = false;
@@ -623,6 +1038,7 @@
       persistGame();
       open = false;
       game = undefined;
+      solitaireGame = undefined;
       if (overlay) overlay.hidden = true;
       if (launcher) launcher.hidden = !gate.state().offered;
       if (restoreFocus && launcher && !launcher.hidden) launcher.focus();
@@ -636,12 +1052,14 @@
         closeDialog(true);
         return;
       }
-      if (event.key === "Enter" && game && game.over) {
+      if (event.key === "Enter" && ((activeGameType === "trail" && game && game.over)
+        || (activeGameType === "solitaire" && solitaireGame && solitaireGame.won))) {
         event.preventDefault();
         event.stopPropagation();
         restartGame();
         return;
       }
+      if (activeGameType !== "trail") return;
       var direction = DIRECTIONS[event.key];
       if (!direction || !game) return;
       event.preventDefault();
@@ -725,6 +1143,8 @@
           score: game ? game.score : 0,
           maxScore: storedState.maxScore,
           gameOver: game ? game.over : false,
+          activeGame: activeGameType,
+          solitaireWon: solitaireGame ? solitaireGame.won : false,
         };
       },
     };
@@ -742,6 +1162,18 @@
     speedForScore: speedForScore,
     snapshotGame: snapshotGame,
     restoreGame: restoreGame,
+    SUITS: SUITS,
+    newSolitaire: newSolitaire,
+    canPlaceTableau: canPlaceTableau,
+    canPlaceFoundation: canPlaceFoundation,
+    drawSolitaireStock: drawSolitaireStock,
+    flipSolitaireTableau: flipSolitaireTableau,
+    moveSolitaireWaste: moveSolitaireWaste,
+    moveSolitaireTableau: moveSolitaireTableau,
+    moveSolitaireTableauToFoundation: moveSolitaireTableauToFoundation,
+    moveSolitaireFoundationToTableau: moveSolitaireFoundationToTableau,
+    snapshotSolitaire: snapshotSolitaire,
+    restoreSolitaire: restoreSolitaire,
     createOfferGate: createOfferGate,
     install: install,
   };

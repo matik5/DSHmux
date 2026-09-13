@@ -17,6 +17,14 @@ const {
   speedForScore,
   snapshotGame,
   restoreGame,
+  newSolitaire,
+  canPlaceTableau,
+  canPlaceFoundation,
+  drawSolitaireStock,
+  moveSolitaireWaste,
+  moveSolitaireTableau,
+  snapshotSolitaire,
+  restoreSolitaire,
   createOfferGate,
   install,
 } = require(sourcePath);
@@ -128,6 +136,58 @@ test("game snapshots restore valid live rounds and reject dead or malformed stat
   assert.equal(snapshotGame(game), null, "dead rounds must never be resumable");
   assert.equal(restoreGame({ ...snapshot, trail: [{ x: -1, y: 0 }] }), null);
   assert.equal(restoreGame({ ...snapshot, score: -1 }), null);
+});
+
+test("Solitaire deals a complete unique draw-one Klondike board", () => {
+  const game = newSolitaire(() => 0.37);
+  assert.equal(game.stock.length, 24);
+  assert.deepEqual(game.tableau.map((pile) => pile.length), [1, 2, 3, 4, 5, 6, 7]);
+  assert.ok(game.tableau.every((pile) => pile.at(-1).faceUp));
+  assert.ok(game.tableau.every((pile) => pile.slice(0, -1).every((card) => !card.faceUp)));
+  const cards = [...game.stock, ...game.tableau.flat()];
+  assert.equal(new Set(cards.map((card) => `${card.suit}:${card.rank}`)).size, 52);
+});
+
+test("Solitaire enforces alternating tableau and ascending same-suit foundations", () => {
+  const blackKing = { suit: 0, rank: 13, faceUp: true };
+  const redQueen = { suit: 1, rank: 12, faceUp: true };
+  const blackQueen = { suit: 3, rank: 12, faceUp: true };
+  assert.equal(canPlaceTableau(blackKing), true);
+  assert.equal(canPlaceTableau(redQueen, blackKing), true);
+  assert.equal(canPlaceTableau(blackQueen, blackKing), false);
+  assert.equal(canPlaceFoundation({ suit: 1, rank: 1, faceUp: true }, []), true);
+  assert.equal(canPlaceFoundation({ suit: 1, rank: 2, faceUp: true }, [{ suit: 1, rank: 1, faceUp: true }]), true);
+
+  const state = {
+    stock: [], waste: [{ suit: 1, rank: 1, faceUp: true }],
+    foundations: [[], [], [], []], tableau: [[], [], [], [], [], [], []],
+    selected: null, won: false, moves: 0,
+  };
+  assert.equal(moveSolitaireWaste(state, "foundation", 1), true);
+  assert.equal(state.foundations[1].length, 1);
+  state.tableau[0] = [blackKing];
+  state.tableau[1] = [redQueen, { suit: 3, rank: 11, faceUp: true }];
+  assert.equal(moveSolitaireTableau(state, 1, 0, 0), true);
+  assert.deepEqual(state.tableau[0].map((card) => card.rank), [13, 12, 11]);
+});
+
+test("Solitaire stock recycles and versioned snapshots reject duplicate cards", () => {
+  const game = newSolitaire(() => 0.11);
+  const firstDraw = game.stock.at(-1);
+  assert.equal(drawSolitaireStock(game), true);
+  assert.equal(game.waste.at(-1), firstDraw);
+  while (game.stock.length) drawSolitaireStock(game);
+  assert.equal(drawSolitaireStock(game), true, "empty stock recycles the waste pile");
+  assert.equal(game.waste.length, 0);
+  assert.equal(game.stock.length, 24);
+
+  const snapshot = snapshotSolitaire(game);
+  assert.deepEqual(restoreSolitaire(snapshot), game);
+  const duplicate = structuredClone(snapshot);
+  duplicate.stock[0] = { ...duplicate.tableau[0][0] };
+  assert.equal(restoreSolitaire(duplicate), null);
+  game.won = true;
+  assert.equal(snapshotSolitaire(game), null, "won deals must not resume");
 });
 
 test("offer gate waits exactly 3000 ms and duplicate begin is idempotent", () => {
@@ -304,6 +364,16 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   assert.equal(controller.state().open, true);
   assert.deepEqual(persisted.rounds["session:s1"].trail[0], savedHead, "live round resumes for the same session");
   assert.match(find(overlay, "dshmux-mux-trail-title").parentNode.children[1].textContent, /Best 0/);
+
+  const tabs = dialog.children.find((node) => node.className === "dshmux-mux-game-tabs");
+  tabs.children[1].dispatch("click");
+  assert.equal(controller.state().activeGame, "solitaire");
+  const solitaire = dialog.children.find((node) => node.className === "dshmux-solitaire");
+  assert.equal(solitaire.hidden, false);
+  assert.equal(fake.pendingCount, 0, "Solitaire has no animation loop");
+  solitaire.children[0].children[0].children[0].dispatch("click");
+  assert.equal(persisted.solitaireRounds["session:s1"].waste.length, 1);
+  assert.equal(persisted.selectedGames["session:s1"], "solitaire");
   controller.endWait("complete");
   controller.destroy();
   assert.equal(document.body.children.length, 0);

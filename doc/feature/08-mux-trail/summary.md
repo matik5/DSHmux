@@ -4,9 +4,9 @@
 
 **Status**: ✅ implemented and verified
 
-DSHmux now offers a small original **Mux Trail** waiting game when the visible
+DSHmux now offers a small original **Mux Arcade** waiting-game box when the visible
 AI session has been working for at least three seconds. The user chooses whether
-to open it; movement begins only after the first arrow/WASD input. Completion,
+to open it and can select Mux Trail or Solitaire at the top. Completion,
 question, approval, session change, server unavailability and document disposal
 immediately dismiss it.
 
@@ -26,11 +26,15 @@ immediately dismiss it.
 - Versioned per-session live-round persistence through VS Code webview state;
   the current score/board resumes after interruption, death clears the round,
   and the best score remains visible.
+- Original dependency-free draw-one Solitaire with 52-card deal, stock/waste,
+  seven tableau columns, four foundations, click-based moves and new deal.
+- The selected game and live Solitaire deal persist per DSH session; switching
+  away from Mux Trail stops its tick and Solitaire has no animation loop.
 
 ## Verification result
 
-The directly affected suite passed 78/78. The broad suite excluding two known
-baseline-failing files passed 181 tests with one skip and no failures. Seven
+The directly affected suite passed 81/81. The broad suite excluding two known
+baseline-failing files passed 184 tests with one skip and no failures. Seven
 platform-sensitive failures in the full project suite were reproduced unchanged
 in the primary worktree and are not caused by this feature. See
 [verification.md](verification.md) for evidence and suggested follow-up.

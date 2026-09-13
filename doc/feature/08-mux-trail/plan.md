@@ -18,6 +18,7 @@
 | R6 — isolatsioon/ühilduvus | T2, T3, T4, T5 | Olemasolev full suite; fail-safe adapter; mõlema pinna wiring; timer cleanup |
 | R7 — kvaliteet | T4, T5 | Kõik nõutud deterministlikud testid, compile, unit suite ja VSIX package |
 | R6a — vooru taastamine | T6 | Snapshot validation, same-session resume, death cleanup, max score ja state merge testid |
+| R2b — Solitaire samas kastis | T7 | Deal/rules/recycle/snapshot-testid ning controlleri tab/input/persistence test |
 
 ## Tasks
 
@@ -178,6 +179,9 @@ verification ei leia täitmata acceptance gap'i või märgib selle ausalt
 - **Pärast T6**: restore/death/max-score testid ja bridge state-merge test on
   rohelised; affected suite 78/78 ning lai regressiooniring 181 pass / 0 fail /
   1 skip. R6a gap'i ei jäänud.
+- **Pärast T7**: Solitaire'i pure-engine ja controlleri tab-testid on rohelised;
+  affected suite 81/81 ning lai regressiooniring 184 pass / 0 fail / 1 skip.
+  Mõlemad mängud kasutavad sama lifecycle'i ja Solitaire ei jäta timer'it.
 
 ### T6 — Current state, current score ja max score
 
@@ -201,6 +205,30 @@ const game = restoreGame(savedRound) || createGame(random, 18, 18);
 **Completion criteria**: elus voor jätkub sama sessiooni uuel ooteajal, surnud
 voor ei taastu, max score säilib ning DSH/webview muu state ei kao.
 
+### T7 — Mux Arcade selector ja draw-one Solitaire
+
+**Status**: ✅ done
+
+**Files**: `media/mux-trail.js`, `src/documentAssembly.ts`, `src/i18n.ts`,
+`src/i18nStrings.ts`, `test/muxTrail.test.js`, `test/dshChatView.test.js`
+
+- [x] Lisa dialogi ülaossa Mux Trail / Solitaire tablist ja aktiivse tab'i state.
+- [x] Implementeeri nullist 52-kaardiline draw-one Klondike engine.
+- [x] Lisa stock/waste, tableau run, foundation, flip, recycle, win ja new deal.
+- [x] Renderda responsive DOM-kaardid VS Code/high-contrast tokenitega.
+- [x] Salvesta Solitaire'i elus deal ja aktiivne game-tab sessioonipõhiselt.
+- [x] Lisa kõik uued UI-tekstid kümnes locale'is.
+- [x] Kata engine, snapshot validation, tab switch ja persisted draw testidega.
+
+```js
+switchGame("solitaire");
+moveSolitaireTableau(state, fromColumn, fromIndex, toColumn);
+```
+
+**Completion criteria**: kasutaja saab samas ootekastis valida ja mängida
+mõlemat mängu; Solitaire järgib dokumenteeritud reegleid, ei kasuta aktiivset
+loop'i ja taastub sama sessiooni järgmisel ooteajal.
+
 ## Order
 
 ```text
@@ -211,6 +239,7 @@ T2 lifecycle bridge ───┤
 T3 assembly/i18n/wiring┘
 
 T1 + T2 ──> T6 persistence ──> T5 close-out recheck
+T1 + T6 ──> T7 Solitaire ──> T5 close-out recheck
 ```
 
 *Related documents: discussion.md | req.md | solution.md*

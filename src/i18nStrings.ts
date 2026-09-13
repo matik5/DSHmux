@@ -19,41 +19,39 @@ export interface I18nRow {
 
 export const STRINGS = {
   // Mux Trail waiting-game easter egg
+  "muxTrail.title": {
+    en: "Mux Arcade", zh: "Mux Arcade", ja: "Mux Arcade", ko: "Mux Arcade",
+    et: "Mux Arcade", uk: "Mux Arcade", es: "Mux Arcade", pt: "Mux Arcade",
+    fr: "Mux Arcade", de: "Mux Arcade",
+  },
+  "muxTrail.trail": {
+    en: "Mux Trail", zh: "Mux Trail", ja: "Mux Trail", ko: "Mux Trail",
+    et: "Mux Trail", uk: "Mux Trail", es: "Mux Trail", pt: "Mux Trail",
+    fr: "Mux Trail", de: "Mux Trail",
+  },
+  "muxTrail.solitaire": {
+    en: "Solitaire", zh: "接龙", ja: "ソリティア", ko: "솔리테어",
+    et: "Solitaire", uk: "Пасьянс", es: "Solitario", pt: "Paciência",
+    fr: "Solitaire", de: "Solitär",
+  },
   "muxTrail.open": {
-    en: "Play Mux Trail while DSH works",
-    zh: "DSH 工作时玩 Mux Trail",
-    ja: "DSH の処理中に Mux Trail をプレイ",
-    ko: "DSH 작업 중 Mux Trail 플레이",
-    et: "Mängi DSH töötamise ajal Mux Traili",
-    uk: "Грати в Mux Trail, поки DSH працює",
-    es: "Jugar a Mux Trail mientras DSH trabaja",
-    pt: "Jogar Mux Trail enquanto o DSH trabalha",
-    fr: "Jouer à Mux Trail pendant que DSH travaille",
-    de: "Mux Trail spielen, während DSH arbeitet",
+    en: "Play while DSH works", zh: "DSH 工作时玩游戏", ja: "DSH の処理中にプレイ",
+    ko: "DSH 작업 중 플레이", et: "Mängi DSH töötamise ajal", uk: "Грати, поки DSH працює",
+    es: "Jugar mientras DSH trabaja", pt: "Jogar enquanto o DSH trabalha",
+    fr: "Jouer pendant que DSH travaille", de: "Spielen, während DSH arbeitet",
   },
   "muxTrail.close": {
-    en: "Close Mux Trail",
-    zh: "关闭 Mux Trail",
-    ja: "Mux Trail を閉じる",
-    ko: "Mux Trail 닫기",
-    et: "Sulge Mux Trail",
-    uk: "Закрити Mux Trail",
-    es: "Cerrar Mux Trail",
-    pt: "Fechar Mux Trail",
-    fr: "Fermer Mux Trail",
-    de: "Mux Trail schließen",
+    en: "Close Mux Arcade", zh: "关闭 Mux Arcade", ja: "Mux Arcade を閉じる",
+    ko: "Mux Arcade 닫기", et: "Sulge Mux Arcade", uk: "Закрити Mux Arcade",
+    es: "Cerrar Mux Arcade", pt: "Fechar Mux Arcade", fr: "Fermer Mux Arcade", de: "Mux Arcade schließen",
   },
   "muxTrail.description": {
-    en: "Guide the signal and collect packets.",
-    zh: "引导信号并收集数据包。",
-    ja: "信号を導いてパケットを集めます。",
-    ko: "신호를 안내하고 패킷을 수집하세요.",
-    et: "Juhi signaali ja korja pakette.",
-    uk: "Спрямовуйте сигнал і збирайте пакети.",
-    es: "Guía la señal y recoge paquetes.",
-    pt: "Guie o sinal e colete pacotes.",
-    fr: "Guidez le signal et collectez des paquets.",
-    de: "Steuere das Signal und sammle Pakete.",
+    en: "Choose Mux Trail or Solitaire while DSH works.", zh: "DSH 工作时选择 Mux Trail 或接龙。",
+    ja: "DSH の処理中に Mux Trail またはソリティアを選びます。",
+    ko: "DSH 작업 중 Mux Trail 또는 솔리테어를 선택하세요.",
+    et: "Vali DSH töötamise ajaks Mux Trail või Solitaire.", uk: "Оберіть Mux Trail або пасьянс, поки DSH працює.",
+    es: "Elige Mux Trail o Solitario mientras DSH trabaja.", pt: "Escolha Mux Trail ou Paciência enquanto o DSH trabalha.",
+    fr: "Choisissez Mux Trail ou Solitaire pendant que DSH travaille.", de: "Wähle Mux Trail oder Solitär, während DSH arbeitet.",
   },
   "muxTrail.score": {
     en: "Score {score} · Best {maxScore}",
@@ -67,6 +65,11 @@ export const STRINGS = {
     fr: "Score {score} · Record {maxScore}",
     de: "Punkte {score} · Rekord {maxScore}",
   },
+  "muxTrail.solitaireProgress": {
+    en: "Home {count}/52", zh: "归位 {count}/52", ja: "完成 {count}/52", ko: "완성 {count}/52",
+    et: "Koju {count}/52", uk: "Вдома {count}/52", es: "Base {count}/52", pt: "Base {count}/52",
+    fr: "Fondations {count}/52", de: "Ablage {count}/52",
+  },
   "muxTrail.instructions": {
     en: "Arrows / WASD · Esc closes",
     zh: "方向键 / WASD · Esc 关闭",
@@ -78,6 +81,18 @@ export const STRINGS = {
     pt: "Setas / WASD · Esc fecha",
     fr: "Flèches / WASD · Échap ferme",
     de: "Pfeile / WASD · Esc schließt",
+  },
+  "muxTrail.solitaireInstructions": {
+    en: "Select a card, then its destination. Click a covered card to turn it.",
+    zh: "先选牌，再选目标位置。点击盖牌翻开。",
+    ja: "カードを選び、次に移動先を選びます。裏向きのカードはクリックで開きます。",
+    ko: "카드를 선택한 뒤 옮길 곳을 선택하세요. 뒤집힌 카드를 클릭하면 열립니다.",
+    et: "Vali kaart ja siis sihtkoht. Kaetud kaardi pööramiseks klõpsa seda.",
+    uk: "Виберіть карту, потім місце. Натисніть закриту карту, щоб її відкрити.",
+    es: "Selecciona una carta y luego su destino. Pulsa una carta tapada para voltearla.",
+    pt: "Selecione uma carta e depois o destino. Clique numa carta fechada para virá-la.",
+    fr: "Sélectionnez une carte puis sa destination. Cliquez une carte cachée pour la retourner.",
+    de: "Wähle eine Karte und dann ihr Ziel. Klicke eine verdeckte Karte zum Umdrehen.",
   },
   "muxTrail.ready": {
     en: "Choose a direction to start",
@@ -115,6 +130,11 @@ export const STRINGS = {
     fr: "Grille terminée",
     de: "Raster vollständig",
   },
+  "muxTrail.solitaireWon": {
+    en: "All suits are home", zh: "所有花色已归位", ja: "すべての組札が完成しました", ko: "모든 무늬를 완성했습니다",
+    et: "Kõik mastid on kodus", uk: "Усі масті зібрано", es: "Todos los palos están completos", pt: "Todos os naipes estão completos",
+    fr: "Toutes les couleurs sont complètes", de: "Alle Farben sind abgelegt",
+  },
   "muxTrail.restart": {
     en: "Play again",
     zh: "再玩一次",
@@ -126,6 +146,23 @@ export const STRINGS = {
     pt: "Jogar novamente",
     fr: "Rejouer",
     de: "Noch einmal spielen",
+  },
+  "muxTrail.newDeal": {
+    en: "New deal", zh: "新牌局", ja: "新しく配る", ko: "새로 나누기",
+    et: "Uus jaotus", uk: "Нова роздача", es: "Nueva partida", pt: "Novo jogo",
+    fr: "Nouvelle donne", de: "Neu geben",
+  },
+  "muxTrail.stock": {
+    en: "Stock", zh: "牌堆", ja: "山札", ko: "더미",
+    et: "Pakk", uk: "Колода", es: "Mazo", pt: "Monte", fr: "Pioche", de: "Stapel",
+  },
+  "muxTrail.waste": {
+    en: "Waste", zh: "废牌堆", ja: "捨て札", ko: "버림패",
+    et: "Avatud pakk", uk: "Скидання", es: "Descarte", pt: "Descarte", fr: "Défausse", de: "Ablage",
+  },
+  "muxTrail.foundation": {
+    en: "Foundation", zh: "地基堆", ja: "組札", ko: "완성 더미",
+    et: "Kodu", uk: "База", es: "Base", pt: "Base", fr: "Fondation", de: "Fundament",
   },
   // launcher sidebar
   "launcher.subtitle": {

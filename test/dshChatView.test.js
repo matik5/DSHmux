@@ -147,7 +147,7 @@ test("loadSession re-assembles with the chosen session baked into the preset", a
   );
   assert.equal(assembleCalls[0].visibleSessionId, "sess-42", "Mux Trail must scope lifecycle events to the shown session");
   assert.match(assembleCalls[0].muxTrailJs, /Mux Trail/, "Mux Trail runtime must be loaded into the side-panel document");
-  assert.equal(assembleCalls[0].muxTrailStrings.open, "Play Mux Trail while DSH works");
+  assert.equal(assembleCalls[0].muxTrailStrings.open, "Play while DSH works");
   assert.equal(assembleCalls[0].frameFontScale, 0.9, "side-panel DSH frame must default to 0.9 zoom (dshmux.frameFontScale default)");
 
   const chrome = assembleCalls[0].chromeHtml;

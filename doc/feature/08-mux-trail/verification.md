@@ -10,6 +10,7 @@
 |---|---|---|
 | R1 — voluntary 3 s affordance | `createOfferGate` and lazy DOM in `media/mux-trail.js:152-203,235-366`; fake-clock and controller tests in `test/muxTrail.test.js` | ✅ |
 | R2 — game rules | Pure engine in `media/mux-trail.js:24-149`; deterministic movement, wrap, growth, spawn, collision and speed tests | ✅ |
+| R2b — Solitaire selector | Same-dialog tablist and pure draw-one Klondike engine cover deal, stock/waste, tableau/foundation, win and persisted selection | ✅ |
 | R3 — AI lifecycle | Fail-safe session-scoped adapter in `media/bridge-client.js:21-94,481-583,694-699`; legacy and remote-follow tests in `test/bridgeClient.test.js:296-402` | ✅ |
 | R4 — input and accessibility | Dialog/controller in `media/mux-trail.js:206-591`; keyboard, focus, responsive, ARIA, forced-colors and reduced-motion guards | ✅ |
 | R5 — original and local | One new dependency-free JS/canvas asset; no game package, image, font, audio, network, clipboard or telemetry path; VSIX content inspected | ✅ |
@@ -41,6 +42,10 @@
   (merge-safe `getState`/`setState` adapter). Controller tests prove a live
   same-session round resumes, death deletes it while preserving max score, and
   the bridge test proves unrelated webview state remains intact.
+- **T7** exists in `media/mux-trail.js` as pure Solitaire operations plus the
+  Mux Arcade tablist/DOM renderer. `muxTrailStrings()` passes every new label
+  from all ten locale columns. Tests cover unique deal, placement, recycle,
+  snapshot validation, tab switching, loop absence and persisted stock draw.
 
 ## Executed checks
 
@@ -48,9 +53,9 @@
 |---|---|
 | `node --check media/mux-trail.js` and `media/bridge-client.js` | ✅ |
 | `npm run compile` | ✅ |
-| Six directly affected test files | ✅ 78 passed, 0 failed |
-| All test files except the two known baseline-failing files | ✅ 181 passed, 0 failed, 1 skipped |
-| `npm run package -- --out /tmp/dshmux-mux-trail.vsix` | ✅ 78 files, 1.08 MB |
+| Six directly affected test files | ✅ 81 passed, 0 failed |
+| All test files except the two known baseline-failing files | ✅ 184 passed, 0 failed, 1 skipped |
+| `npm run package -- --out /tmp/dshmux-mux-arcade.vsix` | ✅ 78 files, 1.09 MB |
 | VSIX listing | ✅ contains `media/mux-trail.js`, updated bridge and compiled view/assembly code |
 | `git diff --check` | ✅ |
 

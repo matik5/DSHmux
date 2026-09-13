@@ -124,6 +124,16 @@ chrome'i ümberpaigutus ei nõuaks mängumootori ümberkirjutamist.
 - Mängumootori olemasolev pure state sisaldab juba kogu taastamiseks vajalikku
   infot: ruudustik, trail, packet, suunad, started/over/won ja score.
 
+### F10 — Ühise mängukasti seam
+
+- `media/mux-trail.js` omab juba lazy dialogi, lifecycle gate'i, storage adapterit
+  ja kogu keyboard/focus cleanup'i. Teise mängu lisamine samasse controller'isse
+  ei vaja uut assembly-, bridge- ega host-protokolli.
+- Dialogi canvas ja footer on controller'i enda DOM; nende kõrvale saab lisada
+  tablist'i ning Solitaire'i DOM-board'i upstream DSH selectoreid puudutamata.
+- `media/**` on juba VSIX-is ning Unicode'i standardsed mastisümbolid ei vaja
+  pilti, fonti ega kolmanda poole asset'it.
+
 ## 3. Gap
 
 Praegune bridge oskab küll AI töö algust, lõppu ja inimvastuse vajadust ära
@@ -237,5 +247,19 @@ ainult `❌`/`⏭️` ridadest ning kirjuta `summary.md`.
 - Kuva lokaliseeritud score real korraga `{score}` ja `{maxScore}`.
 - Lisa engine/controller/bridge testid restore'i, death cleanup'i, max score'i
   ja tundmatute webview-state väljade säilimise kohta.
+
+### S7 — Mux Arcade game selector ja Solitaire
+
+- Muuda sama lazy dialog pealkirjaga **Mux Arcade** kastiks ja lisa üles
+  ligipääsetav kahe nupuga tablist: Mux Trail / Solitaire.
+- Lisa samasse dependency-free runtime'i pure Solitaire engine: Fisher–Yates
+  deal, draw-one stock/recycle, tableau/foundation reeglid, flip, win ning
+  versioonitud snapshot/restore validation.
+- Renderda kaardid DOM button'itena VS Code theme tokenitega; kasuta klõpsa
+  source-then-destination mudelit ja top-card double-click foundation shortcut'i.
+- Peata Trail tick Solitaire'i valimisel; Solitaire ise ei kasuta loop'i.
+- Salvesta sessioonipõhiselt mõlema mängu elus state ja aktiivne tab.
+- Laienda typed i18n payload'i ning kõiki kümmet locale'i.
+- Lisa deterministic engine, invalid snapshot ja controller tab/state testid.
 
 *Seotud dokumendid: [discussion.md](discussion.md) | [req.md](req.md) | [plan.md](plan.md)*

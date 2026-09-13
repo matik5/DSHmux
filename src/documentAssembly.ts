@@ -69,13 +69,23 @@ export interface AssembleOptions {
 export interface MuxTrailStrings {
   open: string;
   close: string;
+  title: string;
+  trail: string;
+  solitaire: string;
   description: string;
   score: string;
+  solitaireProgress: string;
   instructions: string;
+  solitaireInstructions: string;
   ready: string;
   gameOver: string;
   won: string;
+  solitaireWon: string;
   restart: string;
+  newDeal: string;
+  stock: string;
+  waste: string;
+  foundation: string;
 }
 
 export interface Assembled {

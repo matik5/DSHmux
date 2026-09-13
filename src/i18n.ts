@@ -46,23 +46,43 @@ export function langCode(): string {
 export function muxTrailStrings(): {
   open: string;
   close: string;
+  title: string;
+  trail: string;
+  solitaire: string;
   description: string;
   score: string;
+  solitaireProgress: string;
   instructions: string;
+  solitaireInstructions: string;
   ready: string;
   gameOver: string;
   won: string;
+  solitaireWon: string;
   restart: string;
+  newDeal: string;
+  stock: string;
+  waste: string;
+  foundation: string;
 } {
   return {
     open: t("muxTrail.open"),
     close: t("muxTrail.close"),
+    title: t("muxTrail.title"),
+    trail: t("muxTrail.trail"),
+    solitaire: t("muxTrail.solitaire"),
     description: t("muxTrail.description"),
     score: t("muxTrail.score"),
+    solitaireProgress: t("muxTrail.solitaireProgress"),
     instructions: t("muxTrail.instructions"),
+    solitaireInstructions: t("muxTrail.solitaireInstructions"),
     ready: t("muxTrail.ready"),
     gameOver: t("muxTrail.gameOver"),
     won: t("muxTrail.won"),
+    solitaireWon: t("muxTrail.solitaireWon"),
     restart: t("muxTrail.restart"),
+    newDeal: t("muxTrail.newDeal"),
+    stock: t("muxTrail.stock"),
+    waste: t("muxTrail.waste"),
+    foundation: t("muxTrail.foundation"),
   };
 }

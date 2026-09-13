@@ -51,6 +51,22 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Surm või võit eemaldab jätkatava vooru, kuid max score säilib ja kuvatakse
   jooksva skoori kõrval. Edetabelit ei ole.
 
+### R2b — Solitaire valik samas mängukastis
+
+- Mängukasti ülaosas saab valida **Mux Trail** või **Solitaire**; valik ei
+  vaja uut VS Code view'd, command'i ega ooteikooni.
+- Solitaire on nullist kirjutatud lihtne draw-one Klondike: 52 unikaalset
+  kaarti, stock/waste, seitse tableau tulpa ja neli mastipõhist foundation'it.
+- Tableau ehitatakse kahanevalt ja vahelduva värviga, tühjale tulbale saab
+  asetada kuninga ning foundation kasvab sama masti ässast kuningani.
+- Kasutaja valib klõpsuga kaardi/rea ja seejärel sihtkoha; kaetud tulba
+  pealmise kaardi saab klõpsuga pöörata. Drag-and-drop ei ole nõutud.
+- Stock jagab ühe kaardi korraga ja tühjenedes saab waste'i piiramatult tagasi
+  stock'i pöörata. Uus jaotus on alati nupust saadaval.
+- Kõigi 52 kaardi foundation'isse viimine lõpetab jaotuse võiduga.
+- Solitaire ei kasuta animatsiooni-loop'i. Elus jaotus ja viimati valitud mäng
+  säilivad sama sessiooni state'is kuni võidu või uue jaotuseni.
+
 ### R3 — AI-töö lifecycle on alati ülimuslik
 
 - Mängu saab pakkuda ainult tegelikult nähtava/avatud sessiooni AI-töö ajal;
@@ -95,6 +111,9 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
   kuuluvad projekti olemasoleva MIT-litsentsi alla.
 - Ühtegi kolmanda poole mängumootorit, npm-paketti, koodinäidet, sprite'i,
   helifaili, fonti ega muud mänguvara ei lisata.
+- Solitaire kasutab ainult ajaloolisi standardkaardi reegleid, Unicode'i
+  mastisümboleid ning selles repos kirjutatud loogikat/CSS-i; ühtegi konkreetse
+  digitaalse Solitaire'i kujundust, teksti, heli ega koodi ei kopeerita.
 - Toode ei kasuta `Tetris` nime, tetromino-esitlust ega mõne tuntud mängu
   äratuntava ekraani/kujunduse koopiat.
 - Mäng kasutab ainult lihtsaid DSHmuxi-teemalisi geomeetrilisi elemente ning
@@ -137,6 +156,9 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Mängureeglite testid katavad liikumise, keelatud vastassuuna, servast
   wrap'imise, paketi korjamise/kasvu, paketi lubatud asukoha, enesekokkupõrke,
   skoori ja restarti.
+- Solitaire-testid katavad 52 unikaalse kaardi deal'i, tableau/foundation
+  placement'i, stock/waste recycle'i, rea liigutamise, snapshot restore'i,
+  duplikaatkaardi tagasilükkamise ning game-tab'i vahetuse.
 - Sisenditest tõendatakse, et suletud mäng ei püüa ühtegi gameplay-klahvi ning
   avatud mängu `Escape` sulgeb ja puhastab aktiivse loop'i.
 - Renderdus või DOM-test kontrollib kitsast vaadet, semantilisi nimesid ja
@@ -165,6 +187,9 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
    peatatakse server; vana mäng ei jää nähtavaks ega tööta taustal.
 8. **Kitsas/high-contrast vaade**: 240 px laiuses on mäng, skoor ja sulgemine
    kasutatavad ning rada/pakett on mustrite või kuju järgi eristatavad.
+9. **Solitaire**: mängukasti ülaosas valitakse Solitaire, stock'ist jagatakse
+   kaart, kehtiv kaart/rea liigutus õnnestub ning Mux Trailile tagasi lülitudes
+   ei tööta Solitaire taustal.
 
 ## 4. Selgelt scope'ist väljas
 
@@ -193,6 +218,9 @@ Käesoleva mustandi kinnitamine kiidab heaks järgmised soovitatud valikud:
 2026-09-13 lisas kasutaja samasse feature-round'i nõude säilitada elusa vooru
 current state/current score ning max score ja andis korralduse see samas
 worktree's implementeerida, ilma eraldi feature-nõuet loomata.
+
+2026-09-13 lisas kasutaja samasse mängukasti ülemise valiku **Mux Trail** /
+**Solitaire** ja andis korralduse Solitaire samas worktree's implementeerida.
 
 Kasutaja andis 2026-09-13 korralduse kinnitada nõuded, kinnitada järgnev
 `plan.md` ja feature implementeerida. Selle korralduse alusel võib pipeline
