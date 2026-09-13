@@ -51,6 +51,7 @@ type ChromeToHost =
 | R6 — Visual, responsive, accessible | T1, T5, T6 | Theme-token audit plus 240/320/480 px light/dark/high-contrast and keyboard/reduced-motion verification. |
 | R7 — Regression protection | T2, T3, T4, T5, T6 | Compile/full test suite pass; manual start→ready→new→switch→rename→archive→editor→stop→start flow passes; both webview surfaces reconnect after restart. |
 | R8 — KISS | T1–T5, T7 | No new dependency/framework or duplicate flow; old launcher/dead keys/tests removed; new modules are called; final diff-size and dead-code audit is documented. |
+| R9 — DSH sidebar visibility | T8 | Default collapses only the first DSH shell track; overflow toggles/restores it; rightbar track remains unchanged; preference uses webview state. |
 
 ## Tasks
 
@@ -299,6 +300,33 @@ No outstanding tasks.
 
 **Completion criteria**: Verification contains RTTM, live-code, regression, visual, and KISS evidence; plan states match facts; summary exists; and TODO truthfully reflects every unfinished/deferred item.
 
+### T8 — Add the DSH sidebar visibility toggle
+
+**Status**: ✅ done
+
+**Files and current locations**:
+
+- `src/chatChrome.ts` — overflow button and localized copy contract
+- `src/dshChatView.ts` — localization mapping only
+- `src/i18nStrings.ts` — Show/Hide copy in all ten languages
+- `media/chat-chrome.js` — webview state, shell discovery, first-track collapse/restore
+- `media/chat-chrome.css` — hide the left occupant and its resize handle
+- `test/chatChrome.test.js` — track-preservation and static structure regression
+
+- [x] Default an absent preference to hidden and persist explicit user choice through `getState`/`setState`.
+- [x] Add one overflow toggle whose text and `aria-pressed` state follow visibility.
+- [x] Resolve the shell through `[data-shell-overlay]`, not a generated CSS-module class.
+- [x] Replace only the leading pixel track with `0px`; retain and restore the remaining inline template.
+- [x] Observe only shell style changes after discovery, avoiding transcript/streaming observation.
+- [x] Add no host message, command, dependency, framework, or upstream source modification.
+
+```js
+hiddenSidebarGridTemplate("56px minmax(0px, 1fr) 320px")
+// => "0px minmax(0px, 1fr) 320px"
+```
+
+**Completion criteria**: The DSH rail is hidden on first use, the overflow action restores/re-hides it, the rightbar track is byte-for-byte preserved, and compile/focused tests pass.
+
 ## Implementation order
 
 ```text
@@ -313,6 +341,9 @@ T1 chrome + copy ──> T2 controller ──> T3 wiring ──┐
                                                    │
                                                    ▼
                                                   T7 close-out
+                                                   │
+                                                   ▼
+                                                  T8 sidebar toggle
 
 Audit A: after T1–T2
 Audit B: after T3–T4
@@ -326,6 +357,7 @@ Final audit: T7
 | Audit A — after T1–T2 | ✅ | R1–R8 | One chrome/controller path exists and TypeScript/browser parsing passes. Remaining: interaction tests, visual proof, and reduce/audit source size under R8. |
 | Audit B — after T3–T4 | ✅ | R1–R8 + dead paths | Runtime launcher path and second manifest view are gone; shared restart path compiles. Remaining dead paths are the old launcher tests and 12 `launcher.*` i18n keys, both assigned to T5/T6 cleanup. |
 | Final audit — T7 | ✅ | R1–R8 + live-code/KISS | Feature code, render matrix, compile, and 161-test non-baseline suite pass. Live-host smoke is deferred; seven full-suite failures reproduce in the primary worktree. See `verification.md`. |
+| R9 addendum — T8 | ✅ | R9 + KISS | One browser-local toggle reuses webview state and DSH's semantic shell anchor; no host contract, dependency, or upstream code was added. Compile and focused tests pass. |
 
 ---
 

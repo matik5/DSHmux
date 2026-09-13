@@ -22,6 +22,13 @@ body {
   overflow: hidden;
 }
 
+/* DSH owns a three-column shell. DSHmux marks that shell through its stable
+   overlay anchor and collapses only the first track; the right sidebar stays intact. */
+[data-dshmux-sidebar-hidden="true"] > :first-child,
+[data-dshmux-sidebar-hidden="true"] > [data-side="sidebar"] {
+  display: none !important;
+}
+
 #dshmux-chat-header,
 #dshmux-session-backdrop,
 #dshmux-overflow,

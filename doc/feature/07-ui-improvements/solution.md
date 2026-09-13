@@ -126,6 +126,12 @@ Praegu kutsuvad samas assemble'itud dokumendis nii `media/bridge-client.js` kui 
 | Lisada React/Vue või oma disainisüsteem | Väikese overlay jaoks ebaproportsionaalne ja vastuolus R8-ga. |
 | Muuta upstream DSH UI-d | Väljub kinnitatud scope'ist N1 ning muudaks uuendused hapraks. |
 
+### 1.8 Kinnitatud R9 addendum — DSH vasaku külgriba toggle
+
+DSHmuxi overflow saab ühe browser-local toggle'i. Vaikeseis on peidetud ja kasutaja valik säilib olemasolevas VS Code webview state'is. Hostile uut sõnumit, command'i ega backend-state'i ei lisata.
+
+Teostus leiab DSH kolmeveerulise shelli selle olemasoleva `[data-shell-overlay]` lapse kaudu, märgib ainult shelli ning muudab inline `grid-template-columns` esimese track'i `0px`-iks. Algne või DSH poolt hiljem uuesti arvutatud template säilitatakse taastamiseks. Väike `MutationObserver` jälgib pärast shelli leidmist ainult shelli `style` atribuuti; chati subtree/streaming'ut ei jälgita. CSS peidab sama shelli esimese lapse ja vasaku resize-handle'i. Nii jääb kolmas ehk DSH parempoolne track muutmata.
+
 ## 2. Facts
 
 ### 2.1 Praegune UI ja host
@@ -170,6 +176,9 @@ Praegu kutsuvad samas assemble'itud dokumendis nii `media/bridge-client.js` kui 
 | F21 | Launcheri testid katavad Doctor gate'i, state handshake'i ja auto-starti; neid ei tohi lihtsalt kaotada, vaid asjakohane käitumine liigub chat-view testidesse. | `test/dshLauncher.test.js:1-191` |
 | F22 | Chat-view testid katavad assemble'i, preset'i, loading'u, sama sessiooni no-op'i ja refresh-rassi. | `test/dshChatView.test.js:1-224` |
 | F23 | Bridge-client'il, document assembly'l, installil ja manageri sessiooni API-del on eraldi testid, mille lepingud peavad jätkuvalt läbima. | `test/bridgeClient.test.js`; `test/documentAssembly.test.js`; `test/installService.test.js`; `test/serverManager.test.js` |
+| F24 | DSH `AppFrame` renderdab inline kolme track'iga grid'i järjekorras sidebar, center, rightbar ning lisab `data-shell-overlay` ankru sama frame'i otseseks lapseks. | `/Users/mati/proj/deepseek-harness/packages/client/ui-layout/src/client/AppFrame.tsx:194-231` |
+| F25 | DSH vasak sidebar on frame'i esimene renderdatud element; `DocumentTitle` tagastab `null`. Vasaku resize-handle'i semantiline atribuut on `data-side="sidebar"`. | `/Users/mati/proj/deepseek-harness/packages/client/ui-layout/src/client/AppFrame.tsx:47-77,215-229`; `DocumentTitle.tsx:19-34` |
+| F26 | DSH collapsed olek jätab 56 px rail'i alles; see ei ole täielik peitmine. | `/Users/mati/proj/deepseek-harness/packages/client/ui-sidebar/src/client/contract/slots.ts:104-106`; `SidebarRoot.module.css:1-28` |
 
 ## 3. Gap
 
@@ -183,6 +192,7 @@ Praegu kutsuvad samas assemble'itud dokumendis nii `media/bridge-client.js` kui 
 | R6 | Launcher on responsive osaliselt, kuid uus dialog/header a11y leping puudub. | Tokenipõhine header/dialog koos kontrollitava focus/keyboard/HC/reduced-motion käitumisega. |
 | R7 | Põhifunktsioonid on olemas, kuid UI ümbertõstmine ja stop→start vajavad regressioonikaitset. | Teenuste lepingud jäävad; tests migrate; mõlemad chatipinnad refresh'ivad uue ready serveri järel. |
 | R8 | Launcher koondab umbes 730 rida template'i/controller'it paralleelselt chat-view'ga. | Launcher kustutatakse; kolm kitsast UI artefakti ja üks host-controller, ilma uue sõltuvuseta. |
+| R9 | DSH responsive collapse jätab 56 px valge rail'i ning DSHmuxil puudub täieliku peitmise valik. | Muuta ainult esimene shell-track nulliks, peita vasak occupant/handle ja säilitada toggle webview state'is. |
 
 ## 4. Call-site audit
 
@@ -350,6 +360,18 @@ Muudatused:
 - bridge test kinnitab API singleton'i;
 - launcher-test kustutatakse alles pärast samaväärse vajaliku coverage'i olemasolu;
 - `npm test` ja `npm run compile` peavad läbima ning `verification.md`-s tehakse R1–R8, dead-code ja KISS audit koos nõutud visuaalsete tõenditega.
+
+### T8 — Lisada DSH külgriba nähtavuse toggle
+
+**Failid**: `src/chatChrome.ts`, `src/dshChatView.ts`, `src/i18nStrings.ts`, `media/chat-chrome.js`, `media/chat-chrome.css`, `test/chatChrome.test.js`
+
+Muudatused:
+
+- lisa overflow'sse lokaliseeritud Show/Hide tegevus ilma host message contract'i laiendamata;
+- loe/kirjuta nähtavus olemasoleva VS Code webview state API kaudu, puuduv väärtus tähendab peidetud;
+- kasuta F24–F26 ankrut ja säilita inline grid'i teine/kolmas track muutmata;
+- jälgi pärast mount'i ainult frame'i enda style-muutusi ja taasta DSH viimane arvutatud template;
+- lisa pure helper'i, HTML-struktuuri, CSS hook'i ja kümne keele parity kontroll.
 
 ## 6. KISS kontroll enne plaani
 

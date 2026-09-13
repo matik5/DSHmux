@@ -26,6 +26,14 @@ test("relative time and persisted active-session parsing are deterministic", () 
   assert.equal(chrome.sessionIdFromStorage("not-json"), undefined);
 });
 
+test("DSH sidebar helper collapses only the first shell track", () => {
+  assert.equal(
+    chrome.hiddenSidebarGridTemplate("56px minmax(0px, 1fr) 320px"),
+    "0px minmax(0px, 1fr) 320px"
+  );
+  assert.equal(chrome.hiddenSidebarGridTemplate("minmax(0px, 1fr)"), "minmax(0px, 1fr)");
+});
+
 test("chrome HTML has accessible dialogs and safely serializes user text", () => {
   const dangerous = "</script><img src=x onerror=alert(1)>";
   const copy = new Proxy({}, { get: () => "label" });
@@ -38,6 +46,7 @@ test("chrome HTML has accessible dialogs and safely serializes user text", () =>
   }, "#root{}", "");
   assert.match(html, /aria-modal="true"/);
   assert.match(html, /id="dshmux-overflow" role="dialog"/);
+  assert.match(html, /data-command="toggle-dsh-sidebar"/);
   assert.match(html, /aria-live="polite"/);
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /\\u003c\/script>/);
@@ -52,6 +61,7 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /calc\(100vw\s*-\s*14px\)/);
   assert.match(css, /forced-colors:\s*active/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
+  assert.match(css, /data-dshmux-sidebar-hidden/);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);
   assert.match(
     script,

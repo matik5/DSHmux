@@ -8,6 +8,8 @@ DSHmux now has one chat-first sidebar view. The permanent launcher, duplicated s
 
 Sessions open in an in-view searchable Active/Archived popup with current-session state, relative times, rename/archive actions, keyboard/focus behavior, and narrow-width handling. Start/stop, Doctor, versions, and latest/next upgrade options are displayed only when relevant or requested. Stopped, starting, stopping, error, and session-loading states use the chat area as a recovery/progress surface.
 
+The embedded DSH app's own left sidebar/56 px rail is now hidden by default. A localized Show/Hide DSH sidebar action in the overflow menu restores or hides it, and the choice persists with the webview while leaving DSH's right sidebar track untouched.
+
 ## Main changes
 
 - Consolidated sidebar lifecycle, session state, polling, and actions into `DshChatView`.
@@ -16,6 +18,7 @@ Sessions open in an in-view searchable Active/Archived popup with current-sessio
 - Preserved the editor-tab surface and made both sidebar and editor documents reconnect after stop→start on a changed server port.
 - Reused one VS Code API handle per document across the bridge and injected chrome.
 - Added no runtime dependency or framework.
+- Added the sidebar toggle entirely in the existing browser chrome; no host message, command, or upstream DSH modification was needed.
 - Added controller, layout, chrome helper, bridge singleton, i18n, and editor restart coverage.
 - Rendered actual chrome assets in light, dark, and high-contrast palettes at 240/320/480 px, plus popup and recovery states; see [verification.md](verification.md).
 
@@ -23,8 +26,8 @@ Sessions open in an in-view searchable Active/Archived popup with current-sessio
 
 - `npm run compile`: pass.
 - Feature/unaffected suite: 161 pass, 0 fail, 1 existing platform skip.
-- Focused changed-area suite: 62 pass, 0 fail.
-- Full `npm test`: 216 pass, 7 unrelated baseline failures, 1 skip. The same failures reproduce in the primary worktree.
+- Focused changed-area suite: 76 pass, 0 fail.
+- Full `npm test`: 219 pass, 7 unrelated baseline failures, 1 skip. The same seven failures reproduce in the primary worktree.
 - Live Extension Development Host smoke testing remains outstanding because no native/browser automation surface was available. See [TODO.md](TODO.md).
 
 The implementation round is closed, but the feature is not formally complete while `TODO.md` is non-empty.

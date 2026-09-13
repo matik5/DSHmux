@@ -61,6 +61,10 @@
     }
   }
 
+  function hiddenSidebarGridTemplate(value) {
+    return String(value || "").replace(/^\s*-?\d+(?:\.\d+)?px\b/, "0px");
+  }
+
   function template(text, values) {
     return Object.keys(values || {}).reduce(function (out, key) {
       return out.split("{" + key + "}").join(String(values[key]));
@@ -93,6 +97,7 @@
     var sessionList = byId("dshmux-session-list");
     var emptyNew = byId("dshmux-empty-new");
     var overflow = byId("dshmux-overflow");
+    var sidebarToggle = byId("dshmux-toggle-dsh-sidebar");
     var stopButton = byId("dshmux-stop");
     var updateLatest = byId("dshmux-update-latest");
     var updateNext = byId("dshmux-update-next");
@@ -118,6 +123,9 @@
     var toastTimer;
     var readyObserver;
     var readyTimer;
+    var viewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
+    var dshSidebarVisible = viewState.dshSidebarVisible === true;
+    var dshSidebarFrame;
 
     function labelButton(button, label) {
       button.title = label;
@@ -152,6 +160,42 @@
       var command = button.getAttribute("data-command");
       if (menuCopy[command]) button.textContent = menuCopy[command];
     });
+
+    function applyDshSidebar() {
+      var overlayAnchor = doc.querySelector("#root [data-shell-overlay]");
+      var frame = overlayAnchor && overlayAnchor.parentElement;
+      if (!frame) return;
+      if (frame !== dshSidebarFrame) {
+        dshSidebarFrame = frame;
+        sidebarObserver.disconnect();
+        sidebarObserver.observe(frame, { attributes: true, attributeFilter: ["style"] });
+      }
+      if (dshSidebarVisible) {
+        frame.removeAttribute("data-dshmux-sidebar-hidden");
+        if (frame.dataset.dshmuxSidebarGrid) {
+          frame.style.gridTemplateColumns = frame.dataset.dshmuxSidebarGrid;
+          delete frame.dataset.dshmuxSidebarGrid;
+        }
+      } else {
+        var template = frame.style.gridTemplateColumns;
+        var hiddenTemplate = hiddenSidebarGridTemplate(template);
+        if (template && hiddenTemplate !== template) {
+          frame.dataset.dshmuxSidebarGrid = template;
+          frame.style.gridTemplateColumns = hiddenTemplate;
+        }
+        frame.setAttribute("data-dshmux-sidebar-hidden", "true");
+      }
+      sidebarToggle.textContent = dshSidebarVisible ? copy.hideDshSidebar : copy.showDshSidebar;
+      sidebarToggle.setAttribute("aria-pressed", dshSidebarVisible ? "true" : "false");
+      doc.body.setAttribute("data-dshmux-dsh-sidebar", dshSidebarVisible ? "visible" : "hidden");
+    }
+
+    var sidebarObserver = new win.MutationObserver(applyDshSidebar);
+    sidebarObserver.observe(doc.getElementById("root") || doc.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+    applyDshSidebar();
 
     function post(message) {
       vscode.postMessage(message);
@@ -501,6 +545,12 @@
       if (command !== "show-status") closeOverflow(true);
       if (command === "upgrade-latest") post({ type: "upgrade", channel: "latest" });
       else if (command === "upgrade-next") post({ type: "upgrade", channel: "next" });
+      else if (command === "toggle-dsh-sidebar") {
+        dshSidebarVisible = !dshSidebarVisible;
+        viewState.dshSidebarVisible = dshSidebarVisible;
+        if (typeof vscode.setState === "function") vscode.setState(viewState);
+        applyDshSidebar();
+      }
       else if (command === "show-status") post({ type: "show-status" });
       else post({ type: command });
     });
@@ -610,6 +660,7 @@
     relativeTime: relativeTime,
     timestampOf: timestampOf,
     sessionIdFromStorage: sessionIdFromStorage,
+    hiddenSidebarGridTemplate: hiddenSidebarGridTemplate,
     template: template,
     mount: mount,
   };

@@ -16,6 +16,8 @@ export interface ChatChromeCopy {
   openInEditor: string;
   openSettings: string;
   openDoctor: string;
+  showDshSidebar: string;
+  hideDshSidebar: string;
   statusVersions: string;
   status: string;
   ready: string;
@@ -114,6 +116,7 @@ export function chatChromeHtml(
   <button type="button" data-command="open-in-editor"></button>
   <button type="button" data-command="open-settings"></button>
   <button type="button" data-command="open-doctor"></button>
+  <button id="dshmux-toggle-dsh-sidebar" type="button" data-command="toggle-dsh-sidebar" aria-pressed="false"></button>
   <button type="button" data-command="show-status"></button>
   <dl id="dshmux-status-detail" role="status" aria-live="polite" hidden>
     <div><dt id="dshmux-state-label"></dt><dd id="dshmux-state-value"></dd></div>

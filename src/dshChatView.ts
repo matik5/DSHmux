@@ -224,6 +224,8 @@ export class DshChatView implements vscode.WebviewViewProvider {
       openInEditor: t("chrome.openInEditor"),
       openSettings: t("chrome.openSettings"),
       openDoctor: t("chrome.openDoctor"),
+      showDshSidebar: t("chrome.showDshSidebar"),
+      hideDshSidebar: t("chrome.hideDshSidebar"),
       statusVersions: t("chrome.statusVersions"),
       status: t("chrome.status"),
       ready: t("doctor.state.ready"),

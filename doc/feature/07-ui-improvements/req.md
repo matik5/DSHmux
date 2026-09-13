@@ -184,6 +184,24 @@ Vastuvõtt:
 - dependency manifestis pole selle feature'i tõttu uut runtime-paketti, kui kasutaja pole seda eraldi kinnitanud;
 - `verification.md` sisaldab lühikest KISS-auditit: taaskasutatud osad, eemaldatud osad, lisatud abstraktsioonide põhjendus ja põhjendamata koodikasvu puudumine.
 
+### R9 — DSH enda vasaku külgriba nähtavus
+
+DSH enda vasak navigatsiooniriba ei tohi kitsas DSHmuxi vaates vaikimisi chatilt ruumi võtta.
+
+Nõuded:
+
+- DSHmuxi overflow-menüüs on eraldi tegevus DSH külgriba näitamiseks või peitmiseks;
+- esmakordsel avamisel on DSH vasak külgriba, sealhulgas selle valge rail, peidetud;
+- kasutaja valik säilib sama webview taastamisel;
+- peitmine ei muuda DSH parempoolse detail/sidebar-paneeli laiust ega DSH sessiooniandmeid;
+- teostus kasutab DSH shelli olemasolevat stabiilset DOM-ankrut ega kirjuta upstream UI-d ümber.
+
+Vastuvõtt:
+
+- vaikeseisus algab chat DSHmuxi header'i järel vasakust servast ilma 56 px DSH rail'ita;
+- overflow-menüü `Show DSH sidebar` taastab riba ning sama kirje muutub `Hide DSH sidebar` tegevuseks;
+- uuesti peitmine vabastab vasaku veeru ruumi ning parem detailpaneel säilitab oma arvutatud laiuse.
+
 ## 3. Kinnitatavad tooteotsused
 
 Selle `req.md` kinnitamine kinnitab ühtlasi järgmised valikud:
@@ -197,12 +215,13 @@ Selle `req.md` kinnitamine kinnitab ühtlasi järgmised valikud:
 | D5 | Sessioonivalik on vaikimisi piiratud aktiivse workspace'iga; arhiiv on eraldi teisene jaotis. |
 | D6 | Olemasolev editor-tab säilib `Open in editor` teisese võimalusena. |
 | D7 | Feature muudab DSHmuxi chrome'i; upstream DSH Web UI sisemine ümberkujundus ei kuulu scope'i. |
+| D8 | DSH vasaku külgriba nähtavuse kitsas override on D7 ainus erand: vaikimisi peidus, overflow'st taastatav. |
 
 ## 4. Mitte-eesmärgid
 
 | ID | Ei kuulu sellesse feature'isse |
 |---|---|
-| N1 | Upstream DSH Web UI sisemise navigatsiooni, chati, composeri, workspace'i või pluginate UI ümberkirjutamine. |
+| N1 | Upstream DSH Web UI sisemise navigatsiooni, chati, composeri, workspace'i või pluginate UI ümberkirjutamine; R9 nähtavuse toggle on kitsas erand. |
 | N2 | Uus sessiooni backend, sessioonide kustutamine, taastamine või sünkroonimissemantika. |
 | N3 | Kõigi workspace'ide globaalne sessioonibrauser; vaikimisi jäädakse aktiivse IDE workspace'i piiresse. |
 | N4 | Editor-tab'i eemaldamine või mitme editor-paneeli orkestreerimise ümbertegemine. |
@@ -220,7 +239,7 @@ Selle `req.md` kinnitamine kinnitab ühtlasi järgmised valikud:
 
 ## 6. Feature'i valmiskriteerium
 
-Feature on valmis ainult siis, kui R1–R8 vastuvõtud on täidetud, nõuete ja plaani RTTM on verifitseeritud ning `TODO.md` ütleb `No outstanding tasks.`. Visuaalse tulemuse kohta lisatakse `verification.md`-sse vähemalt ready-, session-popup-, stopped/error- ja narrow-width oleku ekraanipildid või renderdatud tõendid.
+Feature on valmis ainult siis, kui R1–R9 vastuvõtud on täidetud, nõuete ja plaani RTTM on verifitseeritud ning `TODO.md` ütleb `No outstanding tasks.`. Visuaalse tulemuse kohta lisatakse `verification.md`-sse vähemalt ready-, session-popup-, stopped/error- ja narrow-width oleku ekraanipildid või renderdatud tõendid.
 
 ---
 

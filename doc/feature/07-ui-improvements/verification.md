@@ -18,6 +18,7 @@
 | R6 — Visual/a11y/responsive | ✅ with live-host follow-up | Runtime-asset renders cover light/dark/high-contrast palettes and 240/320/480 widths; CSS/source tests cover token use, forced colors, focus-visible, `aria-live`, `aria-busy`, dialog/listbox semantics, and reduced motion. Live screen-reader behavior remains part of the Extension Host smoke item below. |
 | R7 — Regression protection | ✅ feature scope / ⚠ repository baseline | Sidebar and editor tests cover stop→ready with a changed port; bridge tests cover transport, clipboard, theme, sounds, and singleton acquisition. Compile and 161 relevant tests pass. Full suite has seven unrelated baseline failures described below. |
 | R8 — KISS | ✅ | One sidebar controller replaces the launcher/chat split; old launcher source/test/i18n/manifest paths are removed; no runtime dependency or framework was added; new files follow the approved content/style/behavior boundaries. |
+| R9 — DSH sidebar visibility | ✅ source/automated, live follow-up | Overflow contains one localized toggle. Missing webview state defaults to hidden. The pure track transform changes `56px minmax(0px, 1fr) 320px` to `0px minmax(0px, 1fr) 320px`; CSS hides only the first occupant and left handle. Live installed-build inspection remains part of G1. |
 
 ## Live-code audit
 
@@ -28,6 +29,7 @@ Every implementation marked done exists and is reached:
 - Its validated message router calls the existing manager APIs for list/create/open/rename/archive/start/stop and existing commands/services for editor/settings/Doctor/status/latest/next.
 - `media/bridge-client.js`, `media/chat-chrome.js`, and `DshPanel` all use the same document-scoped `window.__DSHMUX_VSCODE_API__` handle.
 - Both `DshChatView` and `DshPanel` mark assembled documents stale on non-ready state and reassemble on the next ready URL; runtime tests execute both paths.
+- `media/chat-chrome.js` resolves the DSH shell from `[data-shell-overlay]`, persists the toggle through the existing webview API, and observes only that frame's inline style after discovery.
 - `rg` finds no runtime `DshLauncherView`, `dshmux.view`, `launcher?.refresh`, `launcher.*` i18n, obsolete `sessions.new`, or obsolete `upgrade.title` path.
 
 ## Automated verification
@@ -37,9 +39,9 @@ Every implementation marked done exists and is reached:
 | `npm run compile` | ✅ pass |
 | `node --check media/chat-chrome.js` | ✅ pass |
 | Feature and unaffected-suite run excluding the two known baseline files | ✅ 161 pass, 0 fail, 1 existing platform skip |
-| Focused changed-area run | ✅ 62 pass, 0 fail |
+| Focused changed-area run | ✅ 76 pass, 0 fail |
 | `git diff --check` | ✅ pass |
-| Full `npm test` | ⚠ 216 pass, 7 fail, 1 skip |
+| Full `npm test` | ⚠ 219 pass, 7 fail, 1 skip |
 
 The seven full-suite failures are six Windows-path assertions in unchanged `test/installService.test.js` and one non-hermetic Node-discovery assertion in unchanged `test/serverManager.test.js`. Running those same two unchanged tests in `/Users/mati/proj/DSHmux` reproduces the same seven failures. They are therefore baseline issues, not regressions from this feature; changing installation or runtime discovery is outside R1–R8.
 
