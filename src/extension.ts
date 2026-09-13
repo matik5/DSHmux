@@ -167,6 +167,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push({
     dispose: () => {
+      chatView?.dispose();
       manager?.stop();
     },
   });

@@ -9,6 +9,12 @@
   "setting.soundDone.description": "任务完成时播放提示音（需开启总开关）。",
   "setting.soundAsk.description": "需要您输入时（例如提问或审批提示）播放提示音（需开启总开关）。",
   "setting.frameFontScale.description": "内嵌 DSH 界面内容的缩放（1 = 默认大小）。数值越小，DSH 界面越紧凑。",
+  "setting.localDictation.enabled.description": "实验性功能：使用外部 whisper.cpp 运行时和 OpenAI Whisper large-v3-turbo 模型进行本地转录。默认关闭；此原型仅支持本地 Apple 芯片 macOS 和 Windows x64。",
+  "setting.localDictation.language.description": "实验性本地听写的语言提示。",
+  "setting.localDictation.ffmpegPath.description": "用于麦克风采集的本机 FFmpeg 可执行文件绝对路径（可选）。DSHmux 不会下载 FFmpeg。",
+  "setting.localDictation.whisperPath.description": "本机 whisper-cli 可执行文件的绝对路径（可选）。留空时搜索 PATH 和常见 Homebrew 位置。DSHmux 不会下载它。",
+  "setting.localDictation.modelPath.description": "官方完整 GGML OpenAI Whisper large-v3-turbo 模型的绝对路径。DSHmux 不会下载或复制该模型。",
+  "setting.localDictation.audioDevice.description": "FFmpeg 麦克风设备（可选）。macOS 留空时使用默认设备；Windows 需要准确的 DirectShow 音频设备名称。",
   "command.openPanel.title": "打开面板",
   "command.doctor.title": "运行 DSH 诊断",
   "view.chat.name": "DSHmux"

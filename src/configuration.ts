@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 const CONFIG_NAMESPACE = "dshmux";
 const LEGACY_CONFIG_NAMESPACE = "deepseekHarness";
+const LOCAL_DICTATION_PREFIX = "experimental.localDictation";
 
 interface ConfigurationValues<T> {
   globalValue?: T;
@@ -70,7 +71,34 @@ export function soundSettings(): SoundSettings {
   };
 }
 
+/** Disabled-by-default settings for the local dictation feasibility prototype. */
+export interface LocalDictationConfiguration {
+  enabled: boolean;
+  language: "en-US" | "et-EE";
+  ffmpegPath: string;
+  whisperPath: string;
+  modelPath: string;
+  audioDevice: string;
+}
+
+export function localDictationSettings(): LocalDictationConfiguration {
+  const language = dshmuxConfiguration<string>(`${LOCAL_DICTATION_PREFIX}.language`, "en-US");
+  return {
+    enabled: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.enabled`, false),
+    language: language === "et-EE" ? "et-EE" : "en-US",
+    ffmpegPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.ffmpegPath`, "").trim(),
+    whisperPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.whisperPath`, "").trim(),
+    modelPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.modelPath`, "").trim(),
+    audioDevice: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.audioDevice`, "").trim(),
+  };
+}
+
 /** True when the event touches any of the four sound settings. */
 export function affectsAnySoundSetting(event: vscode.ConfigurationChangeEvent): boolean {
   return SOUND_SETTING_KEYS.some((key) => affectsDshmuxConfiguration(event, key));
+}
+
+/** True when any local dictation prototype setting changed. */
+export function affectsLocalDictationSetting(event: vscode.ConfigurationChangeEvent): boolean {
+  return affectsDshmuxConfiguration(event, LOCAL_DICTATION_PREFIX);
 }

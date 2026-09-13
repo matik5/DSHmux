@@ -9,6 +9,12 @@
   "setting.soundDone.description": "Play a sound when a task finishes (requires the master switch to be on).",
   "setting.soundAsk.description": "Play a sound when the harness asks for your input, such as a question or an approval prompt (requires the master switch to be on).",
   "setting.frameFontScale.description": "Zoom for the embedded DSH UI content (1 = default size). Lower values make the DSH interface more compact.",
+  "setting.localDictation.enabled.description": "Experimental: transcribe locally with an external whisper.cpp runtime and OpenAI Whisper large-v3-turbo model. Disabled by default and supported by this prototype only on local Apple-silicon macOS and Windows x64.",
+  "setting.localDictation.language.description": "Language hint for experimental local dictation.",
+  "setting.localDictation.ffmpegPath.description": "Optional absolute path to a locally installed FFmpeg executable used for microphone capture. DSHmux never downloads FFmpeg.",
+  "setting.localDictation.whisperPath.description": "Optional absolute path to a locally installed whisper-cli executable. When empty, DSHmux searches PATH and conventional Homebrew locations. DSHmux never downloads it.",
+  "setting.localDictation.modelPath.description": "Absolute path to the official full GGML OpenAI Whisper large-v3-turbo model. DSHmux never downloads or copies the model.",
+  "setting.localDictation.audioDevice.description": "Optional FFmpeg microphone device. macOS uses the default device when empty; Windows requires the exact DirectShow audio device name.",
   "command.openPanel.title": "Open Panel",
   "command.doctor.title": "Run DSH Doctor",
   "view.chat.name": "DSHmux"

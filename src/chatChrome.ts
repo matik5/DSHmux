@@ -42,6 +42,13 @@ export interface ChatChromeCopy {
   actionFailedTemplate: string;
   updateLatestTemplate: string;
   updateNextTemplate: string;
+  dictationStart: string;
+  dictationStop: string;
+  dictationPreparing: string;
+  dictationListening: string;
+  dictationStopping: string;
+  dictationErrorTemplate: string;
+  dictationComposerUnavailable: string;
 }
 
 export interface ChatChromeInit {
@@ -54,6 +61,7 @@ export interface ChatChromeInit {
   latestVersion?: string;
   nextVersion?: string;
   initialSessionLoading: boolean;
+  dictationEnabled?: boolean;
   copy: ChatChromeCopy;
 }
 
@@ -87,6 +95,14 @@ export function chatChromeHtml(
   css: string,
   script: string
 ): string {
+  const dictationHtml = init.dictationEnabled
+    ? `<div id="dshmux-dictation">
+    <span id="dshmux-dictation-status" role="status" aria-live="polite"></span>
+    <button id="dshmux-dictation-toggle" class="dshmux-icon-button" type="button" aria-pressed="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"/></svg>
+    </button>
+  </div>`
+    : "";
   return `
 <style id="dshmux-chat-chrome-style">${css}</style>
 <header id="dshmux-chat-header">
@@ -99,6 +115,7 @@ export function chatChromeHtml(
     </button>
   </div>
   <div id="dshmux-current-title" role="button" tabindex="0"></div>
+  ${dictationHtml}
   <button id="dshmux-more" class="dshmux-icon-button" type="button" aria-haspopup="dialog" aria-expanded="false">
     <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg>
   </button>

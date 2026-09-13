@@ -30,8 +30,10 @@ Module._load = function (request, _parent, _isMain) {
 const {
   affectsDshmuxConfiguration,
   affectsAnySoundSetting,
+  affectsLocalDictationSetting,
   configuredDshBin,
   dshmuxConfiguration,
+  localDictationSettings,
   soundSettings,
 } = require("../out/configuration.js");
 
@@ -97,4 +99,43 @@ test("affectsAnySoundSetting matches any of the four sound keys", () => {
   assert.equal(affectsAnySoundSetting(ask), true);
   assert.equal(affectsAnySoundSetting(master), true);
   assert.equal(affectsAnySoundSetting(other), false);
+});
+
+test("local dictation is disabled and local-only by default", () => {
+  assert.deepEqual(localDictationSettings(), {
+    enabled: false,
+    language: "en-US",
+    ffmpegPath: "",
+    whisperPath: "",
+    modelPath: "",
+    audioDevice: "",
+  });
+});
+
+test("local dictation settings trim paths and constrain the language", () => {
+  values.dshmux["experimental.localDictation.enabled"] = true;
+  values.dshmux["experimental.localDictation.language"] = "et-EE";
+  values.dshmux["experimental.localDictation.ffmpegPath"] = "  /opt/ffmpeg  ";
+  values.dshmux["experimental.localDictation.whisperPath"] = "  /opt/whisper-cli  ";
+  values.dshmux["experimental.localDictation.modelPath"] = "  /models/turbo.bin  ";
+  values.dshmux["experimental.localDictation.audioDevice"] = "  Mic  ";
+  assert.deepEqual(localDictationSettings(), {
+    enabled: true,
+    language: "et-EE",
+    ffmpegPath: "/opt/ffmpeg",
+    whisperPath: "/opt/whisper-cli",
+    modelPath: "/models/turbo.bin",
+    audioDevice: "Mic",
+  });
+  values.dshmux["experimental.localDictation.language"] = "unsupported";
+  assert.equal(localDictationSettings().language, "en-US");
+});
+
+test("local dictation setting changes are matched as one prefix", () => {
+  const matching = {
+    affectsConfiguration: (key) => key === "dshmux.experimental.localDictation",
+  };
+  const other = { affectsConfiguration: () => false };
+  assert.equal(affectsLocalDictationSetting(matching), true);
+  assert.equal(affectsLocalDictationSetting(other), false);
 });

@@ -117,6 +117,52 @@
           "minimum": 0.5,
           "maximum": 1.5,
           "description": "%setting.frameFontScale.description%"
+        },
+        "dshmux.experimental.localDictation.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "order": 100,
+          "description": "%setting.localDictation.enabled.description%"
+        },
+        "dshmux.experimental.localDictation.language": {
+          "type": "string",
+          "enum": [
+            "en-US",
+            "et-EE"
+          ],
+          "default": "en-US",
+          "scope": "machine",
+          "order": 110,
+          "description": "%setting.localDictation.language.description%"
+        },
+        "dshmux.experimental.localDictation.ffmpegPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 120,
+          "description": "%setting.localDictation.ffmpegPath.description%"
+        },
+        "dshmux.experimental.localDictation.whisperPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 125,
+          "description": "%setting.localDictation.whisperPath.description%"
+        },
+        "dshmux.experimental.localDictation.modelPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 127,
+          "description": "%setting.localDictation.modelPath.description%"
+        },
+        "dshmux.experimental.localDictation.audioDevice": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 130,
+          "description": "%setting.localDictation.audioDevice.description%"
         }
       }
     },

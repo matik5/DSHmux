@@ -142,6 +142,59 @@
     }, String(text || ""));
   }
 
+  function dictationClickRequest(isTrusted, state) {
+    if (!isTrusted) return undefined;
+    if (state === "idle" || state === "error") return "dshmux-dictation-start";
+    if (state === "preparing" || state === "listening") return "dshmux-dictation-stop";
+    return undefined;
+  }
+
+  function dictationCancelRequest(isTrusted, key, state) {
+    return isTrusted && key === "Escape" &&
+      (state === "preparing" || state === "listening" || state === "stopping")
+      ? "dshmux-dictation-cancel"
+      : undefined;
+  }
+
+  function visibleText(element) {
+    return String(element.innerText !== undefined ? element.innerText : element.textContent || "");
+  }
+
+  function insertComposerText(doc, transcript, schedule) {
+    return new Promise(function (resolve) {
+      var text = String(transcript || "").trim();
+      var editor = doc.querySelector('[data-composer-input][contenteditable="true"]');
+      if (!text || !editor) {
+        resolve({ ok: false, code: "composer-unavailable" });
+        return;
+      }
+      var before = visibleText(editor);
+      var join = before && !/\s$/.test(before) && !/^[,.;:!?)}\]'\"]/.test(text) ? " " : "";
+      var insertion = join + text;
+      try {
+        var selection = doc.getSelection ? doc.getSelection() : doc.defaultView.getSelection();
+        if (!selection) throw new Error("selection unavailable");
+        editor.focus();
+        selection.removeAllRanges();
+        selection.collapse(editor, editor.childNodes.length);
+        if (!doc.execCommand("insertText", false, insertion)) {
+          resolve({ ok: false, code: "composer-insert-failed" });
+          return;
+        }
+      } catch (_err) {
+        resolve({ ok: false, code: "composer-insert-failed" });
+        return;
+      }
+      (schedule || function (callback) { setTimeout(callback, 0); })(function () {
+        var after = visibleText(editor);
+        resolve({
+          ok: after.indexOf(before) === 0 && after.trimEnd().endsWith(text),
+          code: "composer-insert-failed",
+        });
+      });
+    });
+  }
+
   function mount(win) {
     var doc = win.document;
     var init = win.__DSHMUX_CHROME_INIT__;
@@ -181,6 +234,8 @@
     var startButton = byId("dshmux-start");
     var overlayDoctor = byId("dshmux-overlay-doctor");
     var toast = byId("dshmux-toast");
+    var dictationToggle = doc.getElementById("dshmux-dictation-toggle");
+    var dictationStatus = doc.getElementById("dshmux-dictation-status");
 
     var sessions = [];
     var archivedSessions = [];
@@ -211,6 +266,9 @@
     var dshSidebarFrame;
     var dshSidebarOccupant;
     var dshSidebarHandle;
+    var dictationState = "idle";
+    var dictationGeneration;
+    var dictationCompleted = false;
 
     function labelButton(button, label) {
       button.title = label;
@@ -237,6 +295,7 @@
     byId("dshmux-dsh-label").textContent = copy.dshVersion;
     startButton.textContent = copy.start;
     overlayDoctor.textContent = copy.openDoctor;
+    if (dictationToggle) labelButton(dictationToggle, copy.dictationStart);
 
     var menuCopy = {
       "open-in-editor": copy.openInEditor,
@@ -301,6 +360,60 @@
       toastTimer = win.setTimeout(function () {
         toast.hidden = true;
       }, 5000);
+    }
+
+    function renderDictationState(state, errorCode) {
+      if (!dictationToggle || !dictationStatus) return;
+      dictationState = state;
+      var active = state === "preparing" || state === "listening" || state === "stopping";
+      dictationToggle.setAttribute("aria-pressed", active ? "true" : "false");
+      dictationToggle.disabled = state === "stopping";
+      labelButton(dictationToggle, active ? copy.dictationStop : copy.dictationStart);
+      dictationStatus.removeAttribute("data-state");
+      if (state === "preparing") dictationStatus.textContent = copy.dictationPreparing;
+      else if (state === "listening") dictationStatus.textContent = copy.dictationListening;
+      else if (state === "stopping") dictationStatus.textContent = copy.dictationStopping;
+      else if (state === "error") {
+        dictationStatus.dataset.state = "error";
+        dictationStatus.textContent = template(copy.dictationErrorTemplate, { code: errorCode || "unknown" });
+      } else dictationStatus.textContent = "";
+    }
+
+    function scheduleComposerCheck(callback) {
+      win.requestAnimationFrame(function () { win.requestAnimationFrame(callback); });
+    }
+
+    function applyDictationMessage(message) {
+      if (!dictationToggle || !dictationStatus) return;
+      if (message.type === "dshmux-dictation-state") {
+        if (message.generation !== null &&
+            (!Number.isInteger(message.generation) || message.generation < 1)) return;
+        if (["idle", "preparing", "listening", "stopping", "error"].indexOf(message.state) < 0) return;
+        if (message.generation !== null) {
+          if (dictationGeneration !== undefined && message.generation < dictationGeneration) return;
+          dictationGeneration = message.generation;
+          if (message.state === "preparing") dictationCompleted = false;
+        }
+        renderDictationState(message.state, message.errorCode);
+        return;
+      }
+      if (message.type !== "dshmux-dictation-transcript" ||
+          !Number.isInteger(message.generation) ||
+          message.generation !== dictationGeneration ||
+          typeof message.text !== "string" ||
+          (message.phase !== "interim" && message.phase !== "complete")) return;
+      if (message.phase === "interim") {
+        if (dictationState === "listening") dictationStatus.textContent = message.text;
+        return;
+      }
+      if (dictationCompleted || dictationState !== "stopping") return;
+      dictationCompleted = true;
+      void insertComposerText(doc, message.text, scheduleComposerCheck).then(function (result) {
+        if (!result.ok) {
+          dictationStatus.dataset.state = "error";
+          dictationStatus.textContent = copy.dictationComposerUnavailable;
+        }
+      });
     }
 
     function setTitle(next) {
@@ -774,6 +887,18 @@
     });
     startButton.addEventListener("click", function () { post({ type: "start" }); });
     overlayDoctor.addEventListener("click", function () { post({ type: "open-doctor" }); });
+    if (dictationToggle) {
+      dictationToggle.addEventListener("click", function (event) {
+        var type = dictationClickRequest(event.isTrusted, dictationState);
+        if (type) post({ type: type });
+      });
+      doc.addEventListener("keydown", function (event) {
+        var type = dictationCancelRequest(event.isTrusted, event.key, dictationState);
+        if (!type) return;
+        event.preventDefault();
+        post({ type: type });
+      });
+    }
 
     overflow.addEventListener("keydown", function (event) {
       trapFocus(event, overflow, closeOverflow);
@@ -858,6 +983,8 @@
       } else if (message.type === "sessions-snapshot") applySnapshot(message);
       else if (message.type === "session-operation") applyOperation(message);
       else if (message.type === "session-search-result") applySearchResult(message);
+      else if (message.type === "dshmux-dictation-state" ||
+               message.type === "dshmux-dictation-transcript") applyDictationMessage(message);
       else if (message.type === "status-detail") {
         byId("dshmux-state-value").textContent = stateText(message.state, message.message);
         byId("dshmux-extension-value").textContent = message.extensionVersion || copy.notAvailable;
@@ -910,6 +1037,9 @@
     hiddenSidebarGridTemplate: hiddenSidebarGridTemplate,
     dshShellFrame: dshShellFrame,
     template: template,
+    dictationClickRequest: dictationClickRequest,
+    dictationCancelRequest: dictationCancelRequest,
+    insertComposerText: insertComposerText,
     mount: mount,
   };
 });
