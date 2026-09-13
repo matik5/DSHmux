@@ -86,6 +86,7 @@ export interface MuxTrailStrings {
   stock: string;
   waste: string;
   foundation: string;
+  invalidMove: string;
 }
 
 export interface Assembled {

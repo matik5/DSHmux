@@ -46,6 +46,11 @@
   Mux Arcade tablist/DOM renderer. `muxTrailStrings()` passes every new label
   from all ten locale columns. Tests cover unique deal, placement, recycle,
   snapshot validation, tab switching, loop absence and persisted stock draw.
+- **T8** is active in the same Solitaire renderer: face-up source cards install
+  `dragstart`, tableau/foundation targets install `dragover`/`drop`, and the
+  click path invokes the same pure move functions. The fake-DOM controller test
+  performs a real waste-Ace-to-foundation click move and checks draggable/drop
+  listeners, patterned stock back and all four empty suit slots.
 
 ## Executed checks
 

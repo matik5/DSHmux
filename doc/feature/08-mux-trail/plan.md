@@ -19,6 +19,7 @@
 | R7 — kvaliteet | T4, T5 | Kõik nõutud deterministlikud testid, compile, unit suite ja VSIX package |
 | R6a — vooru taastamine | T6 | Snapshot validation, same-session resume, death cleanup, max score ja state merge testid |
 | R2b — Solitaire samas kastis | T7 | Deal/rules/recycle/snapshot-testid ning controlleri tab/input/persistence test |
+| R2b — Solitaire interaktsioon | T8 | Click-move, draggable/drop, stock back, layered backs ja foundation-slot DOM-testid |
 
 ## Tasks
 
@@ -182,6 +183,9 @@ verification ei leia täitmata acceptance gap'i või märgib selle ausalt
 - **Pärast T7**: Solitaire'i pure-engine ja controlleri tab-testid on rohelised;
   affected suite 81/81 ning lai regressiooniring 184 pass / 0 fail / 1 skip.
   Mõlemad mängud kasutavad sama lifecycle'i ja Solitaire ei jäta timer'it.
+- **Pärast T8**: fake-DOM test teeb legaalse click-move'i ning kontrollib
+  draggable/drop hook'e, stock back'i ja nelja foundation-slot'i. Affected suite
+  on 81/81 ja lai regressiooniring 184 pass / 0 fail / 1 skip.
 
 ### T6 — Current state, current score ja max score
 
@@ -229,6 +233,28 @@ moveSolitaireTableau(state, fromColumn, fromIndex, toColumn);
 mõlemat mängu; Solitaire järgib dokumenteeritud reegleid, ei kasuta aktiivset
 loop'i ja taastub sama sessiooni järgmisel ooteajal.
 
+### T8 — Solitaire'i liigutamine ja visuaalsed slot'id
+
+**Status**: ✅ done
+
+**Files**: `media/mux-trail.js`, `src/documentAssembly.ts`, `src/i18n.ts`,
+`src/i18nStrings.ts`, `test/muxTrail.test.js`
+
+- [x] Toeta nii source→destination klõpsu kui native drag-and-drop'i.
+- [x] Hoia invalid move'i korral selection ja näita lokaliseeritud teadet.
+- [x] Kuva stock mustrilise kaarditaguse ning allesoleva arvuga.
+- [x] Tee kattuvate tableau tagakülgede servad ja vahed eristatavaks.
+- [x] Kuva neli tühja foundation-slot'i mastisümboli ja tugeva outline'iga.
+- [x] Tõenda fake-DOM testiga slot'id, drag/drop hook'id ja click-move.
+
+```js
+beginSolitaireDrag(event, selectedRun);
+makeSolitaireDropTarget(foundationNode, "foundation", suit);
+```
+
+**Completion criteria**: kaarte saab mõlema sisendimudeliga legaalselt
+liigutada ning stock, kattuvad tagaküljed ja kõik mastikohad on kohe loetavad.
+
 ## Order
 
 ```text
@@ -240,6 +266,7 @@ T3 assembly/i18n/wiring┘
 
 T1 + T2 ──> T6 persistence ──> T5 close-out recheck
 T1 + T6 ──> T7 Solitaire ──> T5 close-out recheck
+T7 ──> T8 interaction polish ──> T5 close-out recheck
 ```
 
 *Related documents: discussion.md | req.md | solution.md*

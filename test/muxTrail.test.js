@@ -273,6 +273,10 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
       this.children.push(child);
       return child;
     }
+    replaceChildren(...children) {
+      this.children = [];
+      for (const child of children) this.appendChild(child);
+    }
     setAttribute(name, value) { this[name] = String(value); }
     addEventListener(type, fn) { (this.listeners.get(type) || this.listeners.set(type, []).get(type)).push(fn); }
     dispatch(type, event = {}) {
@@ -371,8 +375,21 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   const solitaire = dialog.children.find((node) => node.className === "dshmux-solitaire");
   assert.equal(solitaire.hidden, false);
   assert.equal(fake.pendingCount, 0, "Solitaire has no animation loop");
-  solitaire.children[0].children[0].children[0].dispatch("click");
-  assert.equal(persisted.solitaireRounds["session:s1"].waste.length, 1);
+  assert.match(solitaire.children[0].children[0].children[0].className, /covered stock/, "stock must look like a card back");
+  for (let slot = 3; slot < 7; slot++) {
+    assert.match(solitaire.children[0].children[slot].children[0].className, /foundation/, "empty suit homes stay visible");
+  }
+  for (let draw = 0; draw < 12; draw++) {
+    solitaire.children[0].children[0].children[0].dispatch("click");
+  }
+  assert.equal(persisted.solitaireRounds["session:s1"].waste.at(-1).rank, 1);
+  const ace = solitaire.children[0].children[1].children[0];
+  assert.ok(ace.listeners.has("dragstart"), "face-up cards must be draggable");
+  ace.dispatch("click");
+  const heartsHome = solitaire.children[0].children[4].children[0];
+  assert.ok(heartsHome.listeners.has("drop"), "foundation must accept drops");
+  heartsHome.dispatch("click");
+  assert.equal(persisted.solitaireRounds["session:s1"].foundations[1].length, 1, "source-then-destination click moves a legal card");
   assert.equal(persisted.selectedGames["session:s1"], "solitaire");
   controller.endWait("complete");
   controller.destroy();

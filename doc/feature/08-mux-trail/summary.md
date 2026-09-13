@@ -30,6 +30,10 @@ immediately dismiss it.
   seven tableau columns, four foundations, click-based moves and new deal.
 - The selected game and live Solitaire deal persist per DSH session; switching
   away from Mux Trail stops its tick and Solitaire has no animation loop.
+- Solitaire supports both source→destination clicking and native drag/drop.
+  Layered backs have stronger separation, stock displays a patterned back and
+  remaining-card count, and all four empty foundation homes stay visible with
+  suit symbols. Invalid destinations preserve selection and explain the error.
 
 ## Verification result
 

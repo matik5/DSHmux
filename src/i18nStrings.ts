@@ -164,6 +164,12 @@ export const STRINGS = {
     en: "Foundation", zh: "地基堆", ja: "組札", ko: "완성 더미",
     et: "Kodu", uk: "База", es: "Base", pt: "Base", fr: "Fondation", de: "Fundament",
   },
+  "muxTrail.invalidMove": {
+    en: "That card cannot go there", zh: "这张牌不能放在那里", ja: "そのカードはそこに置けません",
+    ko: "그 카드는 그곳에 놓을 수 없습니다", et: "Seda kaarti ei saa sinna panna", uk: "Цю карту не можна туди покласти",
+    es: "Esa carta no puede ir ahí", pt: "Essa carta não pode ir ali",
+    fr: "Cette carte ne peut pas aller ici", de: "Diese Karte kann dort nicht abgelegt werden",
+  },
   // launcher sidebar
   "launcher.subtitle": {
     en: "Launch and embed the DSH Web UI",

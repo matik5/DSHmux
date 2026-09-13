@@ -477,6 +477,7 @@
       stock: strings.stock || "Stock",
       waste: strings.waste || "Waste",
       foundation: strings.foundation || "Foundation",
+      invalidMove: strings.invalidMove || "That card cannot go there",
     };
     var style;
     var launcher;
@@ -497,6 +498,7 @@
     var storedState = { version: 1, maxScore: 0, rounds: {}, solitaireRounds: {}, selectedGames: {} };
     var activeSessionKey;
     var activeGameType = "trail";
+    var solitaireMessage = "";
     var open = false;
     var destroyed = false;
 
@@ -620,7 +622,7 @@
         ".dshmux-mux-trail-close{width:28px;height:28px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--vscode-foreground);font:18px/1 var(--vscode-font-family);cursor:pointer}.dshmux-mux-trail-close:hover{background:var(--vscode-toolbar-hoverBackground,var(--vscode-list-hoverBackground))}",
         ".dshmux-mux-game-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 8px}.dshmux-mux-game-tab{min-width:0;padding:5px 8px;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));font:12px var(--vscode-font-family);cursor:pointer}.dshmux-mux-game-tab[aria-selected=true]{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}",
         ".dshmux-mux-trail-canvas{display:block;width:100%;max-height:min(58vh,360px);aspect-ratio:1;border:1px solid var(--vscode-contrastBorder,var(--vscode-widget-border));border-radius:6px;background:var(--vscode-editor-background)}",
-        ".dshmux-solitaire{display:grid;gap:8px;min-height:300px}.dshmux-solitaire[hidden],.dshmux-mux-trail-canvas[hidden]{display:none!important}.dshmux-solitaire-top,.dshmux-solitaire-tableau{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.dshmux-solitaire-tableau{min-height:250px}.dshmux-solitaire-pile{position:relative;min-width:0;min-height:48px}.dshmux-solitaire-slot,.dshmux-solitaire-card{width:100%;height:48px;box-sizing:border-box;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;padding:2px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:bold 12px/1 var(--vscode-editor-font-family,var(--vscode-font-family));cursor:pointer}.dshmux-solitaire-slot{color:var(--vscode-descriptionForeground);background:transparent}.dshmux-solitaire-card{position:absolute;left:0;top:0;text-align:left;box-shadow:0 1px 2px rgba(0,0,0,.22)}.dshmux-solitaire-card.red{color:var(--vscode-errorForeground,#d33)}.dshmux-solitaire-card.covered{color:var(--vscode-button-foreground);background:repeating-linear-gradient(135deg,var(--vscode-button-background) 0 4px,var(--vscode-button-hoverBackground,var(--vscode-focusBorder)) 4px 8px)}.dshmux-solitaire-card.selected{outline:2px solid var(--vscode-focusBorder);outline-offset:1px}.dshmux-solitaire-empty{position:absolute;inset:0}",
+        ".dshmux-solitaire{display:grid;gap:8px;min-height:300px}.dshmux-solitaire[hidden],.dshmux-mux-trail-canvas[hidden]{display:none!important}.dshmux-solitaire-top,.dshmux-solitaire-tableau{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.dshmux-solitaire-tableau{min-height:250px}.dshmux-solitaire-pile{position:relative;min-width:0;min-height:48px}.dshmux-solitaire-slot,.dshmux-solitaire-card{width:100%;height:48px;box-sizing:border-box;border:1px solid var(--vscode-widget-border,var(--vscode-contrastBorder));border-radius:5px;padding:3px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);font:bold 12px/1 var(--vscode-editor-font-family,var(--vscode-font-family));cursor:pointer}.dshmux-solitaire-slot{color:var(--vscode-descriptionForeground);background:color-mix(in srgb,var(--vscode-editor-background) 82%,var(--vscode-foreground));border-style:dashed}.dshmux-solitaire-card{position:absolute;left:0;top:0;text-align:left;box-shadow:0 2px 3px rgba(0,0,0,.3)}.dshmux-solitaire-card.red{color:var(--vscode-errorForeground,#d33)}.dshmux-solitaire-card.covered{color:var(--vscode-button-foreground);border-color:var(--vscode-focusBorder);background:repeating-linear-gradient(135deg,var(--vscode-button-background) 0 4px,var(--vscode-button-hoverBackground,var(--vscode-focusBorder)) 4px 8px);box-shadow:inset 0 3px 0 color-mix(in srgb,var(--vscode-button-foreground) 45%,transparent),0 2px 3px rgba(0,0,0,.35)}.dshmux-solitaire-card.stock{text-align:center;font-size:15px}.dshmux-solitaire-card.selected{outline:3px solid var(--vscode-focusBorder);outline-offset:1px}.dshmux-solitaire-slot.foundation{font-size:18px;text-align:center;border:2px dashed var(--vscode-focusBorder);background:color-mix(in srgb,var(--vscode-editor-background) 88%,var(--vscode-focusBorder))}.dshmux-solitaire-empty{position:absolute;inset:0}",
         ".dshmux-mux-trail-foot{display:flex;align-items:center;gap:8px;min-height:30px;margin-top:8px}.dshmux-mux-trail-status{min-width:0;flex:1;color:var(--vscode-descriptionForeground);font-size:11px;line-height:1.35}.dshmux-mux-trail-restart{border:0;border-radius:4px;padding:5px 9px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font:12px var(--vscode-font-family);cursor:pointer}",
         "@media(max-width:260px){.dshmux-mux-trail{padding:6px}.dshmux-mux-trail-dialog{width:calc(100vw - 12px);padding:8px}.dshmux-mux-trail-head{gap:4px}.dshmux-mux-trail-title{font-size:13px}.dshmux-mux-trail-foot{align-items:flex-start;flex-direction:column}}",
         "@media(prefers-reduced-motion:reduce){#dshmux-mux-trail-launch,.dshmux-mux-trail{transition:none;animation:none}}",
@@ -835,14 +837,43 @@
 
     function afterSolitaireAction(changed) {
       if (!changed) return false;
+      solitaireMessage = "";
       persistGame();
       render();
       return true;
     }
 
     function selectSolitaire(value) {
+      solitaireMessage = "";
       solitaireGame.selected = value;
       render();
+    }
+
+    function rejectSolitaireMove() {
+      solitaireMessage = text.invalidMove;
+      render();
+    }
+
+    function beginSolitaireDrag(event, value) {
+      solitaireMessage = "";
+      solitaireGame.selected = value;
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", "dshmux-solitaire");
+      }
+      if (event.currentTarget && event.currentTarget.classList) event.currentTarget.classList.add("selected");
+    }
+
+    function makeSolitaireDropTarget(node, kind, pile) {
+      node.addEventListener("dragover", function (event) {
+        if (!solitaireGame.selected) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      });
+      node.addEventListener("drop", function (event) {
+        event.preventDefault();
+        if (!trySolitaireDestination(kind, pile)) rejectSolitaireMove();
+      });
     }
 
     function trySolitaireDestination(kind, pile) {
@@ -879,8 +910,11 @@
       for (var slotIndex = 0; slotIndex < 7; slotIndex++) {
         var slot = addClass(doc.createElement("div"), "dshmux-solitaire-pile");
         if (slotIndex === 0) {
-          var stock = button(text.stock, "dshmux-solitaire-slot");
-          stock.textContent = solitaireGame.stock.length ? "◆" : (solitaireGame.waste.length ? "↻" : "");
+          var stock = button(
+            text.stock + " " + String(solitaireGame.stock.length),
+            solitaireGame.stock.length ? "dshmux-solitaire-card covered stock" : "dshmux-solitaire-slot"
+          );
+          stock.textContent = solitaireGame.stock.length ? "◆ " + String(solitaireGame.stock.length) : (solitaireGame.waste.length ? "↻" : "");
           stock.addEventListener("click", function () { afterSolitaireAction(drawSolitaireStock(solitaireGame)); });
           slot.appendChild(stock);
         } else if (slotIndex === 1) {
@@ -888,6 +922,8 @@
           if (wasteCard) {
             var waste = solitaireCardButton(wasteCard, solitaireSelected("waste", 0) ? "selected" : "");
             waste.addEventListener("click", function () { selectSolitaire({ kind: "waste", pile: 0 }); });
+            waste.draggable = true;
+            waste.addEventListener("dragstart", function (event) { beginSolitaireDrag(event, { kind: "waste", pile: 0 }); });
             waste.addEventListener("dblclick", function () {
               var topWaste = solitaireGame.waste[solitaireGame.waste.length - 1];
               if (topWaste) afterSolitaireAction(moveSolitaireWaste(solitaireGame, "foundation", topWaste.suit));
@@ -904,12 +940,20 @@
             var topCard = foundation[foundation.length - 1];
             var foundationNode = topCard
               ? solitaireCardButton(topCard, solitaireSelected("foundation", foundationIndex) ? "selected" : "")
-              : button(text.foundation + " " + SUITS[foundationIndex], "dshmux-solitaire-slot");
+              : button(text.foundation + " " + SUITS[foundationIndex], "dshmux-solitaire-slot foundation");
             if (!topCard) foundationNode.textContent = SUITS[foundationIndex];
             foundationNode.addEventListener("click", function () {
               if (trySolitaireDestination("foundation", foundationIndex)) return;
               if (topCard) selectSolitaire({ kind: "foundation", pile: foundationIndex });
+              else if (solitaireGame.selected) rejectSolitaireMove();
             });
+            makeSolitaireDropTarget(foundationNode, "foundation", foundationIndex);
+            if (topCard) {
+              foundationNode.draggable = true;
+              foundationNode.addEventListener("dragstart", function (event) {
+                beginSolitaireDrag(event, { kind: "foundation", pile: foundationIndex });
+              });
+            }
             slot.appendChild(foundationNode);
           })(slotIndex - 3);
         }
@@ -921,10 +965,14 @@
         (function (columnIndex) {
           var pile = solitaireGame.tableau[columnIndex];
           var pileNode = addClass(doc.createElement("div"), "dshmux-solitaire-pile");
+          makeSolitaireDropTarget(pileNode, "tableau", columnIndex);
           if (!pile.length) {
-            var empty = button(text.foundation, "dshmux-solitaire-slot dshmux-solitaire-empty");
+            var empty = button(text.solitaire, "dshmux-solitaire-slot dshmux-solitaire-empty");
             empty.textContent = "";
-            empty.addEventListener("click", function () { trySolitaireDestination("tableau", columnIndex); });
+            empty.addEventListener("click", function () {
+              if (!trySolitaireDestination("tableau", columnIndex) && solitaireGame.selected) rejectSolitaireMove();
+            });
+            makeSolitaireDropTarget(empty, "tableau", columnIndex);
             pileNode.appendChild(empty);
           }
           var offset = 0;
@@ -936,12 +984,26 @@
               var cardNode = solitaireCardButton(card, colorClass + selectedClass);
               cardNode.style.top = topOffset + "px";
               cardNode.style.zIndex = String(index + 1);
+              cardNode.draggable = !!card.faceUp;
+              if (card.faceUp) {
+                cardNode.addEventListener("dragstart", function (event) {
+                  beginSolitaireDrag(event, { kind: "tableau", pile: columnIndex, index: index });
+                });
+              }
               cardNode.addEventListener("click", function () {
                 if (!card.faceUp) {
                   if (index === pile.length - 1) afterSolitaireAction(flipSolitaireTableau(solitaireGame, columnIndex));
                   return;
                 }
-                if (trySolitaireDestination("tableau", columnIndex)) return;
+                var selected = solitaireGame.selected;
+                if (selected && !(selected.kind === "tableau" && selected.pile === columnIndex && selected.index === index)) {
+                  if (!trySolitaireDestination("tableau", columnIndex)) rejectSolitaireMove();
+                  return;
+                }
+                if (selected) {
+                  selectSolitaire(null);
+                  return;
+                }
                 selectSolitaire({ kind: "tableau", pile: columnIndex, index: index });
               });
               cardNode.addEventListener("dblclick", function () {
@@ -951,7 +1013,7 @@
               });
               pileNode.appendChild(cardNode);
             })(cardIndex, offset);
-            offset += pile[cardIndex].faceUp ? 21 : 10;
+            offset += pile[cardIndex].faceUp ? 21 : 14;
           }
           pileNode.style.minHeight = Math.max(48, offset + 48) + "px";
           tableau.appendChild(pileNode);
@@ -961,7 +1023,7 @@
       solitaireBoard.appendChild(tableau);
       var homeCount = solitaireGame.foundations.reduce(function (sum, pile) { return sum + pile.length; }, 0);
       scoreLabel.textContent = interpolate(text.solitaireProgress, { count: String(homeCount) });
-      statusLabel.textContent = solitaireGame.won ? text.solitaireWon : text.solitaireInstructions;
+      statusLabel.textContent = solitaireGame.won ? text.solitaireWon : (solitaireMessage || text.solitaireInstructions);
       restartButton.textContent = text.newDeal;
       restartButton.hidden = false;
     }

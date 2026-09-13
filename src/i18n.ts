@@ -63,6 +63,7 @@ export function muxTrailStrings(): {
   stock: string;
   waste: string;
   foundation: string;
+  invalidMove: string;
 } {
   return {
     open: t("muxTrail.open"),
@@ -84,5 +85,6 @@ export function muxTrailStrings(): {
     stock: t("muxTrail.stock"),
     waste: t("muxTrail.waste"),
     foundation: t("muxTrail.foundation"),
+    invalidMove: t("muxTrail.invalidMove"),
   };
 }

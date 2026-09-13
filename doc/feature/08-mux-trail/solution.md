@@ -262,4 +262,19 @@ ainult `❌`/`⏭️` ridadest ning kirjuta `summary.md`.
 - Laienda typed i18n payload'i ning kõiki kümmet locale'i.
 - Lisa deterministic engine, invalid snapshot ja controller tab/state testid.
 
+### S8 — Solitaire'i interaktsiooni ja affordance'i parandused
+
+- Tee iga face-up waste/foundation/tableau kaart native `draggable` elemendiks;
+  dragstart seab sama selection mudeli, mida kasutab click-flow.
+- Tee tableau pile/empty slot ja foundation-kaart/slot dragover/drop target'iks,
+  mis kutsub olemasolevaid pure move-funktsioone.
+- Click-flow hoiab ebaõnnestunud move'i korral algse selection'i ning kuvab
+  lokaliseeritud invalid-move teate.
+- Renderda stock `covered stock` kaardina koos allesolevate kaartide arvuga,
+  suurenda kaetud tableau kaartide vertikaalset sammu ja kontrasti.
+- Renderda kõik neli tühja foundation'it alati tugeva dashed outline'i ja
+  mastisümboliga.
+- Laienda fake-DOM testi, et see tõendaks stock back'i, foundation slot'e,
+  draggable/drop hook'e ja päris click-source/click-destination move'i.
+
 *Seotud dokumendid: [discussion.md](discussion.md) | [req.md](req.md) | [plan.md](plan.md)*

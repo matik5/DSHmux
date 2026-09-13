@@ -60,9 +60,18 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
 - Tableau ehitatakse kahanevalt ja vahelduva värviga, tühjale tulbale saab
   asetada kuninga ning foundation kasvab sama masti ässast kuningani.
 - Kasutaja valib klõpsuga kaardi/rea ja seejärel sihtkoha; kaetud tulba
-  pealmise kaardi saab klõpsuga pöörata. Drag-and-drop ei ole nõutud.
+  pealmise kaardi saab klõpsuga pöörata. Face-up kaarti/rida saab ka
+  drag-and-drop'iga kehtivasse tableau- või foundation-sihtkohta liigutada.
+- Valitud kaart on tugeva focus-outline'iga eristatav ja keelatud sihtkoha
+  klõps/drop näitab lühikest lokaliseeritud veateadet, mitte ei vaheta
+  vaikides valikut.
 - Stock jagab ühe kaardi korraga ja tühjenedes saab waste'i piiramatult tagasi
   stock'i pöörata. Uus jaotus on alati nupust saadaval.
+- Mittetühi stock kuvatakse selge mustrilise kaarditaguse ja allesolevate
+  kaartide arvuga. Tableau kattuvate kaetud kaartide servad peavad olema
+  üksteisest visuaalselt eristatavad.
+- Neli foundation'i on tühjana selgelt nähtavad dashed slot'id vastava
+  mastisümboliga, et oleks ilmne, kuhu ässast algavaid mastivirnu laduda.
 - Kõigi 52 kaardi foundation'isse viimine lõpetab jaotuse võiduga.
 - Solitaire ei kasuta animatsiooni-loop'i. Elus jaotus ja viimati valitud mäng
   säilivad sama sessiooni state'is kuni võidu või uue jaotuseni.
@@ -158,7 +167,8 @@ küsimusi, approval'e, sessioonivahetust ega tavalist chati kasutamist.
   skoori ja restarti.
 - Solitaire-testid katavad 52 unikaalse kaardi deal'i, tableau/foundation
   placement'i, stock/waste recycle'i, rea liigutamise, snapshot restore'i,
-  duplikaatkaardi tagasilükkamise ning game-tab'i vahetuse.
+  duplikaatkaardi tagasilükkamise, game-tab'i vahetuse, click-move'i,
+  drag/drop hook'e ning stock/foundation affordance'e.
 - Sisenditest tõendatakse, et suletud mäng ei püüa ühtegi gameplay-klahvi ning
   avatud mängu `Escape` sulgeb ja puhastab aktiivse loop'i.
 - Renderdus või DOM-test kontrollib kitsast vaadet, semantilisi nimesid ja
@@ -221,6 +231,11 @@ worktree's implementeerida, ilma eraldi feature-nõuet loomata.
 
 2026-09-13 lisas kasutaja samasse mängukasti ülemise valiku **Mux Trail** /
 **Solitaire** ja andis korralduse Solitaire samas worktree's implementeerida.
+
+2026-09-13 testimise tagasiside täpsustas Solitaire'i interaktsiooni: kaardid
+peavad liikuma nii click-source/click-destination kui drag-and-drop abil;
+tableau tagaküljed, stock'i tagakülg ja neli foundation-slot'i peavad olema
+selgelt eristatavad.
 
 Kasutaja andis 2026-09-13 korralduse kinnitada nõuded, kinnitada järgnev
 `plan.md` ja feature implementeerida. Selle korralduse alusel võib pipeline
