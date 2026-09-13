@@ -75,3 +75,34 @@ Before writing any solution document (`doc/fix/{name}/solution.md` or `doc/featu
 5. **Tasks** — concrete code changes that close the gap, with exact file paths and line ranges
 
 **Rule**: Every "change to xxx" statement in a solution MUST be supported by a code fact verified in step 2. No fact check means no solution.
+
+## Git Worktrees
+
+Use a dedicated Git worktree for non-trivial changes such as features, bug fixes, refactors, and experiments.
+
+Create worktrees under:
+
+```text
+~/.worktrees/<repository-name>/<task-name>
+```
+
+Do not create worktrees inside the repository directory.
+
+Example:
+
+```bash
+git worktree add ~/.worktrees/<repo>/<task> -b <branch-name>
+cd ~/.worktrees/<repo>/<task>
+```
+
+Rules:
+
+- Use one worktree per independent task.
+- Keep the primary worktree clean when practical.
+- Make task-related edits and commits inside the task worktree.
+- Do not switch the primary worktree to another branch just to perform a task.
+- Do not merge into `main` / `master` unless explicitly requested.
+- Do not delete worktrees or branches containing uncommitted or unmerged work.
+- Avoid destructive commands such as `git reset --hard`, `git branch -D`, or `git worktree remove --force` unless explicitly authorized.
+
+A separate worktree is not required for read-only investigation or very small changes explicitly requested in the current working tree.
