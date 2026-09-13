@@ -17,12 +17,24 @@ if ($env:SDL2_DIR) {
 }
 
 cmake @ConfigureArgs
+if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
 cmake --build $BuildDir --config Release --target dsh-dictation-host --parallel
+if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }
 
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 Copy-Item (Join-Path $BuildDir "Release\dsh-dictation-host.exe") $RuntimeDir -Force
 
 $SdlDll = Get-ChildItem -Path $BuildDir -Filter "SDL2.dll" -Recurse | Select-Object -First 1
+if (-not $SdlDll -and $env:SDL2_DIR) {
+    $SdlConfigParent = Split-Path -Parent $env:SDL2_DIR
+    $SdlCandidates = @(
+        (Join-Path $SdlConfigParent "lib\x64\SDL2.dll"),
+        (Join-Path (Split-Path -Parent $SdlConfigParent) "bin\SDL2.dll")
+    )
+    $SdlDll = $SdlCandidates |
+        ForEach-Object { Get-Item $_ -ErrorAction SilentlyContinue } |
+        Select-Object -First 1
+}
 if ($SdlDll) {
     Copy-Item $SdlDll.FullName $RuntimeDir -Force
 }

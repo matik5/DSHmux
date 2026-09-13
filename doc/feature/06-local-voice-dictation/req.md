@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-13
 
-**Status**: APPROVED (native streaming-host revision) — 2026-09-13
+**Status**: APPROVED (managed-model revision) — 2026-09-13
 
 **Prior scope**: The VS Code Nemotron reuse prototype was approved and exercised
 on macOS. It proved the DSH composer integration and local inference path, but
@@ -57,8 +57,10 @@ fixes there.
 - Complete the macOS checkpoint first. The user then pushes/pulls the same
   branch to Windows for platform verification and fixes. Passing macOS alone is
   not feature completion or a final GO verdict.
-- Missing, incompatible, or unreadable model/runtime assets produce a bounded
-  diagnostic; they do not crash extension activation or affect ordinary chat.
+- A missing model starts managed setup only after the dictation experiment is
+  enabled. An incompatible or unreadable model, failed download, or missing
+  runtime produces a bounded diagnostic; none of these crash extension
+  activation or affect ordinary chat.
 - VS Code Insiders, Linux, Windows Arm64, Intel macOS, VS Code for the Web,
   Remote SSH, WSL, Dev Containers, and automatic runtime/model installation are
   not targets for this round.
@@ -74,10 +76,20 @@ fixes there.
   repository's host source against a pinned whisper.cpp release. It must not
   depend on or modify VS Code's private Foundry Local runtime or
   `chatDictationModels` cache.
-- A one-time explicit model download for prototype setup is allowed. The
-  extension must not silently download it. The model must not be committed or
-  packaged. Platform host binaries and their required dynamic libraries may be
-  committed and packaged with matching notices and build instructions.
+- Setting `dshmux.experimental.localDictation.enabled` to `true` is explicit
+  authorization for DSHmux to ensure the target model is installed. On macOS
+  and Windows, DSHmux downloads the model when it is absent from the canonical
+  user cache at `~/.dshmux/models/ggml-large-v3-turbo.bin`. It performs no
+  model filesystem or network work while the experiment is disabled.
+- The download uses HTTPS, writes to a sibling partial file, verifies the
+  expected published model identity/checksum, and only then atomically exposes
+  the canonical filename. Interrupted, invalid, or failed downloads never
+  replace a previously verified model and surface bounded actionable progress
+  or error state.
+- A verified canonical model is reused without network access. The model must
+  not be committed or packaged. Platform host binaries and their required
+  dynamic libraries may be committed and packaged with matching notices and
+  build instructions.
 - Verification records the model identity and checksum plus the runtime name
   and version used on each platform.
 - Microphone audio and raw transcript text remain on the local machine. They
@@ -129,9 +141,9 @@ configured local dependencies are available:
   addon. It owns microphone capture, whisper.cpp context lifetime, buffering,
   and inference; TypeScript communicates through bounded JSON Lines on
   stdin/stdout.
-- The bundled host is the default. An explicit host-path override and explicit
-  cached model path are allowed. Automatic model download, microphone selection
-  UI, and model selection UI are not required.
+- The bundled host is the default. An explicit host-path override is allowed;
+  the model path is the canonical `~/.dshmux/models` location managed by
+  DSHmux. Microphone selection UI and model selection UI are not required.
 - Audio capture is continuous in small callbacks. Partial inference cadence is
   controlled by DSHmux (initially 750 ms and never faster than 250 ms), rather
   than inherited from the upstream example's sampling loop. Full inference is
@@ -187,8 +199,9 @@ configured local dependencies are available:
    stable state with microphone resources released and pre-existing composer
    text preserved.
 6. The model is not committed or packaged. The platform runtime may be bundled
-   with required notices; the extension performs no silent model download and
-   is disabled by default.
+   with required notices. Enabling dictation explicitly authorizes an atomic,
+   checksum-verified download to `~/.dshmux/models`; disabling dictation causes
+   no model or network work.
 7. Feature tests pass and the full suite introduces no failures beyond the
    documented baseline.
 8. Verification records licensing, supportability, and macOS/Windows results
@@ -198,7 +211,8 @@ configured local dependencies are available:
 
 - Production release, Marketplace support, or an extension version bump.
 - TalTech or another language-specific Whisper fine-tune.
-- Bundling a speech model or building an automatic model downloader.
+- Bundling a speech model or supporting model selection and multiple managed
+  model variants.
 - Comparing quantized model variants during the initial quality checkpoint.
 - Cloud transcription, LLM transcript cleanup, or automatic prompt submission.
 - Voice Mode, hands-free conversation, wake words, or text-to-speech.

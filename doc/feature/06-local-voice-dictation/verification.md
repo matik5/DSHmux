@@ -89,6 +89,53 @@ the new native host's microphone result.
 - `npx vsce ls` includes the host, SDL2, SDL3, and notices. It excludes the
   model, native build tree, and external whisper.cpp checkout.
 
+## Windows x64 build checkpoint
+
+- OS: Windows 11 Home x64, build `10.0.26100`.
+- Toolchain: Visual Studio Community 2026 `18.10.0`, MSVC
+  `19.51.36257.0`, and bundled CMake `4.3.1-msvc1`.
+- Native source: external `C:\proj\whisper.cpp` checkout at tag `v1.9.2`,
+  commit `306c88f4d1286aec1bf96e544632897886af5501`.
+- SDL source: official SDL `2.32.10` VC development archive. Archive SHA-256:
+  `af347939395a58b365846aaea27391e69f9ec9d4dd650d6ac40802159b418a6e`.
+- `runtime/win32-x64/dsh-dictation-host.exe`: x64 Windows CUI PE,
+  2,075,648 bytes, SHA-256
+  `c9308987a2d4d43ff78820ecc130ca2926373759e49e7a58d128e8d3bdc1965f`.
+- `runtime/win32-x64/SDL2.dll`: 1,586,176 bytes, SHA-256
+  `b37740a72a7a9706216df9f0134894bb7a850b356fd149398c67d874cbcfacb4`.
+- Whisper/GGML and the MSVC runtime are statically linked. OpenMP is disabled
+  to avoid a `VCOMP140.dll` deployment dependency. PE imports contain only
+  adjacent `SDL2.dll` and Windows system libraries.
+- MSVC `/pathmap` plus deterministic compilation removes checkout and build
+  paths. Binary scans find no `C:\proj`, user-home path, username, or personal
+  email in either packaged artifact.
+- Invalid-argument startup smoke: PASS — one bounded
+  `{"event":"error","code":"invalid-arguments"}` event and exit code 2.
+- Full model setup: PASS — `%LOCALAPPDATA%\DSHmux\models\ggml-large-v3-turbo.bin`,
+  1,624,555,275 bytes, SHA-1
+  `4af2b29d7ec73d781377bfd1758ca957a807e941`. The packaged host loaded the
+  model successfully through the CPU backend.
+- Real microphone startup: FAIL at the environment boundary. SDL reports zero
+  capture devices and WASAPI reports `Element not found`; FFmpeg independently
+  reports no DirectShow audio input devices. Windows audio services are running
+  and non-packaged microphone privacy access is allowed, so the current blocker
+  is the absence of a present capture endpoint rather than permission or model
+  failure. The host emits only `microphone-unavailable` on protocol stdout and
+  keeps the detailed device/open reason on ignored stderr.
+- TypeScript compile and DSHmux-scoped suite: **257 PASS, 0 FAIL, 1 SKIP**.
+  The Windows-specific worker integration test compiles a temporary PE fixture,
+  spawns it with the production-required `shell: false`, and verifies safe
+  arguments plus ready/partial/Stop/final/metrics JSONL mapping. The skipped
+  test is the equivalent POSIX-shebang fixture.
+- `npx vsce ls` includes both Windows runtime files and notices, and excludes
+  the external checkout, build tree, SDL development package, and model.
+
+This checkpoint establishes a buildable and packageable Windows runtime plus
+successful full-model loading. It does not yet establish microphone capture,
+English or Estonian transcript quality, offline behavior, composer insertion,
+cancellation, or performance on Windows because this machine currently exposes
+no capture endpoint.
+
 ## Licenses and redistribution
 
 whisper.cpp and OpenAI Whisper use the MIT license; SDL2 uses the zlib license.
@@ -98,7 +145,7 @@ weights remain outside the repository and package.
 
 ## Outstanding evidence
 
-1. Windows x64 build artifact, DLL/dependency audit, automated tests, live
-   English/Estonian result, offline behavior, and lifecycle checks.
+1. Windows live English/Estonian result, offline behavior, model identity and
+   checksum, composer insertion, performance, and lifecycle checks.
 2. Final RTTM/code-called audit, verdict, plan review, summary, and mechanical
    TODO extraction after both platform checkpoints.

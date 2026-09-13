@@ -95,8 +95,18 @@ public:
     }
 
     bool start(int capture_id) {
-        if (SDL_Init(SDL_INIT_AUDIO) != 0) return false;
+        if (SDL_Init(SDL_INIT_AUDIO) != 0) {
+            std::cerr << "SDL audio initialization failed: " << SDL_GetError() << '\n';
+            return false;
+        }
         SDL_SetHintWithPriority(SDL_HINT_AUDIO_RESAMPLING_MODE, "medium", SDL_HINT_OVERRIDE);
+
+        const int count = SDL_GetNumAudioDevices(SDL_TRUE);
+        std::cerr << "SDL capture devices: " << count << '\n';
+        for (int i = 0; i < count; ++i) {
+            const char * name = SDL_GetAudioDeviceName(i, SDL_TRUE);
+            std::cerr << "SDL capture device " << i << ": " << (name ? name : "<unknown>") << '\n';
+        }
 
         SDL_AudioSpec requested{};
         requested.freq = kSampleRate;
@@ -108,14 +118,25 @@ public:
 
         const char * device_name = nullptr;
         if (capture_id >= 0) {
-            const int count = SDL_GetNumAudioDevices(SDL_TRUE);
-            if (capture_id >= count) return false;
+            if (capture_id >= count) {
+                std::cerr << "SDL capture device id is unavailable: " << capture_id << '\n';
+                return false;
+            }
             device_name = SDL_GetAudioDeviceName(capture_id, SDL_TRUE);
         }
 
         SDL_AudioSpec obtained{};
         device_ = SDL_OpenAudioDevice(device_name, SDL_TRUE, &requested, &obtained, 0);
-        if (!device_ || obtained.freq != kSampleRate || obtained.format != AUDIO_F32SYS || obtained.channels != 1) return false;
+        if (!device_) {
+            std::cerr << "SDL capture open failed: " << SDL_GetError() << '\n';
+            return false;
+        }
+        if (obtained.freq != kSampleRate || obtained.format != AUDIO_F32SYS || obtained.channels != 1) {
+            std::cerr << "SDL capture format mismatch: frequency=" << obtained.freq
+                      << " format=" << obtained.format
+                      << " channels=" << static_cast<int>(obtained.channels) << '\n';
+            return false;
+        }
         sample_rate_ = obtained.freq;
         SDL_PauseAudioDevice(device_, 0);
         return true;

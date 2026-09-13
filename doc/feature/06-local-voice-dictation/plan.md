@@ -134,7 +134,8 @@ the native host retains the earlier Mac quality and composer behavior.
 
 ### T5 — Build and verify Windows x64 runtime
 
-**Status**: ⏳ pending
+**Status**: ⏳ pending (Windows build/package checks complete; live microphone,
+model, offline, and lifecycle evidence remains)
 
 **Files**:
 
@@ -143,10 +144,11 @@ the native host retains the earlier Mac quality and composer behavior.
 - optional `runtime/win32-x64/SDL2.dll` (only if dynamically linked)
 - `doc/feature/06-local-voice-dictation/verification.md`
 
-- [ ] Pull the same branch and pinned whisper.cpp v1.9.2 checkout on Windows.
-- [ ] Build x64 host and record compiler, SDL source/version, dependency list,
+- [x] Pull the same branch and pinned whisper.cpp v1.9.2 checkout on Windows.
+- [x] Build x64 host and record compiler, SDL source/version, dependency list,
   artifact sizes, and checksums.
-- [ ] Run automated tests and live English/Estonian partial/final dictation.
+- [ ] Run automated tests and live English/Estonian partial/final dictation
+  (automated suite complete; live phrases remain).
 - [ ] Verify offline behavior, default/explicit SDL device, cancellation, model
   cache, no auto-Send, and no temporary audio files.
 - [ ] Commit the verified Windows runtime files on the same branch.
