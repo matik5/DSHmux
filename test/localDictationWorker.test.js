@@ -7,46 +7,37 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { normalizeWhisperOutput } = require("../out/localDictationWorker.js");
+const { parseHostEvent } = require("../out/localDictationWorker.js");
 
-test("Whisper output normalization removes only CLI framing", () => {
-  assert.equal(
-    normalizeWhisperOutput("\u001b[32m Tere maailm. \u001b[0m\n See on test.\n"),
-    "Tere maailm. See on test."
+test("host JSONL validation accepts only bounded protocol events", () => {
+  assert.deepEqual(parseHostEvent('{"event":"ready"}'), { event: "ready" });
+  assert.deepEqual(
+    parseHostEvent('{"event":"transcript","phase":"partial","text":"Tere"}'),
+    { event: "transcript", phase: "partial", text: "Tere" }
   );
+  assert.equal(parseHostEvent("not json"), undefined);
+  assert.equal(parseHostEvent('{"event":"transcript","phase":"raw","text":"x"}'), undefined);
 });
-
-test("worker records WAV, transcribes only after Stop, emits one final, and cleans temp state", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dshmux-worker-test-"));
-  const ffmpegPath = path.join(root, "fake-ffmpeg");
-  const whisperPath = path.join(root, "fake-whisper");
+test("worker maps native-host partial/final JSONL and passes exact safe arguments", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dshmux-host-test-"));
+  const hostPath = path.join(root, "fake-host");
   const modelPath = path.join(root, "ggml-large-v3-turbo.bin");
+  const argsPath = path.join(root, "args.json");
   fs.writeFileSync(modelPath, "model fixture");
-  fs.writeFileSync(ffmpegPath, `#!/usr/bin/env node
+  fs.writeFileSync(hostPath, `#!/usr/bin/env node
 const fs = require("node:fs");
-const output = process.argv.at(-1);
-fs.writeFileSync(output, Buffer.from("RIFF fixture WAV"));
+fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write('{"event":"ready"}\\n');
+process.stdout.write('{"event":"transcript","phase":"partial","text":"Tere"}\\n');
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", value => {
-  if (value.includes("q")) process.exit(0);
+  if (value.includes('"command":"stop"')) {
+    process.stdout.write('{"event":"transcript","phase":"final","text":"Tere maailm."}\\n');
+  }
 });
 `);
-  fs.writeFileSync(whisperPath, `#!/usr/bin/env node
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-const file = args[args.indexOf("--file") + 1];
-const model = args[args.indexOf("--model") + 1];
-const language = args[args.indexOf("--language") + 1];
-if (!fs.readFileSync(file).toString().startsWith("RIFF")) process.exit(2);
-if (!fs.existsSync(model) || language !== "et") process.exit(3);
-process.stdout.write("  Tere maailm.  \\n");
-`);
-  fs.chmodSync(ffmpegPath, 0o755);
-  fs.chmodSync(whisperPath, 0o755);
+  fs.chmodSync(hostPath, 0o755);
 
-  const before = new Set(
-    fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("dshmux-dictation-"))
-  );
   const child = fork(path.join(__dirname, "..", "out", "localDictationWorker.js"), [], {
     stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
@@ -63,11 +54,6 @@ process.stdout.write("  Tere maailm.  \\n");
       }
     });
     child.once("error", reject);
-    child.once("exit", (code) => {
-      if (!messages.some((message) => message.type === "transcript")) {
-        reject(new Error(`worker exited before completion (${code})`));
-      }
-    });
   });
   child.send({
     type: "start",
@@ -75,25 +61,23 @@ process.stdout.write("  Tere maailm.  \\n");
     options: {
       platformKey: "darwin-arm64",
       whisperLanguage: "et",
-      ffmpegPath,
-      whisperPath,
+      hostPath,
       modelPath,
-      audioDevice: "",
+      captureId: -1,
     },
   });
   try {
     await done;
-    assert.equal(messages.filter((message) => message.type === "transcript").length, 1);
-    assert.ok(messages.some((message) => message.type === "metrics" && message.peakRssBytes > 0));
-    assert.ok(messages.some((message) =>
-      message.type === "transcript" &&
-      message.phase === "complete" &&
-      message.text === "Tere maailm."
-    ));
     await exited;
-    const after = fs.readdirSync(os.tmpdir())
-      .filter((name) => name.startsWith("dshmux-dictation-") && !before.has(name));
-    assert.deepEqual(after, []);
+    assert.ok(messages.some((message) => message.type === "transcript" && message.phase === "interim" && message.text === "Tere"));
+    assert.ok(messages.some((message) => message.type === "transcript" && message.phase === "complete" && message.text === "Tere maailm."));
+    assert.ok(messages.some((message) => message.type === "metrics" && message.stopToFinalMs >= 0));
+    assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, "utf8")), [
+      "--model", modelPath,
+      "--language", "et",
+      "--capture-id", "-1",
+      "--partial-ms", "750",
+    ]);
   } finally {
     child.kill();
     fs.rmSync(root, { recursive: true, force: true });

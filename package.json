@@ -31,6 +31,7 @@
   "files": [
     "out/**",
     "media/**",
+    "runtime/**",
     "README.md",
     "LICENSE",
     "package.nls.json",
@@ -136,19 +137,12 @@
           "order": 110,
           "description": "%setting.localDictation.language.description%"
         },
-        "dshmux.experimental.localDictation.ffmpegPath": {
+        "dshmux.experimental.localDictation.hostPath": {
           "type": "string",
           "default": "",
           "scope": "machine",
           "order": 120,
-          "description": "%setting.localDictation.ffmpegPath.description%"
-        },
-        "dshmux.experimental.localDictation.whisperPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "order": 125,
-          "description": "%setting.localDictation.whisperPath.description%"
+          "description": "%setting.localDictation.hostPath.description%"
         },
         "dshmux.experimental.localDictation.modelPath": {
           "type": "string",

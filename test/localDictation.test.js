@@ -10,7 +10,6 @@ const path = require("node:path");
 const {
   LocalDictationController,
   LocalDictationError,
-  ffmpegCaptureArgs,
   isWorkerEvent,
   preflightLocalDictation,
 } = require("../out/localDictation.js");
@@ -32,47 +31,42 @@ function touch(filePath, executable = false) {
 function fixture(platform = "darwin") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "dshmux-preflight-test-"));
   created.push(root);
-  const ffmpegPath = path.join(root, platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-  const whisperPath = path.join(root, platform === "win32" ? "whisper-cli.exe" : "whisper-cli");
+  const extensionPath = path.join(root, "extension");
+  const hostPath = path.join(extensionPath, "runtime", platform === "win32" ? "win32-x64" : "darwin-arm64", platform === "win32" ? "dsh-dictation-host.exe" : "dsh-dictation-host");
   const modelPath = path.join(root, "models", "ggml-large-v3-turbo.bin");
-  touch(ffmpegPath, true);
-  touch(whisperPath, true);
+  touch(hostPath, true);
   touch(modelPath);
   return {
     environment: {
       platform,
       arch: platform === "darwin" ? "arm64" : "x64",
-      homeDir: path.join(root, "home"),
-      pathValue: "",
+      extensionPath,
     },
     settings: {
       enabled: true,
       language: "en-US",
-      ffmpegPath,
-      whisperPath,
+      hostPath: "",
       modelPath,
-      audioDevice: platform === "win32" ? "Test Microphone" : "",
+      audioDevice: platform === "win32" ? "2" : "",
     },
-    ffmpegPath,
-    whisperPath,
+    hostPath,
     modelPath,
   };
 }
 
-test("Mac preflight validates explicit local Whisper dependencies without VS Code cache access", async () => {
+test("Mac preflight resolves the bundled native host without VS Code cache access", async () => {
   const item = fixture("darwin");
   const result = await preflightLocalDictation(item.environment, item.settings);
   assert.deepEqual(result, {
     platformKey: "darwin-arm64",
     whisperLanguage: "en",
-    ffmpegPath: item.ffmpegPath,
-    whisperPath: item.whisperPath,
+    hostPath: item.hostPath,
     modelPath: item.modelPath,
-    audioDevice: "",
+    captureId: -1,
   });
 });
 
-test("Windows preflight maps Estonian and preserves the DirectShow device", async () => {
+test("Windows preflight maps Estonian and the SDL capture-device number", async () => {
   const item = fixture("win32");
   const result = await preflightLocalDictation(item.environment, {
     ...item.settings,
@@ -80,7 +74,7 @@ test("Windows preflight maps Estonian and preserves the DirectShow device", asyn
   });
   assert.equal(result.platformKey, "win32-x64");
   assert.equal(result.whisperLanguage, "et");
-  assert.equal(result.audioDevice, "Test Microphone");
+  assert.equal(result.captureId, 2);
 });
 
 test("preflight rejects disabled, remote, unsupported and missing/relative dependencies", async () => {
@@ -102,8 +96,8 @@ test("preflight rejects disabled, remote, unsupported and missing/relative depen
     (error) => error.code === "model-unavailable"
   );
   await assert.rejects(
-    preflightLocalDictation(item.environment, { ...item.settings, whisperPath: "whisper-cli" }),
-    (error) => error.code === "whisper-unavailable"
+    preflightLocalDictation(item.environment, { ...item.settings, hostPath: "dsh-dictation-host" }),
+    (error) => error.code === "host-unavailable"
   );
   fs.rmSync(item.modelPath);
   await assert.rejects(
@@ -112,16 +106,12 @@ test("preflight rejects disabled, remote, unsupported and missing/relative depen
   );
 });
 
-test("capture arguments write PCM16 WAV and preserve a hostile device as one argument", () => {
-  assert.throws(
-    () => ffmpegCaptureArgs("win32", "", "C:\\Temp\\recording.wav"),
-    (error) => error.code === "audio-device-required"
+test("preflight rejects a non-numeric SDL capture device", async () => {
+  const item = fixture("win32");
+  await assert.rejects(
+    preflightLocalDictation(item.environment, { ...item.settings, audioDevice: "Mic & calc.exe" }),
+    (error) => error.code === "microphone-unavailable"
   );
-  const output = "C:\\Temp\\recording.wav";
-  const args = ffmpegCaptureArgs("win32", "Mic & calc.exe", output);
-  assert.ok(args.includes("audio=Mic & calc.exe"));
-  assert.equal(args.includes("&"), false);
-  assert.deepEqual(args.slice(-7), ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output]);
 });
 
 test("worker-event validation rejects malformed IPC", () => {
@@ -170,10 +160,9 @@ function controllerFixture() {
   const options = {
     platformKey: "darwin-arm64",
     whisperLanguage: "en",
-    ffmpegPath: "/ffmpeg",
-    whisperPath: "/whisper-cli",
+    hostPath: "/runtime/dsh-dictation-host",
     modelPath: "/models/ggml-large-v3-turbo.bin",
-    audioDevice: "",
+    captureId: -1,
   };
   return { child, controller, events, forks, options };
 }

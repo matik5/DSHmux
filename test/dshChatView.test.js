@@ -142,12 +142,9 @@ require.cache[localDictationPath] = {
       return {
         platformKey: "darwin-arm64",
         language: settings.language,
-        ffmpegPath: "/ffmpeg",
-        ffmpegArgs: [],
-        modelCacheDir: "/models",
-        modelDirectory: "/models/model",
-        runtimeDir: "/runtime",
-        sdkEntry: "/sdk/index.js",
+        hostPath: "/runtime/dsh-dictation-host",
+        modelPath: "/models/model.bin",
+        captureId: -1,
       };
     },
   },

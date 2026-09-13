@@ -43,7 +43,7 @@ Every implementation marked done exists and is reached:
 | `git diff --check` | ✅ pass |
 | Full `npm test` | ⚠ 219 pass, 7 fail, 1 skip |
 
-The seven full-suite failures are six Windows-path assertions in unchanged `test/installService.test.js` and one non-hermetic Node-discovery assertion in unchanged `test/serverManager.test.js`. Running those same two unchanged tests in `/Users/mati/proj/DSHmux` reproduces the same seven failures. They are therefore baseline issues, not regressions from this feature; changing installation or runtime discovery is outside R1–R8.
+The seven full-suite failures are six Windows-path assertions in unchanged `test/installService.test.js` and one non-hermetic Node-discovery assertion in unchanged `test/serverManager.test.js`. Running those same two unchanged tests in the primary DSHmux checkout reproduces the same seven failures. They are therefore baseline issues, not regressions from this feature; changing installation or runtime discovery is outside R1–R8.
 
 ## Visual evidence
 

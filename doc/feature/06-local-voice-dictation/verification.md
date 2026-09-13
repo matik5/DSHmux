@@ -2,115 +2,103 @@
 
 **Date**: 2026-09-13
 
-**Status**: IN PROGRESS — macOS checkpoint PASS; Windows checkpoint remains
+**Status**: IN PROGRESS — native Mac checkpoint PASS; Windows remains
 
 **Sources**: [req.md](req.md), [solution.md](solution.md), [plan.md](plan.md)
 
 ## Current checkpoint
 
-The generic Whisper implementation is built, automatically verified, and open
-in a fresh Extension Development Host for the user-facing macOS test. This is
-not the close-out verdict: raw live English/Estonian results and all Windows
-evidence are still required.
+The earlier external `whisper-cli` Mac implementation passed live English and
+Estonian dictation with the full model. The approved native-host revision is
+implemented, built, and user-verified through the Extension Development Host on
+Mac. Windows compilation and testing remain pending, so no final R1 verdict is
+issued.
 
-## macOS environment
+## Reference environment and retained model evidence
 
 | Item | Evidence |
 |---|---|
-| OS | macOS 26.6.2 (25G83), Arm64 |
-| VS Code | 1.137.0, commit `645f29cc3176500b4b5762ba887cf2a7f0ffdf2c`, Arm64 |
-| FFmpeg | 9.0.1 at `/opt/homebrew/bin/ffmpeg` |
-| Runtime | whisper.cpp / `whisper-cli` 1.9.2 at `/opt/homebrew/bin/whisper-cli` |
-| Model | official full GGML `ggml-large-v3-turbo.bin`, 1,624,555,275 bytes |
-| Model SHA-1 | `4af2b29d7ec73d781377bfd1758ca957a807e941` (matches the published whisper.cpp value) |
-| Model path | `~/Library/Application Support/DSHmux/models/ggml-large-v3-turbo.bin` |
+| OS | Apple-silicon macOS, Arm64 |
+| VS Code | 1.137.0, Arm64 |
+| Native source | external whisper.cpp v1.9.2 checkout, commit `306c88f4` |
+| Model | official full `ggml-large-v3-turbo.bin`, 1,624,555,275 bytes |
+| Model SHA-1 | `4af2b29d7ec73d781377bfd1758ca957a807e941` |
+| Model path | external user-configured DSHmux model cache |
 
-## Automated evidence
+The earlier live batch result was exact for both fixed phrases and was not
+automatically sent:
 
-- TypeScript compilation passes.
-- The focused configuration, preflight, worker, chrome, and view run passes
-  46/46 tests.
-- Production source/package manifests contain no `Nemotron`, `Foundry`,
-  `chatDictationModels`, `chatDictationRuntime`, or Foundry-native reference.
-- `npx vsce ls` includes `out/localDictationWorker.js` and contains no model,
-  runtime, FFmpeg, WAV, temp directory, transcript, or absolute machine path.
-- `npm test` has no dictation/touched-boundary failure and reproduces the same
-  seven unrelated baseline failures: six macOS-vs-Windows path expectations in
-  `test/installService.test.js` and one Homebrew Node expectation in
-  `test/serverManager.test.js`.
-- An audit-only `tmp/deepseek-harness` checkout initially caused Node's default
-  test discovery to include that other repository. It was moved out of the
-  worktree to Trash and the suite was rerun against DSHmux only.
+| Language | Expected and observed earlier output |
+|---|---|
+| Estonian | `Palun vaata üle selle projekti testid ja paranda katkised testid.` |
+| English | `Please review the project tests and fix the failing tests.` |
 
-## Model and worker smoke
+This establishes the model quality ceiling and unchanged composer seam, not yet
+the new native host's microphone result.
 
-Known input: synthesized WAV saying “Quick brown fox jumps over the lazy dog”.
+## Native host build evidence
 
-| Path | Raw final output | Stop/file-to-final | Memory evidence |
-|---|---|---:|---:|
-| Direct `whisper-cli` | `Quick brown fox jumps over the lazy dog.` | 1.57 s wall clock | 1,982,955,520-byte max RSS; 2,103,494,840-byte peak footprint |
-| Production DSHmux worker with deterministic WAV capture | `Quick brown fox jumps over the lazy dog.` | 1,341 ms | 44,531,712-byte worker RSS; child memory measured separately above |
+- `native/dictation-host/build-macos.sh` completed against the pinned checkout.
+- `runtime/darwin-arm64/dsh-dictation-host` is a thin Arm64 Mach-O executable,
+  approximately 2.5 MiB and ad-hoc signed by the linker.
+- Whisper and GGML are statically linked. `otool -L` lists the adjacent
+  `@executable_path/libSDL2-2.0.0.dylib` plus Apple system frameworks; it does
+  not list Homebrew Whisper/GGML paths.
+- The first live launch crashed before `main()` in `sdl2-compat`'s `dllinit`.
+  The crash report proved that the copied compatibility dylib dynamically
+  required SDL3. The build now copies `libSDL3.dylib` beside it and fails unless
+  an invalid-argument startup smoke produces the expected JSON event.
+- The adjacent SDL2 dylib is approximately 512 KiB and SDL3 approximately 2.5
+  MiB. The corrected startup smoke passes.
+- SHA-256: host `9b34b8771effcca4f67c21f500369c13f5d57c083eec14009cfa12aba7e47ce5`,
+  SDL2 `977652abdd3222e623325263f6954a141ebe655dd84ac72bfd55528c3cbf68f6`,
+  SDL3 `42dc953f134d7a024ac0f729ce39e3977e5ecfaca0bc42df40c877185d0b05d7`.
+- Compiler prefix maps and Mach-O cleanup remove checkout/user paths and local
+  Homebrew rpaths from the distributed host. A tracked-text and binary-string
+  audit finds no machine-local user path or personal email address.
+- Audio capture is an SDL callback into a mutex-protected vector capped at 30
+  seconds. No WAV or other recording file is created.
+- Full inference runs from a snapshot, not inside the audio callback. Partial
+  cadence defaults to 750 ms and is rejected below 250 ms.
+- JSON escaping, language validation, model failure, microphone failure, Stop,
+  Cancel, partial, and final event paths exist in the compiled host source.
 
-The production worker emitted `ready`, one metrics event, and exactly one
-`complete` transcript. It emitted no interim text. No `dshmux-dictation-*`
-temporary directory remained after exit.
+## Automated evidence for the native revision
 
-## Live macOS result
+- Native CMake Release build: PASS.
+- Corrected native direct live run: PASS — `ready`, changing Estonian partials,
+  one final transcript, and clean exit code 0 were observed.
+- Corrected native real-model Cancel run: PASS — `ready`, `cancelled`, clean
+  exit code 0, and no remaining `dsh-dictation-host` process.
+- Extension Development Host live checkpoint: PASS — the user confirmed the
+  bundled native host works through the microphone control. This confirms the
+  visible partial/final path, final insertion into the editable DSH composer,
+  and unchanged no-auto-Send behavior requested for the retest.
+- TypeScript compile: PASS.
+- Focused configuration, preflight, worker protocol, controller, chrome, and
+  view tests: **53/53 PASS**.
+- Fake-host integration proves exact argument-array values, JSONL
+  ready/partial/final mapping, sanitized metrics, and clean process exit.
+- Preflight tests prove bundled path selection for `darwin-arm64` and
+  `win32-x64`, explicit override validation, cached-model validation, and SDL
+  capture-id validation.
+- DSHmux-scoped full suite: **256 PASS, 0 FAIL, 1 SKIP**. An unscoped
+  `node --test` also discovered the user's untracked `tmp/deepseek-harness`
+  checkout; those unrelated results are excluded without modifying the
+  checkout.
+- `npx vsce ls` includes the host, SDL2, SDL3, and notices. It excludes the
+  model, native build tree, and external whisper.cpp checkout.
 
-| Language | Fixed phrase | Raw final output | Result |
-|---|---|---|---|
-| Estonian (`et-EE` → `et`) | `Palun vaata üle selle projekti testid ja paranda katkised testid.` | `Palun vaata üle selle projekti testid ja paranda katkised testid.` | PASS — user confirmed the sentence appeared completely correctly despite deliberately less-clear speech. |
-| English (`en-US` → `en`) | `Please review the project tests and fix the failing tests.` | `Please review the project tests and fix the failing tests.` | PASS — user confirmed the result was again perfect. |
+## Licenses and redistribution
 
-The transcript remained editable in the existing DSH composer and was not sent
-automatically. The Whisper live result confirms the replacement backend reaches
-that unchanged integration boundary.
-
-The user explicitly accepted the Mac checkpoint as fully good for the current
-full `large-v3-turbo` model.
-
-## Network-blocked repeat
-
-The production worker was run under macOS `sandbox-exec` with
-`(deny network*)`, using deterministic WAV capture and the same external model
-and runtime. It completed in 1,812 ms with the exact final transcript:
-
-```text
-Please review the project tests and fix the failing tests.
-```
-
-No worker temporary directory remained. This demonstrates offline inference
-after explicit setup without relying only on proxy configuration.
-
-## Privacy and prior-backend note
-
-- The current worker uses only local FFmpeg and `whisper-cli` child processes,
-  ignores both child stderr streams, bounds transcript stdout, and sends only
-  the final transcript plus numeric metrics over private child IPC.
-- Recording is one worker-owned WAV and is removed before the final transcript
-  event. Cancel/failure/disconnect cleanup is covered by code and fake-process
-  tests.
-- During the earlier Nemotron investigation, one initial online private-SDK
-  diagnostic refreshed VS Code's `foundry.modelinfo.json` at 19:26:42. Later
-  Nemotron runs were proxy-blocked and left its exact fingerprint/mtime
-  unchanged. The Whisper revision neither reads nor writes that cache.
-- The earlier user test proved the common UI/composer boundary: English text
-  was inserted and was not automatically sent; Nemotron Estonian quality did
-  not preserve meaning. This is comparison evidence, not Whisper acceptance.
-
-## Requirement coverage at this checkpoint
-
-| Requirement | State | Evidence / remaining gap |
-|---|---|---|
-| R1 | partial | Mac accuracy/runtime/capture/composer/package/licensing evidence passes; final verdict waits for Windows. |
-| R2 | partial | Mac checkpoint passes; Windows is intentionally pending. |
-| R3 | verified on Mac | Exact generic model/checksum, explicit external paths, network-blocked inference, no package/cache dependency, local process boundary and temp cleanup. |
-| R4 | verified on Mac | Both live languages, composer insertion and no auto-Send pass; lifecycle/cancel edges also pass deterministic tests. |
-| R5 | verified in code/package | Disabled default, explicit settings, two-child CLI adapter, no downloader/provider/private VS Code API. |
-| R6 | partial | Automated/smoke/package and both Mac live-language results are recorded; Windows remains. |
+whisper.cpp and OpenAI Whisper use the MIT license; SDL2 uses the zlib license.
+Those licenses allow modification, linking, and redistribution of the compiled
+runtime. `runtime/THIRD_PARTY_NOTICES.md` accompanies the artifacts. The model
+weights remain outside the repository and package.
 
 ## Outstanding evidence
 
-1. Entire Windows x64 checkpoint.
+1. Windows x64 build artifact, DLL/dependency audit, automated tests, live
+   English/Estonian result, offline behavior, and lifecycle checks.
 2. Final RTTM/code-called audit, verdict, plan review, summary, and mechanical
-   TODO extraction after the platform evidence is complete.
+   TODO extraction after both platform checkpoints.

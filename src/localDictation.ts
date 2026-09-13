@@ -16,10 +16,9 @@ export type DictationErrorCode =
   | "disabled"
   | "remote-host"
   | "unsupported-platform"
-  | "whisper-unavailable"
+  | "host-unavailable"
   | "model-unavailable"
-  | "ffmpeg-unavailable"
-  | "audio-device-required"
+  | "microphone-unavailable"
   | "busy"
   | "timeout"
   | "worker-failed"
@@ -38,8 +37,7 @@ export class LocalDictationError extends Error {
 export interface LocalDictationSettings {
   enabled: boolean;
   language: LocalDictationLanguage;
-  ffmpegPath: string;
-  whisperPath: string;
+  hostPath: string;
   modelPath: string;
   audioDevice: string;
 }
@@ -48,17 +46,15 @@ export interface LocalDictationEnvironment {
   platform: NodeJS.Platform;
   arch: string;
   remoteName?: string;
-  homeDir: string;
-  pathValue?: string;
+  extensionPath: string;
 }
 
 export interface ValidatedDictationOptions {
   platformKey: "darwin-arm64" | "win32-x64";
   whisperLanguage: "en" | "et";
-  ffmpegPath: string;
-  whisperPath: string;
+  hostPath: string;
   modelPath: string;
-  audioDevice: string;
+  captureId: number;
 }
 
 export interface PreflightIo {
@@ -116,111 +112,28 @@ async function requireFile(
   }
 }
 
-function executableNames(platform: NodeJS.Platform): string[] {
-  return platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
-}
-
-async function resolveFfmpeg(
+async function resolveHost(
   environment: LocalDictationEnvironment,
   configuredPath: string,
   io: PreflightIo
 ): Promise<string> {
-  const candidates: string[] = [];
   if (configuredPath) {
     if (!path.isAbsolute(configuredPath)) {
       throw new LocalDictationError(
-        "ffmpeg-unavailable",
-        "The configured FFmpeg path must be absolute."
+        "host-unavailable",
+        "The configured dictation host path must be absolute."
       );
     }
-    candidates.push(configuredPath);
-  } else {
-    for (const directory of (environment.pathValue ?? "").split(path.delimiter)) {
-      if (!directory) continue;
-      for (const name of executableNames(environment.platform)) {
-        candidates.push(path.join(directory, name));
-      }
-    }
-    if (environment.platform === "darwin") {
-      candidates.push("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg");
-    }
+    return requireFile(io, "host-unavailable", "The dictation host is unavailable.", configuredPath, fs.constants.X_OK);
   }
-  for (const candidate of [...new Set(candidates)]) {
-    try {
-      await io.access(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next fixed candidate.
-    }
-  }
-  throw new LocalDictationError(
-    "ffmpeg-unavailable",
-    "FFmpeg is required for local microphone capture and was not found."
-  );
-}
-
-async function resolveWhisper(
-  environment: LocalDictationEnvironment,
-  configuredPath: string,
-  io: PreflightIo
-): Promise<string> {
-  const candidates: string[] = [];
-  if (configuredPath) {
-    if (!path.isAbsolute(configuredPath)) {
-      throw new LocalDictationError(
-        "whisper-unavailable",
-        "The configured whisper-cli path must be absolute."
-      );
-    }
-    candidates.push(configuredPath);
-  } else {
-    const names = environment.platform === "win32"
-      ? ["whisper-cli.exe", "whisper-cli"]
-      : ["whisper-cli"];
-    for (const directory of (environment.pathValue ?? "").split(path.delimiter)) {
-      if (!directory) continue;
-      for (const name of names) candidates.push(path.join(directory, name));
-    }
-    if (environment.platform === "darwin") {
-      candidates.push("/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli");
-    }
-  }
-  for (const candidate of [...new Set(candidates)]) {
-    try {
-      await io.access(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next fixed candidate.
-    }
-  }
-  throw new LocalDictationError(
-    "whisper-unavailable",
-    "whisper-cli is required for local transcription and was not found."
-  );
-}
-
-export function ffmpegCaptureArgs(
-  platform: NodeJS.Platform,
-  audioDevice: string,
-  outputPath: string
-): string[] {
-  const common = ["-hide_banner", "-loglevel", "error", "-y"];
-  const output = ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", outputPath];
-  if (platform === "darwin") {
-    return [...common, "-f", "avfoundation", "-i", `:${audioDevice || "default"}`, ...output];
-  }
-  if (platform === "win32") {
-    if (!audioDevice) {
-      throw new LocalDictationError(
-        "audio-device-required",
-        "Windows requires an exact DirectShow microphone name; list devices with ffmpeg -list_devices true -f dshow -i dummy."
-      );
-    }
-    return [...common, "-f", "dshow", "-i", `audio=${audioDevice}`, ...output];
-  }
-  throw new LocalDictationError(
-    "unsupported-platform",
-    "This prototype supports only macOS Arm64 and Windows x64."
+  const target = platformKey(environment);
+  const executable = target === "win32-x64" ? "dsh-dictation-host.exe" : "dsh-dictation-host";
+  return requireFile(
+    io,
+    "host-unavailable",
+    `The bundled dictation host for ${target} is unavailable.`,
+    path.join(environment.extensionPath, "runtime", target, executable),
+    fs.constants.X_OK
   );
 }
 
@@ -241,15 +154,20 @@ export async function preflightLocalDictation(
     settings.modelPath,
     fs.constants.R_OK
   );
-  const ffmpegPath = await resolveFfmpeg(environment, settings.ffmpegPath, io);
-  const whisperPath = await resolveWhisper(environment, settings.whisperPath, io);
+  const hostPath = await resolveHost(environment, settings.hostPath, io);
+  const captureId = settings.audioDevice ? Number.parseInt(settings.audioDevice, 10) : -1;
+  if (!Number.isInteger(captureId) || captureId < -1) {
+    throw new LocalDictationError(
+      "microphone-unavailable",
+      "The microphone device must be an SDL capture-device number or empty for the default."
+    );
+  }
   return {
     platformKey: target,
     whisperLanguage: settings.language === "et-EE" ? "et" : "en",
-    ffmpegPath,
-    whisperPath,
+    hostPath,
     modelPath,
-    audioDevice: settings.audioDevice,
+    captureId,
   };
 }
 

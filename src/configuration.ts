@@ -75,8 +75,7 @@ export function soundSettings(): SoundSettings {
 export interface LocalDictationConfiguration {
   enabled: boolean;
   language: "en-US" | "et-EE";
-  ffmpegPath: string;
-  whisperPath: string;
+  hostPath: string;
   modelPath: string;
   audioDevice: string;
 }
@@ -86,8 +85,7 @@ export function localDictationSettings(): LocalDictationConfiguration {
   return {
     enabled: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.enabled`, false),
     language: language === "et-EE" ? "et-EE" : "en-US",
-    ffmpegPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.ffmpegPath`, "").trim(),
-    whisperPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.whisperPath`, "").trim(),
+    hostPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.hostPath`, "").trim(),
     modelPath: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.modelPath`, "").trim(),
     audioDevice: dshmuxConfiguration(`${LOCAL_DICTATION_PREFIX}.audioDevice`, "").trim(),
   };

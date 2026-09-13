@@ -105,8 +105,7 @@ test("local dictation is disabled and local-only by default", () => {
   assert.deepEqual(localDictationSettings(), {
     enabled: false,
     language: "en-US",
-    ffmpegPath: "",
-    whisperPath: "",
+    hostPath: "",
     modelPath: "",
     audioDevice: "",
   });
@@ -115,15 +114,13 @@ test("local dictation is disabled and local-only by default", () => {
 test("local dictation settings trim paths and constrain the language", () => {
   values.dshmux["experimental.localDictation.enabled"] = true;
   values.dshmux["experimental.localDictation.language"] = "et-EE";
-  values.dshmux["experimental.localDictation.ffmpegPath"] = "  /opt/ffmpeg  ";
-  values.dshmux["experimental.localDictation.whisperPath"] = "  /opt/whisper-cli  ";
+  values.dshmux["experimental.localDictation.hostPath"] = "  /opt/dsh-dictation-host  ";
   values.dshmux["experimental.localDictation.modelPath"] = "  /models/turbo.bin  ";
   values.dshmux["experimental.localDictation.audioDevice"] = "  Mic  ";
   assert.deepEqual(localDictationSettings(), {
     enabled: true,
     language: "et-EE",
-    ffmpegPath: "/opt/ffmpeg",
-    whisperPath: "/opt/whisper-cli",
+    hostPath: "/opt/dsh-dictation-host",
     modelPath: "/models/turbo.bin",
     audioDevice: "Mic",
   });

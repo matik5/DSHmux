@@ -90,4 +90,4 @@ npm run package     # vsce package -> vsix
 见 [CHANGELOG.md](CHANGELOG.md) / [CHANGELOG.zh.md](CHANGELOG.zh.md)。
 ## License
 
-MIT — 见 [LICENSE](LICENSE)。Copyright © 2026 Liming Xie, Mati Kosemäe。
+MIT — 见 [LICENSE](LICENSE)。Copyright © 2026 Liming Xie and DSHmux contributors。

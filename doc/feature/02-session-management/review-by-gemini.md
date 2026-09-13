@@ -13,13 +13,13 @@
 
 | 模块 / 文件 | 关键职责与实现亮点 | 质量评估 |
 |---|---|---|
-| [`src/serverManager.ts`](file:///Users/liming/workspace/dsh4vscode/src/serverManager.ts) | 抽离私有 `api()` helper 统一 POST JSON-RPC 信封；新增 `listWorkspaceSessions`（结合 `workspace.list` 按 `sameFsPath` 匹配并按 `sessionIds` 过滤）；新增 `createSession`、`workspaceIdFor`、`renameSession`（附带 `title-invalid` 错误码）。 | 🌟 优秀（契约严密，错误透传清晰） |
-| [`src/sessionPanels.ts`](file:///Users/liming/workspace/dsh4vscode/src/sessionPanels.ts) | 新增 `SessionPanelManager`，采用纯 TypeScript / vscode-free 的 `PanelFactory` 注入设计；有序维护 `Map<sessionId, DshPanel>` 与 `order[]`；支持 `open`、`close`、`closeAll`、`restore` 与 `updateTitle`。 | 🌟 优秀（易于独立单元测试，生命周期完备） |
-| [`src/dshPanel.ts`](file:///Users/liming/workspace/dsh4vscode/src/dshPanel.ts) | 构造器支持可选 `sessionId` 绑定；新增 `updateTitle(title)` 动态联动标签页标题（`DSH: <title>`）；新增 `onDisposed` 多回调订阅；严格落实 R5 语义（关闭标签页仅清理 Webview，不终止 DSH 服务）。 | 🌟 优秀（Tab 标题动态化，解耦良好） |
-| [`src/launcherView.ts`](file:///Users/liming/workspace/dsh4vscode/src/launcherView.ts) | 侧边栏渲染会话列表、归档分组、空态引导；支持 inline 行内重命名编辑（Enter 确认 / Esc 取消）；`✕` 关面板按钮根据 `isOpen` 条件渲染；5s 轮询具备 `ready` 状态联动与 `isPolling` 防并发重入锁。 | 🌟 优秀（交互丝滑，鲁棒性高） |
-| [`src/extension.ts`](file:///Users/liming/workspace/dsh4vscode/src/extension.ts) | 宿主全局接线：`workspaceState["dsh.panels"]` 持久化与 reload 批量恢复；多根主工作区变更触发 `panels.closeAll()`；新建/打开/重命名/关闭全链路消息处理闭环。 | 🌟 优秀（状态机与恢复路径清晰） |
-| [`src/workspaceTracker.ts`](file:///Users/liming/workspace/dsh4vscode/src/workspaceTracker.ts) | 新增 `sessionTitleOf` 纯函数，严格对齐 DSH 运行时优先级（durable title → cwd basename → sessionId）。 | 🌟 优秀（纯函数，零依赖） |
-| [`src/i18nStrings.ts`](file:///Users/liming/workspace/dsh4vscode/src/i18nStrings.ts) | 完整补齐会话区相关 9 语言字符串（en, zh, ja, ko, ru, es, pt, fr, de）。 | 🌟 优秀（全语系覆盖） |
+| [`src/serverManager.ts`](../../../src/serverManager.ts) | 抽离私有 `api()` helper 统一 POST JSON-RPC 信封；新增 `listWorkspaceSessions`（结合 `workspace.list` 按 `sameFsPath` 匹配并按 `sessionIds` 过滤）；新增 `createSession`、`workspaceIdFor`、`renameSession`（附带 `title-invalid` 错误码）。 | 🌟 优秀（契约严密，错误透传清晰） |
+| [`src/sessionPanels.ts`](../../../src/sessionPanels.ts) | 新增 `SessionPanelManager`，采用纯 TypeScript / vscode-free 的 `PanelFactory` 注入设计；有序维护 `Map<sessionId, DshPanel>` 与 `order[]`；支持 `open`、`close`、`closeAll`、`restore` 与 `updateTitle`。 | 🌟 优秀（易于独立单元测试，生命周期完备） |
+| [`src/dshPanel.ts`](../../../src/dshPanel.ts) | 构造器支持可选 `sessionId` 绑定；新增 `updateTitle(title)` 动态联动标签页标题（`DSH: <title>`）；新增 `onDisposed` 多回调订阅；严格落实 R5 语义（关闭标签页仅清理 Webview，不终止 DSH 服务）。 | 🌟 优秀（Tab 标题动态化，解耦良好） |
+| `src/launcherView.ts` | 侧边栏渲染会话列表、归档分组、空态引导；支持 inline 行内重命名编辑（Enter 确认 / Esc 取消）；`✕` 关面板按钮根据 `isOpen` 条件渲染；5s 轮询具备 `ready` 状态联动与 `isPolling` 防并发重入锁。 | 🌟 优秀（交互丝滑，鲁棒性高） |
+| [`src/extension.ts`](../../../src/extension.ts) | 宿主全局接线：`workspaceState["dsh.panels"]` 持久化与 reload 批量恢复；多根主工作区变更触发 `panels.closeAll()`；新建/打开/重命名/关闭全链路消息处理闭环。 | 🌟 优秀（状态机与恢复路径清晰） |
+| [`src/workspaceTracker.ts`](../../../src/workspaceTracker.ts) | 新增 `sessionTitleOf` 纯函数，严格对齐 DSH 运行时优先级（durable title → cwd basename → sessionId）。 | 🌟 优秀（纯函数，零依赖） |
+| [`src/i18nStrings.ts`](../../../src/i18nStrings.ts) | 完整补齐会话区相关 9 语言字符串（en, zh, ja, ko, ru, es, pt, fr, de）。 | 🌟 优秀（全语系覆盖） |
 | `test/` 单测套件 | 新增 `sessionPanels.test.js`、扩展 `serverManager.test.js` 与 `workspaceTracker.test.js`，全量单测用例增至 **68 项**。 | 🌟 优秀（100% 通过） |
 
 ---

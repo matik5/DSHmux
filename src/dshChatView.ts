@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -492,8 +491,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
           platform: process.platform,
           arch: process.arch,
           remoteName: vscode.env.remoteName,
-          homeDir: os.homedir(),
-          pathValue: process.env.PATH,
+          extensionPath: this.context.extensionUri.fsPath,
         },
         settings
       );

@@ -1,17 +1,19 @@
 import { ChildProcess, spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import {
   DictationErrorCode,
-  ffmpegCaptureArgs,
   ValidatedDictationOptions,
   WorkerEvent,
   WorkerRequest,
 } from "./localDictation";
 
-const MAX_TRANSCRIPT_BYTES = 1024 * 1024;
+const MAX_HOST_OUTPUT_BYTES = 1024 * 1024;
 const PROCESS_EXIT_TIMEOUT_MS = 3_000;
+
+type HostEvent =
+  | { event: "ready" }
+  | { event: "transcript"; phase: "partial" | "final"; text: string }
+  | { event: "cancelled" }
+  | { event: "error"; code: string };
 
 function isStartRequest(value: unknown): value is Extract<WorkerRequest, { type: "start" }> {
   if (!value || typeof value !== "object") return false;
@@ -19,11 +21,7 @@ function isStartRequest(value: unknown): value is Extract<WorkerRequest, { type:
   return request.type === "start" && Number.isInteger(request.generation) && !!request.options;
 }
 
-function isControlRequest(
-  value: unknown,
-  type: "stop" | "cancel",
-  generation: number
-): boolean {
+function isControlRequest(value: unknown, type: "stop" | "cancel", generation: number): boolean {
   if (!value || typeof value !== "object") return false;
   const request = value as Record<string, unknown>;
   return request.type === type && request.generation === generation;
@@ -33,25 +31,38 @@ function send(event: WorkerEvent): void {
   if (process.connected) process.send?.(event);
 }
 
-/** Normalize only CLI framing; do not perform language or LLM cleanup. */
-export function normalizeWhisperOutput(value: string): string {
-  return value
-    .replace(/\u001b\[[0-9;]*m/g, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+export function parseHostEvent(line: string): HostEvent | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const event = value as Record<string, unknown>;
+  if (event.event === "ready" || event.event === "cancelled") return { event: event.event };
+  if (
+    event.event === "transcript" &&
+    (event.phase === "partial" || event.phase === "final") &&
+    typeof event.text === "string"
+  ) {
+    return { event: "transcript", phase: event.phase, text: event.text };
+  }
+  if (event.event === "error" && typeof event.code === "string") {
+    return { event: "error", code: event.code };
+  }
+  return undefined;
 }
 
 class DictationWorker {
-  private tempDirectory?: string;
-  private recordingPath?: string;
-  private capture?: ChildProcess;
-  private inference?: ChildProcess;
+  private host?: ChildProcess;
+  private output = "";
   private stopping = false;
   private finished = false;
+  private ready = false;
   private stopStartedAt?: number;
+  private firstTranscriptAt?: number;
+  private readonly startedAt = Date.now();
   private peakRssBytes = process.memoryUsage().rss;
 
   constructor(
@@ -61,31 +72,27 @@ class DictationWorker {
 
   async start(): Promise<void> {
     try {
-      this.tempDirectory = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), "dshmux-dictation-")
+      const host = spawn(
+        this.options.hostPath,
+        [
+          "--model", this.options.modelPath,
+          "--language", this.options.whisperLanguage,
+          "--capture-id", String(this.options.captureId),
+          "--partial-ms", "750",
+        ],
+        { shell: false, stdio: ["pipe", "pipe", "ignore"], windowsHide: true }
       );
-      this.recordingPath = path.join(this.tempDirectory, "recording.wav");
-      const platform = this.options.platformKey === "win32-x64" ? "win32" : "darwin";
-      const capture = spawn(
-        this.options.ffmpegPath,
-        ffmpegCaptureArgs(platform, this.options.audioDevice, this.recordingPath),
-        {
-          shell: false,
-          stdio: ["pipe", "ignore", "ignore"],
-          windowsHide: true,
-        }
-      );
-      this.capture = capture;
-      capture.once("exit", () => {
-        if (!this.stopping && !this.finished) void this.fail("ffmpeg-unavailable");
-      });
+      this.host = host;
+      host.stdout?.setEncoding("utf8");
+      host.stdout?.on("data", (chunk: string) => this.onOutput(chunk));
+      host.once("error", () => void this.fail("host-unavailable"));
+      host.once("exit", (code) => this.onExit(code));
       await new Promise<void>((resolve, reject) => {
-        capture.once("spawn", resolve);
-        capture.once("error", reject);
+        host.once("spawn", resolve);
+        host.once("error", reject);
       });
-      send({ type: "ready", generation: this.generation });
     } catch {
-      await this.fail("ffmpeg-unavailable");
+      await this.fail("host-unavailable");
     }
   }
 
@@ -93,151 +100,112 @@ class DictationWorker {
     if (this.stopping || this.finished) return;
     this.stopping = true;
     this.stopStartedAt = Date.now();
-    try {
-      await this.finishCapture();
-      const text = await this.transcribe();
-      const metrics: WorkerEvent = {
-        type: "metrics",
-        generation: this.generation,
-        stopToFinalMs: Date.now() - this.stopStartedAt,
-        peakRssBytes: this.peakRssBytes,
-      };
-      await this.cleanup();
-      if (this.finished) return;
-      this.finished = true;
-      send(metrics);
-      send({ type: "transcript", generation: this.generation, phase: "complete", text });
-      process.disconnect?.();
-    } catch {
-      await this.fail("worker-failed");
-    }
+    this.writeCommand("stop");
   }
 
   async cancel(): Promise<void> {
     if (this.finished) return;
     this.stopping = true;
-    await this.cleanup();
+    this.writeCommand("cancel");
+    await this.terminate();
     this.finished = true;
     process.disconnect?.();
   }
 
-  private async finishCapture(): Promise<void> {
-    const capture = this.capture;
-    if (!capture) throw new Error("capture unavailable");
-    if (capture.exitCode !== null || capture.signalCode !== null) {
-      this.capture = undefined;
-      if (capture.exitCode !== 0) throw new Error("capture failed");
+  private writeCommand(command: "stop" | "cancel"): void {
+    const host = this.host;
+    if (!host?.stdin || host.exitCode !== null || host.signalCode !== null) return;
+    host.stdin.write(`${JSON.stringify({ command })}\n`);
+    if (command === "stop") host.stdin.end();
+  }
+
+  private onOutput(chunk: string): void {
+    if (this.finished) return;
+    this.output += chunk;
+    if (Buffer.byteLength(this.output, "utf8") > MAX_HOST_OUTPUT_BYTES) {
+      void this.fail("worker-failed");
       return;
     }
-    const exited = this.waitForExit(capture, false);
-    capture.stdin?.end("q\n");
-    const code = await exited;
-    this.capture = undefined;
-    if (code !== 0) throw new Error("capture failed");
+    let newline = this.output.indexOf("\n");
+    while (newline >= 0) {
+      const line = this.output.slice(0, newline).trim();
+      this.output = this.output.slice(newline + 1);
+      if (line) this.onHostEvent(parseHostEvent(line));
+      newline = this.output.indexOf("\n");
+    }
   }
 
-  private async transcribe(): Promise<string> {
-    if (!this.recordingPath) throw new Error("recording unavailable");
-    const inference = spawn(
-      this.options.whisperPath,
-      [
-        "--model",
-        this.options.modelPath,
-        "--file",
-        this.recordingPath,
-        "--language",
-        this.options.whisperLanguage,
-        "--no-timestamps",
-        "--no-prints",
-      ],
-      {
-        shell: false,
-        stdio: ["ignore", "pipe", "ignore"],
-        windowsHide: true,
-      }
-    );
-    this.inference = inference;
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    let overflow = false;
-    inference.stdout?.on("data", (chunk: Buffer) => {
-      bytes += chunk.length;
-      if (bytes > MAX_TRANSCRIPT_BYTES) {
-        overflow = true;
-        inference.kill();
-        return;
-      }
-      chunks.push(Buffer.from(chunk));
-      this.sampleMemory();
-    });
-    const spawned = new Promise<void>((resolve, reject) => {
-      inference.once("spawn", resolve);
-      inference.once("error", reject);
-    });
-    const exited = this.waitForExit(inference, true);
-    const [, code] = await Promise.all([spawned, exited]);
-    this.inference = undefined;
-    if (overflow || code !== 0) throw new Error("inference failed");
-    const text = normalizeWhisperOutput(Buffer.concat(chunks).toString("utf8"));
-    if (!text) throw new Error("empty transcript");
-    return text;
+  private onHostEvent(event: HostEvent | undefined): void {
+    if (!event || this.finished) {
+      if (!event) void this.fail("invalid-message");
+      return;
+    }
+    this.sampleMemory();
+    if (event.event === "ready") {
+      if (this.ready || this.stopping) return;
+      this.ready = true;
+      send({ type: "ready", generation: this.generation });
+      return;
+    }
+    if (event.event === "error") {
+      const code: DictationErrorCode = event.code === "model-unavailable"
+        ? "model-unavailable"
+        : event.code === "microphone-unavailable"
+          ? "microphone-unavailable"
+          : "worker-failed";
+      void this.fail(code);
+      return;
+    }
+    if (event.event === "cancelled") return;
+    if (!this.firstTranscriptAt) this.firstTranscriptAt = Date.now();
+    const phase = event.phase === "final" ? "complete" : "interim";
+    if (phase === "interim" && this.stopping) return;
+    if (phase === "complete" && !this.stopping) {
+      void this.fail("invalid-message");
+      return;
+    }
+    send({ type: "transcript", generation: this.generation, phase, text: event.text });
+    if (phase === "complete") {
+      send({
+        type: "metrics",
+        generation: this.generation,
+        firstTranscriptMs: this.firstTranscriptAt - this.startedAt,
+        stopToFinalMs: this.stopStartedAt ? Date.now() - this.stopStartedAt : undefined,
+        peakRssBytes: this.peakRssBytes,
+      });
+      this.finished = true;
+    }
   }
 
-  private waitForExit(child: ChildProcess, killOnTimeout: boolean): Promise<number | null> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (value: number | null, error?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (error) reject(error);
-        else resolve(value);
-      };
-      const timer = setTimeout(() => {
-        if (killOnTimeout) child.kill();
-        finish(null, new Error("process exit timeout"));
-      }, PROCESS_EXIT_TIMEOUT_MS);
-      timer.unref?.();
-      child.once("error", (error) => finish(null, error));
-      child.once("exit", (code) => finish(code));
-    });
+  private onExit(code: number | null): void {
+    this.host = undefined;
+    if (this.finished) {
+      process.disconnect?.();
+      return;
+    }
+    void this.fail(this.ready && code !== 0 ? "worker-failed" : "host-unavailable");
   }
 
-  private async terminate(child: ChildProcess | undefined): Promise<void> {
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    child.kill();
+  private async terminate(): Promise<void> {
+    const host = this.host;
+    this.host = undefined;
+    if (!host || host.exitCode !== null || host.signalCode !== null) return;
+    host.kill();
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, PROCESS_EXIT_TIMEOUT_MS);
       timer.unref?.();
-      child.once("exit", () => {
+      host.once("exit", () => {
         clearTimeout(timer);
         resolve();
       });
     });
   }
 
-  private async cleanup(): Promise<void> {
-    const capture = this.capture;
-    const inference = this.inference;
-    this.capture = undefined;
-    this.inference = undefined;
-    await Promise.all([
-      this.terminate(capture).catch(() => undefined),
-      this.terminate(inference).catch(() => undefined),
-    ]);
-    if (this.tempDirectory) {
-      const tempDirectory = this.tempDirectory;
-      this.tempDirectory = undefined;
-      this.recordingPath = undefined;
-      await fs.promises.rm(tempDirectory, { recursive: true, force: true }).catch(() => undefined);
-    }
-  }
-
   private async fail(errorCode: DictationErrorCode): Promise<void> {
     if (this.finished) return;
     this.finished = true;
     this.stopping = true;
-    await this.cleanup();
+    await this.terminate();
     send({ type: "error", generation: this.generation, errorCode });
     process.disconnect?.();
   }
@@ -260,11 +228,8 @@ export function runWorkerProcess(): void {
       void worker.start();
       return;
     }
-    if (isControlRequest(message, "stop", worker.generation)) {
-      void worker.stop();
-    } else if (isControlRequest(message, "cancel", worker.generation)) {
-      void worker.cancel();
-    }
+    if (isControlRequest(message, "stop", worker.generation)) void worker.stop();
+    else if (isControlRequest(message, "cancel", worker.generation)) void worker.cancel();
   });
   process.once("disconnect", () => void worker?.cancel());
 }

@@ -1,5 +1,5 @@
 From 59de2bcde480ef2d6d36ec85a1708b14a36ab39d Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?mati=20kosem=C3=A4e?= <mati.kosemae@gmail.com>
+From: DSHmux maintainers <noreply@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 18:55:25 +0000
 Subject: [PATCH] Mark pi-ai compaction requests on the wire
 
@@ -304,4 +304,3 @@ index cb2e71fad1f3b353cf1bd7424905535cc4030a39..9bfe9046d162c2bbbd4587601806c0a6
    it('forwards common stream options and profile reasoning', async () => {
 -- 
 2.50.1 (Apple Git-155)
-

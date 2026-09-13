@@ -176,9 +176,9 @@ Teostus liigub `[data-shell-overlay]` ankrust üles ja valib ainult lähima esiv
 | F21 | Launcheri testid katavad Doctor gate'i, state handshake'i ja auto-starti; neid ei tohi lihtsalt kaotada, vaid asjakohane käitumine liigub chat-view testidesse. | `test/dshLauncher.test.js:1-191` |
 | F22 | Chat-view testid katavad assemble'i, preset'i, loading'u, sama sessiooni no-op'i ja refresh-rassi. | `test/dshChatView.test.js:1-224` |
 | F23 | Bridge-client'il, document assembly'l, installil ja manageri sessiooni API-del on eraldi testid, mille lepingud peavad jätkuvalt läbima. | `test/bridgeClient.test.js`; `test/documentAssembly.test.js`; `test/installService.test.js`; `test/serverManager.test.js` |
-| F24 | DSH `AppFrame` renderdab inline kolme track'iga grid'i järjekorras sidebar, center, rightbar ning lisab `data-shell-overlay` ankru sama frame'i otseseks lapseks. | `/Users/mati/proj/deepseek-harness/packages/client/ui-layout/src/client/AppFrame.tsx:194-231` |
-| F25 | DSH vasak sidebar on frame'i esimene renderdatud element; `DocumentTitle` tagastab `null`. Vasaku resize-handle'i semantiline atribuut on `data-side="sidebar"`. | `/Users/mati/proj/deepseek-harness/packages/client/ui-layout/src/client/AppFrame.tsx:47-77,215-229`; `DocumentTitle.tsx:19-34` |
-| F26 | DSH collapsed olek jätab 56 px rail'i alles; see ei ole täielik peitmine. | `/Users/mati/proj/deepseek-harness/packages/client/ui-sidebar/src/client/contract/slots.ts:104-106`; `SidebarRoot.module.css:1-28` |
+| F24 | DSH `AppFrame` renderdab inline kolme track'iga grid'i järjekorras sidebar, center, rightbar ning lisab `data-shell-overlay` ankru sama frame'i otseseks lapseks. | External DSH checkout: `packages/client/ui-layout/src/client/AppFrame.tsx:194-231` |
+| F25 | DSH vasak sidebar on frame'i esimene renderdatud element; `DocumentTitle` tagastab `null`. Vasaku resize-handle'i semantiline atribuut on `data-side="sidebar"`. | External DSH checkout: `packages/client/ui-layout/src/client/AppFrame.tsx:47-77,215-229`; `DocumentTitle.tsx:19-34` |
+| F26 | DSH collapsed olek jätab 56 px rail'i alles; see ei ole täielik peitmine. | External DSH checkout: `packages/client/ui-sidebar/src/client/contract/slots.ts:104-106`; `SidebarRoot.module.css:1-28` |
 
 ## 3. Gap
 
