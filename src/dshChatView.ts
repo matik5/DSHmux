@@ -32,6 +32,7 @@ import {
 
 const DIST_DIR_NAME = "dsh-dist";
 const SESSIONS_POLL_MS = 5_000;
+const PINNED_SESSION_IDS_KEY = "dshmux.pinnedSessionIds";
 
 export interface SessionPanelHooks {
   onSessionRenamed(sessionId: string, title: string): void;
@@ -43,6 +44,20 @@ export interface ChromeSession {
   title: string;
   updatedAt: number;
   archived: boolean;
+}
+
+export interface ChromeSearchSession extends ChromeSession {
+  snippet: string;
+}
+
+function pinnedIdsFromState(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.filter((item): item is string => {
+    if (typeof item !== "string" || !item.trim() || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
 }
 
 const NOOP_PANEL_HOOKS: SessionPanelHooks = {
@@ -83,6 +98,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
   private newSessionPending = false;
   private sessions: ChromeSession[] = [];
   private archivedSessions: ChromeSession[] = [];
+  private pinnedSessionIds: string[];
   private doctorReport?: DoctorReport;
   private readonly chromeAssets: ChatChromeAssets;
 
@@ -91,6 +107,9 @@ export class DshChatView implements vscode.WebviewViewProvider {
     private readonly manager: DshServerManager,
     private readonly panelHooks: SessionPanelHooks = NOOP_PANEL_HOOKS
   ) {
+    this.pinnedSessionIds = pinnedIdsFromState(
+      context.workspaceState.get<unknown>(PINNED_SESSION_IDS_KEY)
+    );
     this.chromeAssets = loadChatChromeAssets(context.extensionUri.fsPath);
     manager.on("state", (info: ServerInfo) => {
       if (info.state !== "ready") this.assembled = false;
@@ -214,11 +233,17 @@ export class DshChatView implements vscode.WebviewViewProvider {
       newSession: t("sessions.newSession"),
       searchSessions: t("chrome.searchSessions"),
       active: t("chrome.active"),
+      pinned: t("chrome.pinned"),
       archived: t("sessions.archived"),
       empty: t("sessions.empty"),
       rename: t("sessions.rename"),
       renamePlaceholder: t("sessions.renamePlaceholder"),
       archive: t("sessions.archive"),
+      pin: t("chrome.pin"),
+      unpin: t("chrome.unpin"),
+      fullTextSearch: t("chrome.fullTextSearch"),
+      searching: t("chrome.searching"),
+      moreResults: t("chrome.moreResults"),
       timeNow: t("sessions.timeNow"),
       more: t("chrome.more"),
       openInEditor: t("chrome.openInEditor"),
@@ -233,6 +258,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       dshVersion: t("chrome.dshVersion"),
       notAvailable: t("chrome.notAvailable"),
       retry: t("chrome.retry"),
+      retryDsh: t("chrome.retryDsh"),
       start: t("button.start"),
       stop: t("button.stop"),
       stopped: t("overlay.stopped"),
@@ -262,6 +288,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       lang: langCode(),
       currentSessionId: this.currentSessionId,
       currentTitle: this.currentTitle,
+      pinnedSessionIds: this.pinnedSessionIds,
       serverState: this.manager.state,
       doctorState: this.doctorReport?.state,
       ...this.availableUpdates(),
@@ -313,6 +340,20 @@ export class DshChatView implements vscode.WebviewViewProvider {
         return;
       case "archive-session":
         if (sessionId) await this.archiveSession(sessionId);
+        return;
+      case "toggle-pin":
+        if (sessionId) await this.togglePin(sessionId);
+        return;
+      case "search-sessions":
+        if (
+          typeof value.requestId === "number" &&
+          Number.isSafeInteger(value.requestId) &&
+          value.requestId >= 0 &&
+          typeof value.query === "string" &&
+          value.query.trim()
+        ) {
+          await this.searchSessions(value.requestId, value.query.trim());
+        }
         return;
       case "active-session-changed":
         if (sessionId) {
@@ -426,8 +467,61 @@ export class DshChatView implements vscode.WebviewViewProvider {
     }
   }
 
+  private async togglePin(sessionId: string): Promise<void> {
+    if (!this.findSession(sessionId)) return;
+    const previous = this.pinnedSessionIds;
+    const next = previous.includes(sessionId)
+      ? previous.filter((id) => id !== sessionId)
+      : [sessionId, ...previous];
+    this.postOperation("pin", "pending", sessionId);
+    try {
+      await this.context.workspaceState.update(PINNED_SESSION_IDS_KEY, next);
+      this.pinnedSessionIds = next;
+      this.postOperation("pin", "success", sessionId);
+      this.postSnapshot();
+    } catch (err) {
+      this.pinnedSessionIds = previous;
+      this.postOperation("pin", "error", sessionId, messageText(err));
+    }
+  }
+
+  private async searchSessions(requestId: number, query: string): Promise<void> {
+    const targetView = this.view;
+    const documentRevision = this.refreshSeq;
+    try {
+      const result = await this.manager.searchSessions(query);
+      if (this.view !== targetView || this.refreshSeq !== documentRevision) return;
+      const known = new Map(
+        this.sessions.concat(this.archivedSessions).map((item) => [item.sessionId, item])
+      );
+      const seen = new Set<string>();
+      const items: ChromeSearchSession[] = [];
+      for (const hit of result.items) {
+        const session = known.get(hit.sessionId);
+        if (!session || seen.has(hit.sessionId)) continue;
+        seen.add(hit.sessionId);
+        items.push({ ...session, snippet: hit.snippet });
+      }
+      void this.view?.webview.postMessage({
+        type: "session-search-result",
+        requestId,
+        items,
+        hasMore: result.hasMore,
+      });
+    } catch (err) {
+      if (this.view !== targetView || this.refreshSeq !== documentRevision) return;
+      void this.view?.webview.postMessage({
+        type: "session-search-result",
+        requestId,
+        items: [],
+        hasMore: false,
+        error: messageText(err),
+      });
+    }
+  }
+
   private postOperation(
-    operation: "new" | "rename" | "archive",
+    operation: "new" | "rename" | "archive" | "pin",
     state: "pending" | "success" | "error",
     sessionId?: string,
     message?: string
@@ -474,6 +568,18 @@ export class DshChatView implements vscode.WebviewViewProvider {
       this.archivedSessions = result.archivedItems
         .map((item) => this.mapSession(item, true))
         .sort((a, b) => b.updatedAt - a.updatedAt);
+      const knownIds = new Set(
+        this.sessions.concat(this.archivedSessions).map((item) => item.sessionId)
+      );
+      const prunedPinnedIds = this.pinnedSessionIds.filter((id) => knownIds.has(id));
+      if (prunedPinnedIds.length !== this.pinnedSessionIds.length) {
+        this.pinnedSessionIds = prunedPinnedIds;
+        try {
+          await this.context.workspaceState.update(PINNED_SESSION_IDS_KEY, prunedPinnedIds);
+        } catch (err) {
+          console.log("[dsh] failed to prune pinned sessions:", messageText(err));
+        }
+      }
       this.updateCurrentTitle();
       this.postSnapshot();
     } catch {
@@ -488,6 +594,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       type: "sessions-snapshot",
       items: this.sessions,
       archivedItems: this.archivedSessions,
+      pinnedSessionIds: this.pinnedSessionIds,
       currentSessionId: this.currentSessionId,
       error,
     });

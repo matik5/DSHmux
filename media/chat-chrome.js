@@ -39,6 +39,67 @@
     });
   }
 
+  function normalizedPinnedIds(items) {
+    if (!Array.isArray(items)) return [];
+    var seen = Object.create(null);
+    return items.filter(function (item) {
+      if (typeof item !== "string" || !item || seen[item]) return false;
+      seen[item] = true;
+      return true;
+    });
+  }
+
+  function pinnedSessions(active, archived, pinnedIds) {
+    var byId = Object.create(null);
+    normalizedSessions(active).concat(normalizedSessions(archived)).forEach(function (item) {
+      byId[item.sessionId] = item;
+    });
+    return normalizedPinnedIds(pinnedIds).map(function (id) { return byId[id]; }).filter(Boolean);
+  }
+
+  function groupedSearchResults(items, pinnedIds) {
+    var pins = Object.create(null);
+    normalizedPinnedIds(pinnedIds).forEach(function (id) { pins[id] = true; });
+    var seen = Object.create(null);
+    var groups = { pinned: [], active: [], archived: [] };
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      if (!item || typeof item.sessionId !== "string" || typeof item.title !== "string" ||
+          typeof item.snippet !== "string" || seen[item.sessionId]) return;
+      seen[item.sessionId] = true;
+      var normalized = {
+        sessionId: item.sessionId,
+        title: item.title,
+        updatedAt: item.updatedAt,
+        archived: item.archived === true,
+        snippet: item.snippet,
+      };
+      if (pins[item.sessionId]) groups.pinned.push(normalized);
+      else if (normalized.archived) groups.archived.push(normalized);
+      else groups.active.push(normalized);
+    });
+    return groups;
+  }
+
+  function processActionFor(state, doctorState, copy) {
+    if (state === "ready") return { command: "stop", label: copy.stop, disabled: false };
+    if (state === "stopped") return { command: "start", label: copy.start, disabled: false };
+    if (state === "error") {
+      if (doctorState && doctorState !== "ready") {
+        return { command: "open-doctor", label: copy.openDoctor, disabled: false };
+      }
+      return { command: "start", label: copy.retryDsh, disabled: false };
+    }
+    return {
+      command: "",
+      label: state === "stopping" ? copy.stopping : copy.starting,
+      disabled: true,
+    };
+  }
+
+  function isLatestSearchResult(requestId, activeRequestId) {
+    return requestId === activeRequestId;
+  }
+
   function relativeTime(value, now, nowLabel) {
     var timestamp = timestampOf(value);
     if (!timestamp) return "";
@@ -101,6 +162,8 @@
     var sessionBackdrop = byId("dshmux-session-backdrop");
     var sessionDialog = byId("dshmux-session-dialog");
     var search = byId("dshmux-session-search");
+    var fullText = byId("dshmux-full-text");
+    var pinnedTab = byId("dshmux-pinned-tab");
     var activeTab = byId("dshmux-active-tab");
     var archivedTab = byId("dshmux-archived-tab");
     var sessionMessage = byId("dshmux-session-message");
@@ -108,7 +171,7 @@
     var emptyNew = byId("dshmux-empty-new");
     var overflow = byId("dshmux-overflow");
     var sidebarToggle = byId("dshmux-toggle-dsh-sidebar");
-    var stopButton = byId("dshmux-stop");
+    var processButton = byId("dshmux-process-action");
     var updateLatest = byId("dshmux-update-latest");
     var updateNext = byId("dshmux-update-next");
     var statusDetail = byId("dshmux-status-detail");
@@ -121,9 +184,19 @@
 
     var sessions = [];
     var archivedSessions = [];
+    var pinnedSessionIds = normalizedPinnedIds(init.pinnedSessionIds);
     var currentSessionId = init.currentSessionId;
     var sessionMode = "active";
     var editingSessionId;
+    var headerEditingSessionId;
+    var pinPendingSessionId;
+    var searchTimer;
+    var searchRequestId = 0;
+    var activeSearchRequestId = 0;
+    var searchPending = false;
+    var searchResults = [];
+    var searchHasMore = false;
+    var searchError = "";
     var newPending = false;
     var sessionLoading = init.initialSessionLoading === true;
     var serverState = init.serverState || "stopped";
@@ -146,12 +219,16 @@
 
     title.textContent = init.currentTitle;
     title.title = init.currentTitle;
+    title.setAttribute("aria-label", copy.rename);
     labelButton(sessionsButton, copy.sessions);
     labelButton(newButton, copy.newSession);
     labelButton(moreButton, copy.more);
     overflow.setAttribute("aria-label", copy.more);
     search.placeholder = copy.searchSessions;
     search.setAttribute("aria-label", copy.searchSessions);
+    byId("dshmux-full-text-label").textContent = copy.fullTextSearch;
+    fullText.setAttribute("aria-label", copy.fullTextSearch);
+    pinnedTab.textContent = copy.pinned;
     activeTab.textContent = copy.active;
     archivedTab.textContent = copy.archived;
     emptyNew.textContent = copy.newSession;
@@ -166,7 +243,6 @@
       "open-settings": copy.openSettings,
       "open-doctor": copy.openDoctor,
       "show-status": copy.statusVersions,
-      stop: copy.stop,
     };
     Array.prototype.forEach.call(overflow.querySelectorAll("[data-command]"), function (button) {
       var command = button.getAttribute("data-command");
@@ -228,7 +304,7 @@
     }
 
     function setTitle(next) {
-      if (!next) return;
+      if (!next || headerEditingSessionId) return;
       title.textContent = next;
       title.title = next;
     }
@@ -239,6 +315,45 @@
         if (all[i].sessionId === currentSessionId) return all[i].title;
       }
       return undefined;
+    }
+
+    function beginHeaderRename() {
+      if (headerEditingSessionId || !currentSessionId || serverState !== "ready") return;
+      var previous = selectedTitle() || title.textContent;
+      if (!previous) return;
+      var sessionId = currentSessionId;
+      var input = doc.createElement("input");
+      input.className = "dshmux-header-rename-input";
+      input.value = previous;
+      input.placeholder = copy.renamePlaceholder;
+      input.setAttribute("aria-label", copy.rename);
+      headerEditingSessionId = sessionId;
+      title.textContent = "";
+      title.appendChild(input);
+      var finished = false;
+
+      function finish(save) {
+        if (finished) return;
+        var next = input.value.trim();
+        var submitted = save && next && next !== previous;
+        finished = true;
+        if (submitted) {
+          input.disabled = true;
+          post({ type: "rename-session", sessionId: sessionId, title: next });
+          return;
+        }
+        headerEditingSessionId = undefined;
+        setTitle(previous);
+        title.focus();
+      }
+
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") { event.preventDefault(); finish(true); }
+        else if (event.key === "Escape") { event.preventDefault(); finish(false); }
+      });
+      input.addEventListener("blur", function () { finish(false); });
+      input.focus();
+      input.select();
     }
 
     function focusable(container) {
@@ -275,6 +390,10 @@
     }
 
     function closeSessions(restore) {
+      if (searchTimer) win.clearTimeout(searchTimer);
+      searchTimer = undefined;
+      activeSearchRequestId = ++searchRequestId;
+      searchPending = false;
       sessionBackdrop.hidden = true;
       sessionsButton.setAttribute("aria-expanded", "false");
       if (restore) sessionsButton.focus();
@@ -282,6 +401,7 @@
 
     function switchMode(mode) {
       sessionMode = mode;
+      pinnedTab.setAttribute("aria-pressed", mode === "pinned" ? "true" : "false");
       activeTab.setAttribute("aria-pressed", mode === "active" ? "true" : "false");
       archivedTab.setAttribute("aria-pressed", mode === "archived" ? "true" : "false");
       renderSessions();
@@ -352,6 +472,72 @@
       input.select();
     }
 
+    function isPinned(sessionId) {
+      return pinnedSessionIds.indexOf(sessionId) >= 0;
+    }
+
+    function appendSessionRow(item, showSnippet) {
+      var row = doc.createElement("div");
+      row.className = "dshmux-session-row";
+
+      var openButton = doc.createElement("button");
+      openButton.type = "button";
+      openButton.className = "dshmux-session-open";
+      openButton.setAttribute("role", "option");
+      openButton.setAttribute("aria-selected", item.sessionId === currentSessionId ? "true" : "false");
+      if (item.sessionId === currentSessionId) openButton.setAttribute("aria-current", "true");
+
+      var name = doc.createElement("span");
+      name.className = "dshmux-session-name";
+      name.textContent = item.title;
+      var time = doc.createElement("span");
+      time.className = "dshmux-session-time";
+      time.textContent = relativeTime(item.updatedAt, Date.now(), copy.timeNow);
+      openButton.appendChild(name);
+      openButton.appendChild(time);
+      if (showSnippet) {
+        var snippet = doc.createElement("span");
+        snippet.className = "dshmux-session-snippet";
+        snippet.textContent = item.snippet;
+        openButton.appendChild(snippet);
+      }
+      openButton.addEventListener("click", function () {
+        closeSessions(false);
+        post({ type: "open-session", sessionId: item.sessionId });
+      });
+      openButton.addEventListener("keydown", moveSessionFocus);
+
+      var actions = doc.createElement("div");
+      actions.className = "dshmux-session-actions";
+      var pinButton = iconAction(
+        isPinned(item.sessionId) ? copy.unpin : copy.pin,
+        isPinned(item.sessionId) ? "★" : "☆",
+        function () { post({ type: "toggle-pin", sessionId: item.sessionId }); }
+      );
+      pinButton.disabled = pinPendingSessionId === item.sessionId;
+      actions.appendChild(pinButton);
+      actions.appendChild(iconAction(copy.rename, "✎", function () {
+        beginRename(row, item, openButton, actions);
+      }));
+      if (!item.archived) {
+        actions.appendChild(iconAction(copy.archive, "⊟", function () {
+          post({ type: "archive-session", sessionId: item.sessionId });
+        }));
+      }
+      row.appendChild(openButton);
+      row.appendChild(actions);
+      sessionList.appendChild(row);
+    }
+
+    function appendSearchGroup(label, items) {
+      if (!items.length) return;
+      var heading = doc.createElement("div");
+      heading.className = "dshmux-session-group";
+      heading.textContent = label;
+      sessionList.appendChild(heading);
+      items.forEach(function (item) { appendSessionRow(item, true); });
+    }
+
     function renderSessions() {
       if (sessionBackdrop.hidden) return;
       // Background polling must not replace the row and blur an active rename.
@@ -359,53 +545,59 @@
       sessionList.textContent = "";
       sessionMessage.textContent = "";
       emptyNew.hidden = true;
-      var source = sessionMode === "archived" ? archivedSessions : sessions;
+      var fullTextActive = fullText.checked && String(search.value || "").trim();
+      if (fullTextActive) {
+        if (searchPending) {
+          sessionMessage.textContent = copy.searching;
+          return;
+        }
+        if (searchError) {
+          sessionMessage.textContent = template(copy.actionFailedTemplate, { message: searchError });
+          return;
+        }
+        var groups = groupedSearchResults(searchResults, pinnedSessionIds);
+        appendSearchGroup(copy.pinned, groups.pinned);
+        appendSearchGroup(copy.active, groups.active);
+        appendSearchGroup(copy.archived, groups.archived);
+        if (!groups.pinned.length && !groups.active.length && !groups.archived.length) {
+          sessionMessage.textContent = searchHasMore ? copy.moreResults : copy.empty;
+        } else if (searchHasMore) {
+          sessionMessage.textContent = copy.moreResults;
+        }
+        return;
+      }
+      var source = sessionMode === "pinned"
+        ? pinnedSessions(sessions, archivedSessions, pinnedSessionIds)
+        : sessionMode === "archived" ? archivedSessions : sessions;
       var items = filterSessions(source, search.value);
       if (!items.length) {
         sessionMessage.textContent = copy.empty;
         emptyNew.hidden = sessionMode !== "active";
         return;
       }
+      items.forEach(function (item) { appendSessionRow(item, false); });
+    }
 
-      items.forEach(function (item) {
-        var row = doc.createElement("div");
-        row.className = "dshmux-session-row";
-
-        var openButton = doc.createElement("button");
-        openButton.type = "button";
-        openButton.className = "dshmux-session-open";
-        openButton.setAttribute("role", "option");
-        openButton.setAttribute("aria-selected", item.sessionId === currentSessionId ? "true" : "false");
-        if (item.sessionId === currentSessionId) openButton.setAttribute("aria-current", "true");
-
-        var name = doc.createElement("span");
-        name.className = "dshmux-session-name";
-        name.textContent = item.title;
-        var time = doc.createElement("span");
-        time.className = "dshmux-session-time";
-        time.textContent = relativeTime(item.updatedAt, Date.now(), copy.timeNow);
-        openButton.appendChild(name);
-        openButton.appendChild(time);
-        openButton.addEventListener("click", function () {
-          closeSessions(false);
-          post({ type: "open-session", sessionId: item.sessionId });
-        });
-        openButton.addEventListener("keydown", moveSessionFocus);
-
-        var actions = doc.createElement("div");
-        actions.className = "dshmux-session-actions";
-        actions.appendChild(iconAction(copy.rename, "✎", function () {
-          beginRename(row, item, openButton, actions);
-        }));
-        if (!item.archived) {
-          actions.appendChild(iconAction(copy.archive, "⊟", function () {
-            post({ type: "archive-session", sessionId: item.sessionId });
-          }));
-        }
-        row.appendChild(openButton);
-        row.appendChild(actions);
-        sessionList.appendChild(row);
-      });
+    function queueSearch() {
+      if (searchTimer) win.clearTimeout(searchTimer);
+      searchTimer = undefined;
+      activeSearchRequestId = ++searchRequestId;
+      searchPending = false;
+      searchError = "";
+      searchHasMore = false;
+      searchResults = [];
+      var query = String(search.value || "").trim();
+      if (!fullText.checked || !query) {
+        renderSessions();
+        return;
+      }
+      searchPending = true;
+      renderSessions();
+      var requestId = activeSearchRequestId;
+      searchTimer = win.setTimeout(function () {
+        searchTimer = undefined;
+        post({ type: "search-sessions", requestId: requestId, query: query });
+      }, 250);
     }
 
     function openSessions() {
@@ -414,7 +606,7 @@
       sessionBackdrop.hidden = false;
       sessionsButton.setAttribute("aria-expanded", "true");
       search.value = "";
-      switchMode("active");
+      switchMode(pinnedSessions(sessions, archivedSessions, pinnedSessionIds).length ? "pinned" : "active");
       win.requestAnimationFrame(function () { search.focus(); });
       post({ type: "refresh-sessions" });
     }
@@ -447,7 +639,10 @@
       var ready = serverState === "ready";
       sessionsButton.disabled = !ready;
       newButton.disabled = !ready || newPending;
-      stopButton.hidden = !ready;
+      var processAction = processActionFor(serverState, doctorState, copy);
+      processButton.textContent = processAction.label;
+      processButton.setAttribute("data-command", processAction.command);
+      processButton.disabled = processAction.disabled;
       updateLatest.hidden = !latestVersion;
       updateLatest.textContent = latestVersion
         ? template(copy.updateLatestTemplate, { version: latestVersion })
@@ -503,6 +698,7 @@
         item.archived = true;
         return item;
       });
+      pinnedSessionIds = normalizedPinnedIds(message.pinnedSessionIds);
       if (typeof message.currentSessionId === "string") currentSessionId = message.currentSessionId;
       var nextTitle = selectedTitle();
       if (nextTitle) setTitle(nextTitle);
@@ -513,6 +709,15 @@
     function applyOperation(message) {
       if (message.operation === "rename" && message.state !== "pending") {
         editingSessionId = undefined;
+        if (headerEditingSessionId === message.sessionId) {
+          headerEditingSessionId = undefined;
+          setTitle(selectedTitle() || init.currentTitle);
+          title.focus();
+        }
+        renderSessions();
+      }
+      if (message.operation === "pin") {
+        pinPendingSessionId = message.state === "pending" ? message.sessionId : undefined;
         renderSessions();
       }
       if (message.operation === "new") {
@@ -527,6 +732,22 @@
       }
     }
 
+    function applySearchResult(message) {
+      if (!isLatestSearchResult(message.requestId, activeSearchRequestId)) return;
+      searchPending = false;
+      searchResults = Array.isArray(message.items) ? message.items : [];
+      searchHasMore = message.hasMore === true;
+      searchError = typeof message.error === "string" ? message.error : "";
+      renderSessions();
+    }
+
+    title.addEventListener("dblclick", beginHeaderRename);
+    title.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !headerEditingSessionId) {
+        event.preventDefault();
+        beginHeaderRename();
+      }
+    });
     sessionsButton.addEventListener("click", function () {
       if (sessionBackdrop.hidden) openSessions();
       else closeSessions(true);
@@ -539,8 +760,10 @@
       if (overflow.hidden) openOverflow();
       else closeOverflow(true);
     });
-    search.addEventListener("input", renderSessions);
+    search.addEventListener("input", queueSearch);
     search.addEventListener("keydown", moveSessionFocus);
+    fullText.addEventListener("change", queueSearch);
+    pinnedTab.addEventListener("click", function () { switchMode("pinned"); });
     activeTab.addEventListener("click", function () { switchMode("active"); });
     archivedTab.addEventListener("click", function () { switchMode("archived"); });
     sessionBackdrop.addEventListener("pointerdown", function (event) {
@@ -559,6 +782,7 @@
       var button = event.target.closest && event.target.closest("[data-command]");
       if (!button) return;
       var command = button.getAttribute("data-command");
+      if (!command || button.disabled) return;
       if (command !== "show-status") closeOverflow(true);
       if (command === "upgrade-latest") post({ type: "upgrade", channel: "latest" });
       else if (command === "upgrade-next") post({ type: "upgrade", channel: "next" });
@@ -633,6 +857,7 @@
         }
       } else if (message.type === "sessions-snapshot") applySnapshot(message);
       else if (message.type === "session-operation") applyOperation(message);
+      else if (message.type === "session-search-result") applySearchResult(message);
       else if (message.type === "status-detail") {
         byId("dshmux-state-value").textContent = stateText(message.state, message.message);
         byId("dshmux-extension-value").textContent = message.extensionVersion || copy.notAvailable;
@@ -674,6 +899,11 @@
   return {
     filterSessions: filterSessions,
     normalizedSessions: normalizedSessions,
+    normalizedPinnedIds: normalizedPinnedIds,
+    pinnedSessions: pinnedSessions,
+    groupedSearchResults: groupedSearchResults,
+    processActionFor: processActionFor,
+    isLatestSearchResult: isLatestSearchResult,
     relativeTime: relativeTime,
     timestampOf: timestampOf,
     sessionIdFromStorage: sessionIdFromStorage,
