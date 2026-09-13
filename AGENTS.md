@@ -106,3 +106,7 @@ Rules:
 - Avoid destructive commands such as `git reset --hard`, `git branch -D`, or `git worktree remove --force` unless explicitly authorized.
 
 A separate worktree is not required for read-only investigation or very small changes explicitly requested in the current working tree.
+
+## Behavior guidelines
+
+- No automatic staging of fixes, if there is something already staged. If user asked to fix something, then user wants to review additional changes. Automatic staging will harden the newly added changes.
