@@ -27,6 +27,7 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   const documentListeners = {};
   const themeProperties = new Map();
   const themeAttributes = new Set();
+  const muxTrailCalls = [];
 
   const window = {
     fetch: (input, init) => {
@@ -50,6 +51,10 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
         this.url = url;
       }
     },
+  };
+  window.__DSH_MUX_TRAIL__ = {
+    beginWait(value) { muxTrailCalls.push(["beginWait", value]); },
+    endWait(value) { muxTrailCalls.push(["endWait", value]); },
   };
   const themeBody = {
     style: { setProperty: (name, value) => themeProperties.set(name, value) },
@@ -89,7 +94,7 @@ function loadBridge(bridgeInit, { deferDocumentBody = false } = {}) {
   );
   run(window, location, navigator, document, acquireVsCodeApi, URL, Headers, Response, DOMException);
 
-  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes };
+  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes, muxTrailCalls };
 }
 
 test("fetch with a URL object relays the correct path (regression: /undefined)", async () => {
@@ -283,10 +288,119 @@ function fireApproval(h, id, sessionId) {
 
 // DSH >= 0.1.2 multiplexed stream: one downlink frame is
 // { type:'item', streamId, value } and the sound-worthy meaning lives in value.
-function fireItem(h, id, value) {
-  const frame = JSON.stringify({ type: "item", streamId: "st1", value });
+function fireItem(h, id, value, streamId = "st1") {
+  const frame = JSON.stringify({ type: "item", streamId, value });
   h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
 }
+
+// ---------------------------------------------------------------- Mux Trail lifecycle
+
+test("Mux Trail: legacy lifecycle is scoped to the visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s-visible" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/events.mux");
+  const id = h.posted[0].id;
+
+  fireStatus(h, id, "s-background", true);
+  fireEvent(h, id, "s-background", { type: "turn/start" });
+  assert.deepEqual(h.muxTrailCalls, []);
+
+  fireStatus(h, id, "s-visible", true);
+  fireQuestion(h, id, "s-visible");
+  fireEvent(h, id, "s-visible", { type: "turn/start" });
+  fireApproval(h, id, "s-visible");
+  fireStatus(h, id, "s-visible", false);
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s-visible"],
+    ["endWait", "question"],
+    ["beginWait", "s-visible"],
+    ["endWait", "approval"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: remote follow open maps stream id without changing ws-send", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: {} });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  const openFrame = JSON.stringify({
+    type: "open",
+    streamId: "follow-visible",
+    endpoint: "session/follow",
+    payload: { args: { sessionId: "s-visible" } },
+  });
+
+  ws.send(openFrame);
+  assert.deepEqual(h.posted[1], { type: "ws-send", id, data: openFrame });
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "not-visible");
+  assert.deepEqual(h.muxTrailCalls, []);
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "follow-visible");
+  fireItem(h, id, { type: "event", event: { type: "turn/end" } }, "follow-visible");
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s-visible"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: switching or cancelling the visible follow stream dismisses it", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: {} });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  ws.send(JSON.stringify({ type: "open", streamId: "f1", endpoint: "session/follow", payload: { args: { sessionId: "s1" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  ws.send(JSON.stringify({ type: "open", streamId: "f2", endpoint: "session/follow", payload: { args: { sessionId: "s2" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f2");
+  ws.send(JSON.stringify({ type: "cancel", streamId: "f2" }));
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s2", true] });
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "session-change"],
+    ["beginWait", "s2"],
+    ["endWait", "session-change"],
+  ]);
+});
+
+test("Mux Trail: a background follow stream cannot replace a host-pinned visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  ws.send(JSON.stringify({ type: "open", streamId: "f1", endpoint: "session/follow", payload: { args: { sessionId: "s1" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  ws.send(JSON.stringify({ type: "open", streamId: "background", endpoint: "session/follow", payload: { args: { sessionId: "s2" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "background");
+  fireItem(h, id, { type: "event", event: { type: "turn/end" } }, "f1");
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: remote global status and user requests honor visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s2", true] });
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", agentId: "s2" });
+  assert.deepEqual(h.muxTrailCalls, []);
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s1", true] });
+  fireItem(h, id, { type: "waterfall", event: "approval/request", agentId: "s1" });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s1", false] });
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "approval"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: non-ready server status dismisses waiting UI", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  h.listeners.message.forEach((fn) => fn({ data: { type: "server-status", state: "stopped" } }));
+  h.listeners.message.forEach((fn) => fn({ data: { type: "session-loading", loading: true } }));
+  assert.deepEqual(h.muxTrailCalls, [
+    ["endWait", "server-stopped"],
+    ["endWait", "session-loading"],
+  ]);
+});
 
 test("completion: running true->false edge plays the chime", () => {
   const h = loadBridge({ serverBase: "http://x", completionSound: true });

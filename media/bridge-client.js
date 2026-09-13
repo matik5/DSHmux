@@ -17,9 +17,82 @@
   var pendingHttp = new Map(); // id -> { resolve, reject }
   var pendingClipboard = new Map(); // id -> { resolve, reject }
   var sockets = []; // BridgeWebSocket registry by _id
+  var muxTrailConfig = bridge.muxTrail || {};
+  var visibleSessionId = muxTrailConfig.visibleSessionId;
+  var visibleSessionPinned = visibleSessionId !== undefined && visibleSessionId !== null;
+  // DSH >= 0.1.2 multiplexes logical session/follow streams over one socket.
+  // Key by bridge socket id + logical stream id so concurrent webviews/sockets
+  // cannot accidentally scope one another's events.
+  var followSessionByKey = new Map();
+  var visibleFollowKey;
 
   function post(msg) {
     vscode.postMessage(msg);
+  }
+
+  function sameSessionId(a, b) {
+    return a !== undefined && a !== null && b !== undefined && b !== null && String(a) === String(b);
+  }
+
+  function notifyMuxTrail(method, value) {
+    try {
+      var api = window.__DSH_MUX_TRAIL__;
+      if (api && typeof api[method] === "function") api[method](value);
+    } catch (error) {
+      // The optional waiting game must never interrupt transport or sounds.
+      console.error("[dsh-mux-trail] lifecycle hook failed", error);
+    }
+  }
+
+  function followKey(socketId, streamId) {
+    return String(socketId) + ":" + String(streamId);
+  }
+
+  /** Observe remote.mux control metadata without modifying the relayed frame. */
+  function observeMuxControl(socketId, data) {
+    var frame;
+    try {
+      frame = JSON.parse(String(data));
+    } catch (_error) {
+      return;
+    }
+    if (!frame || typeof frame !== "object" || frame.streamId === undefined) return;
+    var key = followKey(socketId, frame.streamId);
+    if (frame.type === "open" && frame.endpoint === "session/follow") {
+      var payload = frame.payload;
+      var args = payload && payload.args;
+      var sessionId = args && args.sessionId;
+      if (sessionId === undefined || sessionId === null) return;
+      followSessionByKey.set(key, sessionId);
+      // Bound panels and the sidebar have a host-provided visible id: a
+      // background follow stream must never replace it. Unbound editor panels
+      // learn their current session from the latest follow-open envelope.
+      if (visibleSessionPinned && !sameSessionId(sessionId, visibleSessionId)) return;
+      if (visibleFollowKey && visibleFollowKey !== key) notifyMuxTrail("endWait", "session-change");
+      visibleFollowKey = key;
+      if (!visibleSessionPinned) visibleSessionId = sessionId;
+      return;
+    }
+    if (frame.type === "cancel") {
+      if (visibleFollowKey === key) {
+        notifyMuxTrail("endWait", "session-change");
+        visibleFollowKey = undefined;
+        if (!visibleSessionPinned) visibleSessionId = undefined;
+      }
+      followSessionByKey.delete(key);
+    }
+  }
+
+  function forgetMuxSocket(socketId) {
+    var prefix = String(socketId) + ":";
+    for (var key of followSessionByKey.keys()) {
+      if (key.startsWith(prefix)) followSessionByKey.delete(key);
+    }
+    if (visibleFollowKey && visibleFollowKey.startsWith(prefix)) {
+      visibleFollowKey = undefined;
+      if (!visibleSessionPinned) visibleSessionId = undefined;
+      notifyMuxTrail("endWait", "socket-close");
+    }
   }
 
   function isSameOrigin(urlStr) {
@@ -200,6 +273,7 @@
     post({ type: "ws-close", id: this._id });
   };
   BridgeWebSocket.prototype.send = function (data) {
+    observeMuxControl(this._id, data);
     post({ type: "ws-send", id: this._id, data: String(data) });
   };
   function findSocket(id) {
@@ -378,7 +452,7 @@
   // contracts are recognized (see the block at the top of this section):
   //   * DSH >= 0.1.2: { type:'item', streamId, value } — meaning lives in value.
   //   * pre-0.1.2:    { ..., payload }                 — meaning lives in payload.
-  function observeFrame(data) {
+  function observeFrame(data, socketId) {
     var parsed;
     try {
       parsed = JSON.parse(data);
@@ -389,7 +463,7 @@
 
     // DSH >= 0.1.2 multiplexed stream: { type:'item', streamId, value }.
     if (parsed.type === "item") {
-      observeItemValue(parsed.value);
+      observeItemValue(parsed.value, socketId, parsed.streamId);
       return;
     }
 
@@ -404,11 +478,15 @@
       var prev = runningBySession[sid];
       runningBySession[sid] = running;
       if (prev === true && running === false) playSoundOnce("done", sid);
+      if (sameSessionId(sid, visibleSessionId)) {
+        notifyMuxTrail(running ? "beginWait" : "endWait", running ? sid : "complete");
+      }
       return;
     }
 
     if (payload.type === "question/requested") {
       playSoundOnce("ask", payload.sessionId);
+      if (sameSessionId(payload.sessionId, visibleSessionId)) notifyMuxTrail("endWait", "question");
       return;
     }
 
@@ -417,31 +495,42 @@
     // rpcId) are already deduped by playSoundOnce's per-session window.
     if (payload.type === "approval/requested") {
       playSoundOnce("ask", payload.sessionId);
+      if (sameSessionId(payload.sessionId, visibleSessionId)) notifyMuxTrail("endWait", "approval");
       return;
     }
 
     if (payload.type === "session/event") {
       var ev = payload.event;
       if (!ev || !ev.type) return;
+      // An unbound legacy editor panel has no boot-time id. A session/event is
+      // the per-session follow signal, so its first id safely establishes the
+      // visible scope; global status/question events never do this.
+      if ((visibleSessionId === undefined || visibleSessionId === null) && payload.sessionId != null) {
+        visibleSessionId = payload.sessionId;
+      }
       if (ev.type === "turn/start") {
         playSoundOnce("start", payload.sessionId);
+        if (sameSessionId(payload.sessionId, visibleSessionId)) notifyMuxTrail("beginWait", payload.sessionId);
       } else if (ev.type === "turn/end") {
         playSoundOnce("done", payload.sessionId);
+        if (sameSessionId(payload.sessionId, visibleSessionId)) notifyMuxTrail("endWait", "complete");
       } else if (ev.type === "tool/call" && ev.data && ev.data.name === "ask_user_question") {
         playSoundOnce("ask", payload.sessionId);
+        if (sameSessionId(payload.sessionId, visibleSessionId)) notifyMuxTrail("endWait", "question");
       }
     }
   }
 
-  // DSH >= 0.1.2: the sound-worthy meaning of one multiplexed item value. The
-  // value is self-identifying, so no streamId -> endpoint mapping is needed.
-  //   * emit    api-session/status [agentId, running] true->false edge -> "done"
+  // DSH >= 0.1.2: the sound-worthy meaning of one multiplexed item value is
+  // self-identifying. Mux Trail additionally uses the outer streamId mapping
+  // above to prove that a session/follow event belongs to the visible session.
+  //   * emit    api-session/status [sessionId, running] true->false edge -> "done"
   //   * waterfall user-questions/request | approval/request            -> "ask"
   //   * event   turn/start -> "start", turn/end -> "done",
   //             tool/call ask_user_question -> "ask"
   // A follow stream's opening { type:'snapshot' } history burst and
   // { type:'chunks' } are ignored so reopening a session stays quiet.
-  function observeItemValue(value) {
+  function observeItemValue(value, socketId, streamId) {
     if (!value || typeof value !== "object") return;
 
     // $events stream: { type:'emit', event, args }.
@@ -453,6 +542,9 @@
         var prev = runningBySession[sid];
         runningBySession[sid] = running;
         if (prev === true && running === false) playSoundOnce("done", sid);
+        if (sameSessionId(sid, visibleSessionId)) {
+          notifyMuxTrail(running ? "beginWait" : "endWait", running ? sid : "complete");
+        }
       }
       return;
     }
@@ -463,6 +555,9 @@
     if (value.type === "waterfall") {
       if (value.event === "user-questions/request" || value.event === "approval/request") {
         playSoundOnce("ask", value.agentId);
+        if (sameSessionId(value.agentId, visibleSessionId)) {
+          notifyMuxTrail("endWait", value.event === "approval/request" ? "approval" : "question");
+        }
       }
       return;
     }
@@ -474,12 +569,18 @@
     if (value.type === "event") {
       var ev = value.event;
       if (!ev || !ev.type) return;
+      var key = followKey(socketId, streamId);
+      var eventSessionId = followSessionByKey.get(key);
+      var isVisibleFollow = key === visibleFollowKey && sameSessionId(eventSessionId, visibleSessionId);
       if (ev.type === "turn/start") {
         playSoundOnce("start", undefined);
+        if (isVisibleFollow) notifyMuxTrail("beginWait", eventSessionId);
       } else if (ev.type === "turn/end") {
         playSoundOnce("done", undefined);
+        if (isVisibleFollow) notifyMuxTrail("endWait", "complete");
       } else if (ev.type === "tool/call" && ev.data && ev.data.name === "ask_user_question") {
         playSoundOnce("ask", undefined);
+        if (isVisibleFollow) notifyMuxTrail("endWait", "question");
       }
     }
   }
@@ -543,12 +644,13 @@
         var wsFrame = findSocket(msg.id);
         if (!wsFrame) break;
         wsFrame._fire("message", { data: msg.data });
-        observeFrame(msg.data); // completion-sound detector (running true->false edge)
+        observeFrame(msg.data, msg.id); // sounds + visible-session waiting lifecycle
         break;
       }
       case "ws-close": {
         var wsClose = findSocket(msg.id);
         if (!wsClose) break;
+        forgetMuxSocket(msg.id);
         wsClose.readyState = BridgeWebSocket.CLOSED;
         wsClose._fire("close", { code: msg.code, reason: msg.reason });
         var wsIdx = sockets.indexOf(wsClose);
@@ -585,6 +687,16 @@
         soundEnabled.done = master && msg.soundDone !== false;
         soundEnabled.ask = master && msg.soundAsk !== false;
         if (!anySoundEnabled()) pendingSoundKind = null;
+        break;
+      }
+      case "server-status": {
+        if (msg.state !== "ready") {
+          notifyMuxTrail("endWait", "server-" + String(msg.state || "unknown"));
+        }
+        break;
+      }
+      case "session-loading": {
+        if (msg.loading !== false) notifyMuxTrail("endWait", "session-loading");
         break;
       }
       default:

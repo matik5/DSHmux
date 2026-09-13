@@ -7,7 +7,7 @@ import { DshServerManager, type ServerInfo } from "./serverManager.js";
 import { assembleDocument } from "./documentAssembly.js";
 import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
-import { t, langCode } from "./i18n.js";
+import { t, langCode, muxTrailStrings } from "./i18n.js";
 import {
   affectsDshmuxConfiguration,
   affectsAnySoundSetting,
@@ -244,6 +244,10 @@ export class DshPanel {
         path.join(this.context.extensionUri.fsPath, "media", "bridge-client.js"),
         "utf8"
       );
+      const muxTrailJs = fs.readFileSync(
+        path.join(this.context.extensionUri.fsPath, "media", "mux-trail.js"),
+        "utf8"
+      );
       const webview = this.panel.webview;
       webview.options = {
         ...webview.options,
@@ -254,6 +258,9 @@ export class DshPanel {
         distRootPath: this.distRootPath(),
         asWebviewUri: (p) => webview.asWebviewUri(vscode.Uri.file(p)).toString(),
         bridgeClientJs: bridgeJs,
+        muxTrailJs,
+        muxTrailStrings: muxTrailStrings(),
+        visibleSessionId: this.sessionId,
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
         ...soundSettings(),

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- **Mux Trail** waiting-game easter egg: after the visible DSH session has worked for three seconds, a small optional game button appears in the embedded chat. The original dependency-free grid game runs only when opened, closes as soon as the answer or a user question is ready, follows VS Code themes, and sends no network or telemetry data.
+
 ## [0.4.7] - 2026-09-13
 
 ### Changed

@@ -21,6 +21,12 @@ export interface AssembleOptions {
   asWebviewUri: (absPath: string) => string;
   /** Content of media/bridge-client.js, inlined before the shell bundle. */
   bridgeClientJs: string;
+  /** Optional content of media/mux-trail.js, inlined before the bridge. */
+  muxTrailJs?: string;
+  /** Localized copy consumed only by the Mux Trail webview controller. */
+  muxTrailStrings?: MuxTrailStrings;
+  /** Session rendered by this document; follow-open metadata keeps it current. */
+  visibleSessionId?: string;
   /** Value of webview.cspSource for the CSP meta tag. */
   cspSource: string;
   /** VS Code dark-mode hint, injected into __DSH_BRIDGE__ for the matchMedia shim. */
@@ -58,6 +64,18 @@ export interface AssembleOptions {
    */
   cookieProvider?: () => string | undefined;
   log?: (msg: string) => void;
+}
+
+export interface MuxTrailStrings {
+  open: string;
+  close: string;
+  description: string;
+  score: string;
+  instructions: string;
+  ready: string;
+  gameOver: string;
+  won: string;
+  restart: string;
 }
 
 export interface Assembled {
@@ -197,7 +215,7 @@ let distDownloadInFlight: Promise<void> | undefined;
  * fresh download; an unchanged rev reuses the cached tree.
  */
 export async function assembleDocument(opts: AssembleOptions): Promise<Assembled> {
-  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, cspSource, themeDark, completionSound, soundStart, soundDone, soundAsk, frameFontScale, chromeHtml, log } = opts;
+  const { serverBase, distRootPath, asWebviewUri, bridgeClientJs, muxTrailJs, muxTrailStrings, visibleSessionId, cspSource, themeDark, completionSound, soundStart, soundDone, soundAsk, frameFontScale, chromeHtml, log } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const logf = log ?? (() => {});
 
@@ -258,15 +276,25 @@ export async function assembleDocument(opts: AssembleOptions): Promise<Assembled
     ...(soundStart !== undefined ? { soundStart } : {}),
     ...(soundDone !== undefined ? { soundDone } : {}),
     ...(soundAsk !== undefined ? { soundAsk } : {}),
+    ...(muxTrailJs
+      ? {
+          muxTrail: {
+            ...(visibleSessionId ? { visibleSessionId } : {}),
+            ...(muxTrailStrings ? { strings: muxTrailStrings } : {}),
+          },
+        }
+      : {}),
   };
+  const bridgeInitJson = JSON.stringify(bridgeInit).replaceAll("<", "\\u003c");
   const bootScript =
-    `<script>window.__DSH_BRIDGE__ = ${JSON.stringify(bridgeInit)}<\/script>` +
+    `<script>window.__DSH_BRIDGE__ = ${bridgeInitJson}<\/script>` +
     (frameFontScale !== undefined
       ? `<style id="dshmux-frame-font-scale">#root { zoom: ${frameFontScale}; }<\/style>`
       : "") +
     (opts.sessionPreset
       ? `<script>try { localStorage.setItem("dsh.sessions.current", ${JSON.stringify(opts.sessionPreset)}); } catch (e) { console.error("[dsh] session preset failed", e); }<\/script>`
       : "") +
+    (muxTrailJs ? `<script>${muxTrailJs}<\/script>` : "") +
     `<script>${bridgeClientJs}<\/script>`;
   const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp(cspSource)}">`;
   // Attribute-tolerant head injection (DSH's <head> may gain attributes later).

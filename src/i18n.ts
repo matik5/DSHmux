@@ -41,3 +41,28 @@ export function langCode(): string {
       return column();
   }
 }
+
+/** Localized boot payload for the dependency-free Mux Trail webview script. */
+export function muxTrailStrings(): {
+  open: string;
+  close: string;
+  description: string;
+  score: string;
+  instructions: string;
+  ready: string;
+  gameOver: string;
+  won: string;
+  restart: string;
+} {
+  return {
+    open: t("muxTrail.open"),
+    close: t("muxTrail.close"),
+    description: t("muxTrail.description"),
+    score: t("muxTrail.score"),
+    instructions: t("muxTrail.instructions"),
+    ready: t("muxTrail.ready"),
+    gameOver: t("muxTrail.gameOver"),
+    won: t("muxTrail.won"),
+    restart: t("muxTrail.restart"),
+  };
+}

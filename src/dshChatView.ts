@@ -17,7 +17,7 @@ import { DshServerManager, type ServerInfo } from "./serverManager.js";
 import { assembleDocument } from "./documentAssembly.js";
 import { BridgeHost } from "./bridgeHost.js";
 import { workspaceRoot } from "./commands.js";
-import { t, langCode } from "./i18n.js";
+import { t, langCode, muxTrailStrings } from "./i18n.js";
 import {
   affectsDshmuxConfiguration,
   affectsAnySoundSetting,
@@ -335,6 +335,10 @@ export class DshChatView implements vscode.WebviewViewProvider {
         path.join(this.context.extensionUri.fsPath, "media", "bridge-client.js"),
         "utf8"
       );
+      const muxTrailJs = fs.readFileSync(
+        path.join(this.context.extensionUri.fsPath, "media", "mux-trail.js"),
+        "utf8"
+      );
       const webview = this.view.webview;
       // Plugin bundles remain absolute HTTP URLs because they are classic
       // scripts. In a remote window, map their loopback port to the remote
@@ -348,6 +352,9 @@ export class DshChatView implements vscode.WebviewViewProvider {
         distRootPath: this.distRootPath(),
         asWebviewUri: (p) => webview.asWebviewUri(vscode.Uri.file(p)).toString(),
         bridgeClientJs: bridgeJs,
+        muxTrailJs,
+        muxTrailStrings: muxTrailStrings(),
+        visibleSessionId: this.currentSessionId,
         cspSource: webview.cspSource,
         themeDark: isDarkTheme(),
         ...soundSettings(),
