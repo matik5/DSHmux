@@ -6,11 +6,17 @@ export interface ChatChromeCopy {
   newSession: string;
   searchSessions: string;
   active: string;
+  pinned: string;
   archived: string;
   empty: string;
   rename: string;
   renamePlaceholder: string;
   archive: string;
+  pin: string;
+  unpin: string;
+  fullTextSearch: string;
+  searching: string;
+  moreResults: string;
   timeNow: string;
   more: string;
   openInEditor: string;
@@ -25,6 +31,7 @@ export interface ChatChromeCopy {
   dshVersion: string;
   notAvailable: string;
   retry: string;
+  retryDsh: string;
   start: string;
   stop: string;
   stopped: string;
@@ -41,6 +48,7 @@ export interface ChatChromeInit {
   lang: string;
   currentSessionId?: string;
   currentTitle: string;
+  pinnedSessionIds: string[];
   serverState: string;
   doctorState?: string;
   latestVersion?: string;
@@ -90,7 +98,7 @@ export function chatChromeHtml(
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
     </button>
   </div>
-  <div id="dshmux-current-title"></div>
+  <div id="dshmux-current-title" role="button" tabindex="0"></div>
   <button id="dshmux-more" class="dshmux-icon-button" type="button" aria-haspopup="dialog" aria-expanded="false">
     <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg>
   </button>
@@ -98,11 +106,15 @@ export function chatChromeHtml(
 
 <div id="dshmux-session-backdrop" class="dshmux-backdrop" hidden>
   <section id="dshmux-session-dialog" class="dshmux-dialog" role="dialog" aria-modal="true">
-    <div class="dshmux-search-wrap">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-      <input id="dshmux-session-search" type="search" autocomplete="off" spellcheck="false">
+    <div class="dshmux-search-row">
+      <div class="dshmux-search-wrap">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input id="dshmux-session-search" type="search" autocomplete="off" spellcheck="false">
+      </div>
+      <label class="dshmux-full-text"><input id="dshmux-full-text" type="checkbox"><span id="dshmux-full-text-label"></span></label>
     </div>
     <div id="dshmux-session-tabs" role="group">
+      <button id="dshmux-pinned-tab" type="button" aria-pressed="false"></button>
       <button id="dshmux-active-tab" type="button" aria-pressed="true"></button>
       <button id="dshmux-archived-tab" type="button" aria-pressed="false"></button>
     </div>
@@ -126,7 +138,7 @@ export function chatChromeHtml(
   <div class="dshmux-menu-separator" role="separator"></div>
   <button id="dshmux-update-latest" type="button" data-command="upgrade-latest" hidden></button>
   <button id="dshmux-update-next" type="button" data-command="upgrade-next" hidden></button>
-  <button id="dshmux-stop" type="button" data-command="stop" hidden></button>
+  <button id="dshmux-process-action" type="button" data-command=""></button>
 </div>
 
 <div id="dshmux-overlay" hidden aria-live="polite">

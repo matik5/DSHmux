@@ -110,12 +110,24 @@ test.beforeEach(() => {
   availableUpgrade = undefined;
 });
 
-function makeContext() {
+function makeWorkspaceState(initial = {}, updateError) {
+  const values = new Map(Object.entries(initial));
+  return {
+    values,
+    get(key) { return values.get(key); },
+    async update(key, value) {
+      if (updateError) throw updateError;
+      values.set(key, value);
+    },
+  };
+}
+
+function makeContext(workspaceState = makeWorkspaceState()) {
   return {
     globalStorageUri: { fsPath: "/tmp/dsh-global" },
     extensionUri: { fsPath: path.resolve(__dirname, "..") },
-    extension: { packageJSON: { version: "0.4.7" } },
-    workspaceState: { get: () => undefined, update: async () => undefined },
+    extension: { packageJSON: { version: "0.4.8" } },
+    workspaceState,
     subscriptions: [],
   };
 }
@@ -146,6 +158,7 @@ function makeManager(overrides = {}) {
     createCalls: 0,
     renameCalls: [],
     archiveCalls: [],
+    searchCalls: [],
     get isRunning() { return this.state === "ready"; },
     on(event, callback) {
       (listeners[event] ||= []).push(callback);
@@ -173,6 +186,10 @@ function makeManager(overrides = {}) {
     async archiveSession(sessionId) {
       this.archiveCalls.push(sessionId);
       return [sessionId];
+    },
+    async searchSessions(query) {
+      this.searchCalls.push(query);
+      return overrides.searchResult ?? { items: [], hasMore: false };
     },
     ...overrides.methods,
   };
@@ -445,6 +462,135 @@ test("an in-flight poll cannot overwrite a successful rename", async () => {
   assert.equal(lastPosted(view, "sessions-snapshot").items[0].title, "After");
 });
 
+test("pins persist per workspace, preserve order, and prune stale session ids", async () => {
+  const state = makeWorkspaceState({
+    "dshmux.pinnedSessionIds": ["stale", "s1", "archived", "s1", 42],
+  });
+  const sessions = {
+    items: [makeSession("s1", 2, { title: "One" }), makeSession("s2", 1, { title: "Two" })],
+    archivedItems: [makeSession("archived", 3, { title: "Old" })],
+  };
+  const controller = new DshChatView(makeContext(state), makeManager({ sessions }));
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+
+  assert.deepEqual(lastPosted(view, "sessions-snapshot").pinnedSessionIds, ["s1", "archived"]);
+  assert.deepEqual(state.get("dshmux.pinnedSessionIds"), ["s1", "archived"]);
+
+  view.emitMessage({ type: "toggle-pin", sessionId: "s2" });
+  await flush();
+  assert.deepEqual(lastPosted(view, "sessions-snapshot").pinnedSessionIds, ["s2", "s1", "archived"]);
+
+  view.emitMessage({ type: "toggle-pin", sessionId: "s1" });
+  await flush();
+  assert.deepEqual(state.get("dshmux.pinnedSessionIds"), ["s2", "archived"]);
+
+  const restored = new DshChatView(makeContext(state), makeManager({ sessions }));
+  const restoredView = makeWebviewView();
+  restored.resolveWebviewView(restoredView);
+  await flush();
+  assert.deepEqual(lastPosted(restoredView, "sessions-snapshot").pinnedSessionIds, ["s2", "archived"]);
+  view.dispose();
+  restoredView.dispose();
+});
+
+test("failed pin persistence keeps the previous pins and reports an error", async () => {
+  const state = makeWorkspaceState({}, new Error("storage unavailable"));
+  const manager = makeManager({ sessions: {
+    items: [makeSession("s1", 1, { title: "One" })],
+    archivedItems: [],
+  } });
+  const controller = new DshChatView(makeContext(state), manager);
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+  view.emitMessage({ type: "toggle-pin", sessionId: "s1" });
+  await flush();
+  assert.equal(lastPosted(view, "session-operation").state, "error");
+  assert.match(lastPosted(view, "session-operation").message, /storage unavailable/);
+  assert.deepEqual(lastPosted(view, "sessions-snapshot").pinnedSessionIds, []);
+});
+
+test("full-text search maps known workspace sessions and drops duplicates and foreign ids", async () => {
+  const manager = makeManager({
+    sessions: {
+      items: [makeSession("s1", 2, { title: "Active title" })],
+      archivedItems: [makeSession("a1", 1, { title: "Archived title" })],
+    },
+    searchResult: {
+      items: [
+        { sessionId: "foreign", snippet: "must not leak" },
+        { sessionId: "s1", snippet: "first match" },
+        { sessionId: "s1", snippet: "duplicate" },
+        { sessionId: "a1", snippet: "archived match" },
+      ],
+      hasMore: true,
+    },
+  });
+  const controller = new DshChatView(makeContext(), manager);
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+  view.emitMessage({ type: "search-sessions", requestId: 7, query: " needle " });
+  await flush();
+
+  assert.deepEqual(manager.searchCalls, ["needle"]);
+  const result = lastPosted(view, "session-search-result");
+  assert.equal(result.requestId, 7);
+  assert.equal(result.hasMore, true);
+  assert.deepEqual(result.items.map((item) => item.sessionId), ["s1", "a1"]);
+  assert.equal(result.items[0].snippet, "first match");
+  assert.equal(result.items[1].archived, true);
+});
+
+test("full-text search errors are request-local and invalid requests are ignored", async () => {
+  const manager = makeManager({ methods: {
+    async searchSessions(query) {
+      this.searchCalls.push(query);
+      throw new Error("search unavailable");
+    },
+  } });
+  const controller = new DshChatView(makeContext(), manager);
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+  view.emitMessage({ type: "search-sessions", requestId: -1, query: "x" });
+  view.emitMessage({ type: "search-sessions", requestId: 8, query: "x" });
+  await flush();
+  assert.deepEqual(manager.searchCalls, ["x"]);
+  assert.deepEqual(lastPosted(view, "session-search-result"), {
+    type: "session-search-result",
+    requestId: 8,
+    items: [],
+    hasMore: false,
+    error: "search unavailable",
+  });
+});
+
+test("a search started by an old webview document cannot post into a reloaded session", async () => {
+  let releaseSearch;
+  const pendingSearch = new Promise((resolve) => { releaseSearch = resolve; });
+  const manager = makeManager({
+    sessions: { items: [makeSession("s1", 1, { title: "One" })], archivedItems: [] },
+    methods: {
+      async searchSessions() { return pendingSearch; },
+    },
+  });
+  const controller = new DshChatView(makeContext(), manager);
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+  view.posted.length = 0;
+  view.emitMessage({ type: "search-sessions", requestId: 1, query: "needle" });
+  await flush();
+  controller.loadSession("s1");
+  await flush();
+  releaseSearch({ items: [{ sessionId: "s1", snippet: "old result" }], hasMore: false });
+  await flush();
+  assert.equal(lastPosted(view, "session-search-result"), undefined);
+});
+
 test("invalid messages are ignored and approved overflow routes stay discoverable", async () => {
   const manager = makeManager();
   const controller = new DshChatView(makeContext(), manager);
@@ -473,7 +619,7 @@ test("invalid messages are ignored and approved overflow routes stay discoverabl
   assert.deepEqual(lastPosted(view, "status-detail"), {
     type: "status-detail",
     state: "ready",
-    extensionVersion: "0.4.7",
+    extensionVersion: "0.4.8",
     dshVersion: "0.1.5-rc.2",
   });
 });
