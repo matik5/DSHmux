@@ -18,7 +18,7 @@
 | R6 — Visual/a11y/responsive | ✅ with live-host follow-up | Runtime-asset renders cover light/dark/high-contrast palettes and 240/320/480 widths; CSS/source tests cover token use, forced colors, focus-visible, `aria-live`, `aria-busy`, dialog/listbox semantics, and reduced motion. Live screen-reader behavior remains part of the Extension Host smoke item below. |
 | R7 — Regression protection | ✅ feature scope / ⚠ repository baseline | Sidebar and editor tests cover stop→ready with a changed port; bridge tests cover transport, clipboard, theme, sounds, and singleton acquisition. Compile and 161 relevant tests pass. Full suite has seven unrelated baseline failures described below. |
 | R8 — KISS | ✅ | One sidebar controller replaces the launcher/chat split; old launcher source/test/i18n/manifest paths are removed; no runtime dependency or framework was added; new files follow the approved content/style/behavior boundaries. |
-| R9 — DSH sidebar visibility | ✅ source/automated, live follow-up | Overflow contains one localized toggle. Missing webview state defaults to hidden. The pure track transform changes `56px minmax(0px, 1fr) 320px` to `0px minmax(0px, 1fr) 320px`; CSS hides only the first occupant and left handle. Live installed-build inspection remains part of G1. |
+| R9 — DSH sidebar visibility | ✅ source/automated, live follow-up | Overflow contains one localized toggle. Missing webview state defaults to hidden. The pure track transform changes `56px minmax(0px, 1fr) 320px` to `0px minmax(0px, 1fr) 320px`; lookup skips intermediate wrappers and requires that grid signature before CSS marks the first occupant and left handle. Live installed-build inspection remains part of G1. |
 
 ## Live-code audit
 

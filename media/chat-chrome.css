@@ -22,10 +22,9 @@ body {
   overflow: hidden;
 }
 
-/* DSH owns a three-column shell. DSHmux marks that shell through its stable
-   overlay anchor and collapses only the first track; the right sidebar stays intact. */
-[data-dshmux-sidebar-hidden="true"] > :first-child,
-[data-dshmux-sidebar-hidden="true"] > [data-side="sidebar"] {
+/* JS marks only verified children of DSH's three-column shell. */
+[data-dshmux-sidebar-occupant-hidden="true"],
+[data-dshmux-sidebar-handle-hidden="true"] {
   display: none !important;
 }
 

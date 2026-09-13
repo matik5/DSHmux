@@ -315,7 +315,7 @@ No outstanding tasks.
 
 - [x] Default an absent preference to hidden and persist explicit user choice through `getState`/`setState`.
 - [x] Add one overflow toggle whose text and `aria-pressed` state follow visibility.
-- [x] Resolve the shell through `[data-shell-overlay]`, not a generated CSS-module class.
+- [x] Resolve the nearest pixel-leading grid ancestor through `[data-shell-overlay]`, not its immediate wrapper or a generated CSS-module class.
 - [x] Replace only the leading pixel track with `0px`; retain and restore the remaining inline template.
 - [x] Observe only shell style changes after discovery, avoiding transcript/streaming observation.
 - [x] Add no host message, command, dependency, framework, or upstream source modification.
@@ -325,7 +325,7 @@ hiddenSidebarGridTemplate("56px minmax(0px, 1fr) 320px")
 // => "0px minmax(0px, 1fr) 320px"
 ```
 
-**Completion criteria**: The DSH rail is hidden on first use, the overflow action restores/re-hides it, the rightbar track is byte-for-byte preserved, and compile/focused tests pass.
+**Completion criteria**: The DSH rail is hidden on first use, the overflow action restores/re-hides it, an intermediate wrapper cannot hide the whole chat, the rightbar track is byte-for-byte preserved, and compile/focused tests pass.
 
 ## Implementation order
 

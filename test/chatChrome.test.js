@@ -34,6 +34,18 @@ test("DSH sidebar helper collapses only the first shell track", () => {
   assert.equal(chrome.hiddenSidebarGridTemplate("minmax(0px, 1fr)"), "minmax(0px, 1fr)");
 });
 
+test("DSH shell lookup skips wrappers and requires a pixel-leading grid", () => {
+  const root = {};
+  const frame = {
+    parentElement: root,
+    style: { gridTemplateColumns: "56px minmax(0px, 1fr) 320px" },
+  };
+  const wrapper = { parentElement: frame, style: { gridTemplateColumns: "" } };
+  const anchor = { parentElement: wrapper };
+  assert.equal(chrome.dshShellFrame(anchor, root), frame);
+  assert.equal(chrome.dshShellFrame({ parentElement: wrapper }, frame), undefined);
+});
+
 test("chrome HTML has accessible dialogs and safely serializes user text", () => {
   const dangerous = "</script><img src=x onerror=alert(1)>";
   const copy = new Proxy({}, { get: () => "label" });
@@ -61,7 +73,7 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /calc\(100vw\s*-\s*14px\)/);
   assert.match(css, /forced-colors:\s*active/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.match(css, /data-dshmux-sidebar-hidden/);
+  assert.match(css, /data-dshmux-sidebar-occupant-hidden/);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);
   assert.match(
     script,

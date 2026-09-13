@@ -65,6 +65,16 @@
     return String(value || "").replace(/^\s*-?\d+(?:\.\d+)?px\b/, "0px");
   }
 
+  function dshShellFrame(anchor, root) {
+    var element = anchor && anchor.parentElement;
+    while (element && element !== root) {
+      var template = element.style && element.style.gridTemplateColumns;
+      if (template && hiddenSidebarGridTemplate(template) !== template) return element;
+      element = element.parentElement;
+    }
+    return undefined;
+  }
+
   function template(text, values) {
     return Object.keys(values || {}).reduce(function (out, key) {
       return out.split("{" + key + "}").join(String(values[key]));
@@ -126,6 +136,8 @@
     var viewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
     var dshSidebarVisible = viewState.dshSidebarVisible === true;
     var dshSidebarFrame;
+    var dshSidebarOccupant;
+    var dshSidebarHandle;
 
     function labelButton(button, label) {
       button.title = label;
@@ -162,16 +174,20 @@
     });
 
     function applyDshSidebar() {
+      var rootElement = doc.getElementById("root");
       var overlayAnchor = doc.querySelector("#root [data-shell-overlay]");
-      var frame = overlayAnchor && overlayAnchor.parentElement;
+      var frame = dshSidebarFrame || dshShellFrame(overlayAnchor, rootElement);
       if (!frame) return;
       if (frame !== dshSidebarFrame) {
         dshSidebarFrame = frame;
+        dshSidebarOccupant = frame.firstElementChild;
+        dshSidebarHandle = frame.querySelector(":scope > [data-side='sidebar']");
         sidebarObserver.disconnect();
         sidebarObserver.observe(frame, { attributes: true, attributeFilter: ["style"] });
       }
       if (dshSidebarVisible) {
-        frame.removeAttribute("data-dshmux-sidebar-hidden");
+        if (dshSidebarOccupant) dshSidebarOccupant.removeAttribute("data-dshmux-sidebar-occupant-hidden");
+        if (dshSidebarHandle) dshSidebarHandle.removeAttribute("data-dshmux-sidebar-handle-hidden");
         if (frame.dataset.dshmuxSidebarGrid) {
           frame.style.gridTemplateColumns = frame.dataset.dshmuxSidebarGrid;
           delete frame.dataset.dshmuxSidebarGrid;
@@ -183,7 +199,8 @@
           frame.dataset.dshmuxSidebarGrid = template;
           frame.style.gridTemplateColumns = hiddenTemplate;
         }
-        frame.setAttribute("data-dshmux-sidebar-hidden", "true");
+        if (dshSidebarOccupant) dshSidebarOccupant.setAttribute("data-dshmux-sidebar-occupant-hidden", "true");
+        if (dshSidebarHandle) dshSidebarHandle.setAttribute("data-dshmux-sidebar-handle-hidden", "true");
       }
       sidebarToggle.textContent = dshSidebarVisible ? copy.hideDshSidebar : copy.showDshSidebar;
       sidebarToggle.setAttribute("aria-pressed", dshSidebarVisible ? "true" : "false");
@@ -661,6 +678,7 @@
     timestampOf: timestampOf,
     sessionIdFromStorage: sessionIdFromStorage,
     hiddenSidebarGridTemplate: hiddenSidebarGridTemplate,
+    dshShellFrame: dshShellFrame,
     template: template,
     mount: mount,
   };

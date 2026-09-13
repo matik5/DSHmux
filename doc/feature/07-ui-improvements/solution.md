@@ -130,7 +130,7 @@ Praegu kutsuvad samas assemble'itud dokumendis nii `media/bridge-client.js` kui 
 
 DSHmuxi overflow saab ühe browser-local toggle'i. Vaikeseis on peidetud ja kasutaja valik säilib olemasolevas VS Code webview state'is. Hostile uut sõnumit, command'i ega backend-state'i ei lisata.
 
-Teostus leiab DSH kolmeveerulise shelli selle olemasoleva `[data-shell-overlay]` lapse kaudu, märgib ainult shelli ning muudab inline `grid-template-columns` esimese track'i `0px`-iks. Algne või DSH poolt hiljem uuesti arvutatud template säilitatakse taastamiseks. Väike `MutationObserver` jälgib pärast shelli leidmist ainult shelli `style` atribuuti; chati subtree/streaming'ut ei jälgita. CSS peidab sama shelli esimese lapse ja vasaku resize-handle'i. Nii jääb kolmas ehk DSH parempoolne track muutmata.
+Teostus liigub `[data-shell-overlay]` ankrust üles ja valib ainult lähima esivanema, mille inline `grid-template-columns` algab pikslites vasaku track'iga. Alles pärast seda kontrolli märgib JS konkreetse esimese grid-lapse ja vasaku resize-handle'i ning muudab esimese track'i `0px`-iks. Algne või DSH poolt hiljem uuesti arvutatud template säilitatakse taastamiseks. Väike `MutationObserver` jälgib pärast shelli leidmist ainult shelli `style` atribuuti; chati subtree/streaming'ut ei jälgita. Kui kontrollitud grid'i ei leita, ei peideta midagi. Nii ei saa versioonierinev wrapper kogu chati peita ning kolmas ehk DSH parempoolne track jääb muutmata.
 
 ## 2. Facts
 
