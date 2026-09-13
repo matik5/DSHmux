@@ -79,6 +79,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
   private refreshSeq = 0;
   private pollTimer?: NodeJS.Timeout;
   private isPolling = false;
+  private sessionRevision = 0;
   private newSessionPending = false;
   private sessions: ChromeSession[] = [];
   private archivedSessions: ChromeSession[] = [];
@@ -401,11 +402,11 @@ export class DshChatView implements vscode.WebviewViewProvider {
       for (const item of this.sessions.concat(this.archivedSessions)) {
         if (item.sessionId === sessionId) item.title = result.title;
       }
+      this.sessionRevision += 1;
       if (this.currentSessionId === sessionId) this.currentTitle = result.title;
       this.panelHooks.onSessionRenamed(sessionId, result.title);
       this.postOperation("rename", "success", sessionId);
       this.postSnapshot();
-      void this.pollSessions();
     } catch (err) {
       this.postOperation("rename", "error", sessionId, messageText(err));
     }
@@ -461,8 +462,10 @@ export class DshChatView implements vscode.WebviewViewProvider {
   private async pollSessions(): Promise<void> {
     if (this.isPolling || this.manager.state !== "ready" || !this.view) return;
     this.isPolling = true;
+    const revision = this.sessionRevision;
     try {
       const result = await this.manager.listWorkspaceSessions(workspaceRoot());
+      if (revision !== this.sessionRevision) return;
       this.sessions = result.items
         .map((item) => this.mapSession(item, false))
         .sort((a, b) => b.updatedAt - a.updatedAt);

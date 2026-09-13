@@ -80,7 +80,6 @@ export function chatChromeHtml(
   return `
 <style id="dshmux-chat-chrome-style">${css}</style>
 <header id="dshmux-chat-header">
-  <div id="dshmux-current-title"></div>
   <div id="dshmux-header-actions">
     <button id="dshmux-sessions" class="dshmux-icon-button" type="button">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5h9v9h-9zM1.5 6v7.5a1 1 0 0 0 1 1H10"/><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"/></svg>
@@ -88,10 +87,11 @@ export function chatChromeHtml(
     <button id="dshmux-new-session" class="dshmux-icon-button" type="button">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
     </button>
-    <button id="dshmux-more" class="dshmux-icon-button" type="button" aria-haspopup="dialog" aria-expanded="false">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg>
-    </button>
   </div>
+  <div id="dshmux-current-title"></div>
+  <button id="dshmux-more" class="dshmux-icon-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg>
+  </button>
 </header>
 
 <div id="dshmux-session-backdrop" class="dshmux-backdrop" hidden>

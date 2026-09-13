@@ -41,7 +41,7 @@ body {
   align-items: center;
   gap: 6px;
   height: var(--dshmux-header-height);
-  padding: 4px 8px 4px 12px;
+  padding: 4px 5px;
   background: var(--vscode-sideBar-background, var(--vscode-editor-background));
   border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border, transparent));
 }

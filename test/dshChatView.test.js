@@ -411,6 +411,40 @@ test("rename and archive use manager APIs and notify editor-panel hooks", async 
   assert.equal(lastPosted(view, "sessions-snapshot").items.length, 0);
 });
 
+test("an in-flight poll cannot overwrite a successful rename", async () => {
+  const sessionData = {
+    items: [makeSession("s1", 1, { title: "Before" })],
+    archivedItems: [],
+  };
+  let releasePoll;
+  let deferPoll = false;
+  const manager = makeManager({
+    sessions: sessionData,
+    methods: {
+      async listWorkspaceSessions() {
+        this.listCalls += 1;
+        if (!deferPoll) return sessionData;
+        return new Promise((resolve) => { releasePoll = resolve; });
+      },
+    },
+  });
+  const controller = new DshChatView(makeContext(), manager);
+  const view = makeWebviewView();
+  controller.resolveWebviewView(view);
+  await flush();
+
+  deferPoll = true;
+  view.emitMessage({ type: "refresh-sessions" });
+  await flush();
+  view.emitMessage({ type: "rename-session", sessionId: "s1", title: "After" });
+  await flush();
+  assert.equal(lastPosted(view, "sessions-snapshot").items[0].title, "After");
+
+  releasePoll(sessionData);
+  await flush();
+  assert.equal(lastPosted(view, "sessions-snapshot").items[0].title, "After");
+});
+
 test("invalid messages are ignored and approved overflow routes stay discoverable", async () => {
   const manager = makeManager();
   const controller = new DshChatView(makeContext(), manager);

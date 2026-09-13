@@ -31,6 +31,9 @@ test("compact chrome is capped below the approved 44 CSS px budget", () => {
   assert.match(chromeSource, /dshmux-sessions/);
   assert.match(chromeSource, /dshmux-new-session/);
   assert.match(chromeSource, /dshmux-more/);
+  const headerOrder = ["dshmux-sessions", "dshmux-new-session", "dshmux-current-title", "dshmux-more"]
+    .map((id) => chromeSource.indexOf(`id="${id}"`));
+  assert.deepEqual(headerOrder, [...headerOrder].sort((a, b) => a - b));
 });
 
 test("the one provider is registered before the chat is revealed", () => {

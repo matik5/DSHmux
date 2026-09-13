@@ -270,10 +270,12 @@
         if (finished) return;
         finished = true;
         var next = input.value.trim();
-        if (save && next && next !== item.title) {
+        var submitted = save && next && next !== item.title;
+        if (submitted) {
           post({ type: "rename-session", sessionId: item.sessionId, title: next });
+        } else {
+          editingSessionId = undefined;
         }
-        editingSessionId = undefined;
         input.remove();
         openButton.hidden = false;
         actions.hidden = false;
@@ -448,6 +450,10 @@
     }
 
     function applyOperation(message) {
+      if (message.operation === "rename" && message.state !== "pending") {
+        editingSessionId = undefined;
+        renderSessions();
+      }
       if (message.operation === "new") {
         newPending = message.state === "pending";
         newButton.disabled = serverState !== "ready" || newPending;
