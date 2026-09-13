@@ -37,6 +37,8 @@ immediately dismiss it.
   top-corner marker. Invalid destinations preserve selection and explain the error.
 - Tableau destination cards now accept drops directly and corner labels are
   pointer-transparent, fixing moves such as red 8 onto black 9 in Chromium.
+- Hearts and diamonds now render red consistently in tableau, waste and
+  foundations, preventing illegal same-colour moves from appearing legal.
 
 ## Verification result
 

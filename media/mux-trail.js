@@ -898,7 +898,10 @@
     }
 
     function solitaireCardButton(card, className) {
-      var node = button(solitaireCardLabel(card), "dshmux-solitaire-card " + className);
+      // Suit colour belongs to the card, not its pile. Applying it here keeps
+      // hearts/diamonds red in waste and foundations as well as tableau.
+      var redClass = card.faceUp && (card.suit === 1 || card.suit === 2) ? " red" : "";
+      var node = button(solitaireCardLabel(card), "dshmux-solitaire-card " + className + redClass);
       node.textContent = "";
       if (card.faceUp) {
         var corner = addClass(doc.createElement("span"), "dshmux-solitaire-corner");
@@ -992,7 +995,7 @@
             (function (index, topOffset) {
               var card = pile[index];
               var selectedClass = solitaireSelected("tableau", columnIndex, index) ? " selected" : "";
-              var colorClass = card.faceUp && (card.suit === 1 || card.suit === 2) ? "red" : card.faceUp ? "" : "covered";
+              var colorClass = card.faceUp ? "" : "covered";
               var cardNode = solitaireCardButton(card, colorClass + selectedClass);
               cardNode.style.top = topOffset + "px";
               cardNode.style.zIndex = String(index + 1);

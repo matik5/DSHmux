@@ -402,12 +402,14 @@ test("browser controller lazily opens, captures gameplay keys, dismisses, and re
   }
   assert.equal(persisted.solitaireRounds["session:s1"].waste.at(-1).rank, 1);
   const ace = solitaire.children[0].children[1].children[0];
+  assert.match(ace.className, /\bred\b/, "red waste suits must not look black");
   assert.ok(ace.listeners.has("dragstart"), "face-up cards must be draggable");
   ace.dispatch("click");
   const heartsHome = solitaire.children[0].children[4].children[0];
   assert.ok(heartsHome.listeners.has("drop"), "foundation must accept drops");
   heartsHome.dispatch("click");
   assert.equal(persisted.solitaireRounds["session:s1"].foundations[1].length, 1, "source-then-destination click moves a legal card");
+  assert.match(solitaire.children[0].children[4].children[0].className, /\bred\b/, "red foundation suits must not look black");
   assert.equal(persisted.selectedGames["session:s1"], "solitaire");
   controller.endWait("complete");
   controller.destroy();

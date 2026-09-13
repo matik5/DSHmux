@@ -55,6 +55,9 @@
   A focused engine regression proves a red 8 (including its valid child run)
   moves onto a black 9, while DOM assertions prove the visible destination card
   itself owns the drop listener and the corner cannot intercept pointer events.
+  Screenshot-led regression coverage also verifies that red waste and foundation
+  suits receive the same red class as tableau cards; `3♦` can no longer appear
+  black and misleadingly suggest a legal move onto `4♥`.
 
 ## Executed checks
 
