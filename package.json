@@ -133,15 +133,8 @@
       "dshmux": [
         {
           "type": "webview",
-          "id": "dshmux.view",
-          "name": "DSHmux"
-        },
-        {
-          "type": "webview",
           "id": "dshmux.chat",
-          "name": "%view.chat.name%",
-          "icon": "media/icon.svg",
-          "description": "%view.chat.description%"
+          "name": "%view.chat.name%"
         }
       ]
     }

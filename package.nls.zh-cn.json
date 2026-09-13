@@ -11,6 +11,5 @@
   "setting.frameFontScale.description": "内嵌 DSH 界面内容的缩放（1 = 默认大小）。数值越小，DSH 界面越紧凑。",
   "command.openPanel.title": "打开面板",
   "command.doctor.title": "运行 DSH 诊断",
-  "view.chat.name": "DSHmux 对话",
-  "view.chat.description": "DSHmux 对话（侧边栏）"
+  "view.chat.name": "DSHmux"
 }

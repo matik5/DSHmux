@@ -3,18 +3,17 @@
 // theme sync (T3/T8/T9/T12). Workspace alignment (01-workspace-alignment
 // T3/T4): workspaceState-driven auto-restart + multi-root panel close.
 // Session management (02-session-management T6): multi-panel orchestration,
-// session list + rename in the launcher, reload restore of open panels.
+// compact sidebar picker, and reload restore of open editor panels.
 import * as vscode from "vscode";
 import { DshServerManager, resolveDshVersion } from "./serverManager.js";
 import { registerCommands, workspaceRoot } from "./commands.js";
 import { DshPanel } from "./dshPanel.js";
 import { SessionPanelManager } from "./sessionPanels.js";
-import { DshLauncherView } from "./launcherView.js";
 import { managedBinsForContext, runDoctorCommand } from "./installService.js";
 import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
-import { checkForUpdates, showUpgradeOptions, type UpgradeChannel } from "./versionCheckService.js";
+import { checkForUpdates } from "./versionCheckService.js";
 import { configuredDshBin } from "./configuration.js";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
 
@@ -51,10 +50,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const panels = new SessionPanelManager(persistPanels, (sessionId) =>
     sessionId ? new DshPanel(context, mgr, sessionId) : new DshPanel(context, mgr)
   );
-  // Primary chat surface (2026-08-23): the side-panel chat view, created below
-  // alongside the launcher and registered as a WebviewViewProvider. Declared
-  // here (before the ready handler) so the handler can load a session into it;
-  // assigned once the view provider is constructed.
+  // Declared before the ready listener so that workspace alignment can load the
+  // resolved session once the single sidebar provider has been constructed.
   let chatView: DshChatView | undefined;
 
   // Persist the "was running" flag on every state transition (not in
@@ -100,9 +97,9 @@ export function activate(context: vscode.ExtensionContext): void {
     // (re)start; they open on demand via "Open Panel" / "open in editor".
     chatView?.loadSession(wsSessionId ?? "");
     // G-03: background version check (24h gate) — never blocks, offline-safe.
-    // onResult refreshes the launcher once the fetch settles (it may finish
-    // after the first render, so the upgrade hint needs a re-push).
-    void checkForUpdates(context, m.dshBinPath, m.dshVersion, () => launcher?.refresh());
+    void checkForUpdates(context, m.dshBinPath, m.dshVersion, () =>
+      chatView?.refreshMetadata()
+    );
   });
 
   // Normal reload of the same workspace (settings/extensions/update): the
@@ -137,6 +134,11 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
+  chatView = new DshChatView(context, manager, {
+    onSessionRenamed: (sessionId, title) => panels.updateTitle(sessionId, title),
+    onSessionArchived: (sessionId) => panels.close(sessionId),
+  });
+
   registerCommands(
     context,
     manager,
@@ -144,74 +146,27 @@ export function activate(context: vscode.ExtensionContext): void {
     // generates a `<viewId>.focus` command for every contributed view).
     revealChat,
     // Secondary surface: open the editor-tab panel (kept for now).
-    () => panels.open(),
-    // DSH Doctor (04-install R1): palette command, works pre-start.
-    () => void runDoctorCommand(context, () => launcher?.refresh(true))
-  );
-
-  // Session handlers: new/open session loads it into the side-panel chat view
-  // (primary, one at a time); rename syncs any editor-tab title; archive closes
-  // the bound editor tab if open (the session stays in DSH).
-  const onNewSession = async (): Promise<void> => {
-    try {
-      const workspaceId = await m.workspaceIdFor(workspaceRoot());
-      const sessionId = await m.createSession(workspaceId);
-      // Primary surface: load the new session into the single side-panel chat
-      // view (one session at a time). The editor tab is not auto-opened.
-      chatView?.loadSession(sessionId);
-      launcher?.refreshSessions();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      void vscode.window.showWarningMessage(`DSHmux: failed to create session — ${msg}`);
-    }
-  };
-  const onOpenSession = (sessionId: string): void => {
-    // Primary surface: load the clicked session into the side-panel chat view,
-    // replacing whatever was shown (one session visible at a time).
-    chatView?.loadSession(sessionId);
-  };
-  const onRenameSession = async (sessionId: string, title: string): Promise<void> => {
-    const res = await m.renameSession(sessionId, title);
-    panels.updateTitle(sessionId, res.title);
-    launcher?.refreshSessions();
-  };
-  const onArchiveSession = async (sessionId: string): Promise<void> => {
-    try {
-      await m.archiveSession(sessionId);
-      panels.close(sessionId);
-      launcher?.refreshSessions();
-    } catch (err) {
-      void vscode.window.showWarningMessage(
-        `DSHmux: failed to archive session — ${err instanceof Error ? err.message : err}`
+    () => {
+      const sessionId = chatView?.shownSessionId;
+      panels.open(
+        sessionId,
+        sessionId ? JSON.stringify({ sessionId }) : undefined
       );
-    }
-  };
-
-  let launcher: DshLauncherView | undefined = new DshLauncherView(
-    context,
-    manager,
-    (channel: UpgradeChannel) => void showUpgradeOptions(context, m.dshVersion, m.dshBinPath, channel),
-    { newSession: () => void onNewSession(), openSession: onOpenSession, renameSession: onRenameSession, archiveSession: (sid) => void onArchiveSession(sid) },
-    // Secondary surface: open the editor tab for the session currently shown
-    // in the side-panel chat view (falls back to the default panel when none).
-    () => panels.open(chatView?.shownSessionId),
-  );
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(DshLauncherView.viewType, launcher)
+    },
+    // DSH Doctor (04-install R1): palette command, works pre-start.
+    () => void runDoctorCommand(context, () => chatView?.refreshDoctor())
   );
 
-  // Side-panel chat view (primary surface): stacked below the launcher in the
-  // same `dshmux` container. Hosts the DSH UI over the transport
-  // bridge; the launcher's session list drives loadSession (one at a time).
-  chatView = new DshChatView(context, manager);
+  // The single side-panel provider owns the compact header, session picker,
+  // lifecycle overlay, and embedded DSH client.
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(DshChatView.viewType, chatView, {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );
   // Activation runs onStartupFinished, including after a window/extension-host
-  // restart. Reveal the primary DSHmux surface only after both providers are
-  // registered so VS Code can resolve and focus the contributed webview.
+  // restart. Reveal only after the provider is registered so VS Code can
+  // resolve and focus the contributed webview.
   revealChat();
 
   context.subscriptions.push({

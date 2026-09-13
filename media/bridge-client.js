@@ -12,7 +12,11 @@
 (function () {
   "use strict";
   var bridge = window.__DSH_BRIDGE__ || { serverBase: "" };
-  var vscode = acquireVsCodeApi();
+  // One VS Code API handle per document. DSHmux chrome is injected into the
+  // same page and reuses this handle; placeholders acquire their own handle in
+  // a different document where the bridge is absent.
+  var vscode = window.__DSHMUX_VSCODE_API__ || acquireVsCodeApi();
+  window.__DSHMUX_VSCODE_API__ = vscode;
   var nextId = 1;
   var pendingHttp = new Map(); // id -> { resolve, reject }
   var pendingClipboard = new Map(); // id -> { resolve, reject }

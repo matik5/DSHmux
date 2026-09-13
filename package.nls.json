@@ -11,6 +11,5 @@
   "setting.frameFontScale.description": "Zoom for the embedded DSH UI content (1 = default size). Lower values make the DSH interface more compact.",
   "command.openPanel.title": "Open Panel",
   "command.doctor.title": "Run DSH Doctor",
-  "view.chat.name": "DSHmux Chat",
-  "view.chat.description": "DSHmux chat (side panel)"
+  "view.chat.name": "DSHmux"
 }
