@@ -74,6 +74,8 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /forced-colors:\s*active/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /data-dshmux-sidebar-occupant-hidden/);
+  assert.match(css, /data-dshmux-sidebar-occupant-hidden[^}]+visibility:\s*hidden/s);
+  assert.doesNotMatch(css, /data-dshmux-sidebar-occupant-hidden[^}]+display:\s*none/s);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);
   assert.match(
     script,

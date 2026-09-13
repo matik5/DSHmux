@@ -317,6 +317,7 @@ No outstanding tasks.
 - [x] Add one overflow toggle whose text and `aria-pressed` state follow visibility.
 - [x] Resolve the nearest pixel-leading grid ancestor through `[data-shell-overlay]`, not its immediate wrapper or a generated CSS-module class.
 - [x] Replace only the leading pixel track with `0px`; retain and restore the remaining inline template.
+- [x] Keep the hidden sidebar occupant in grid flow with `visibility:hidden`; never use `display:none`, which would move chat into the zero-width first track.
 - [x] Observe only shell style changes after discovery, avoiding transcript/streaming observation.
 - [x] Add no host message, command, dependency, framework, or upstream source modification.
 

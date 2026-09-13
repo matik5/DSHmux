@@ -22,8 +22,11 @@ body {
   overflow: hidden;
 }
 
-/* JS marks only verified children of DSH's three-column shell. */
-[data-dshmux-sidebar-occupant-hidden="true"],
+/* Keep the sidebar grid item in flow so the chat remains in column two. */
+[data-dshmux-sidebar-occupant-hidden="true"] {
+  visibility: hidden !important;
+}
+
 [data-dshmux-sidebar-handle-hidden="true"] {
   display: none !important;
 }
