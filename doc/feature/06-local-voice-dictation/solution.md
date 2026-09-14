@@ -100,6 +100,15 @@ managed user cache outside the extension.
 ### Licenses
 
 - whisper.cpp and OpenAI Whisper are MIT licensed; SDL2 is zlib licensed.
+
+### Settings presentation
+
+- `package.json` currently contributes general, feedback-sound, and local
+  dictation settings through one `DSHmux` configuration object.
+- VS Code accepts `contributes.configuration` as an ordered array of titled
+  configuration objects, without changing the fully qualified setting keys.
+- Runtime readers in `src/configuration.ts` use those fully qualified keys and
+  do not depend on the manifest block title.
   Modification, linking, and binary redistribution are allowed when the
   relevant license/copyright notices accompany the runtime.
 
@@ -113,6 +122,7 @@ managed user cache outside the extension.
 | No temporary audio | Native host retains a bounded in-memory sample vector. | Verify cancellation/exit releases it; no filesystem cleanup remains. |
 | Reproducible redistribution | Mac and Windows toolchains, artifacts, dependencies, sizes, and checksums are recorded. | Retain the evidence while managed-model changes are verified. |
 | Managed model cache | Preflight requires a user-entered `modelPath`; there is no downloader. | Add one streaming model manager for `~/.dshmux/models`, remove `modelPath`, and invoke it on enable/startup and before recording. |
+| Settings grouping | All DSHmux settings appear in one undifferentiated block. | Split presentation into ordered general, feedback-sounds, and experimental blocks while retaining all keys and semantics. |
 | Safe installation | No partial-file, size/hash, cancellation, or atomic publish behavior exists. | Download to a sibling partial file, bound bytes, verify the published size/SHA-1, then rename; clean partial data on every failure/cancel path. |
 | Existing Windows model | Verified model is under `%LOCALAPPDATA%/DSHmux/models`. | Move it to `~/.dshmux/models` after re-verifying identity; do not place it in the repo or package. |
 
@@ -161,3 +171,8 @@ unchanged.
 10. Move the currently verified Windows model to the canonical cache, rerun
     compile/tests/package audits, and continue the pending Windows live
     microphone checkpoint when a capture endpoint is available.
+11. Change `package.json` to three ordered configuration objects: general,
+    `DSHmux: Feedback Sounds`, then `DSHmux: Experimental`. Add localized block
+    titles, state the 1.6 GB model size in the enable-setting description, and
+    add a manifest test that verifies membership and adjacency. Do not rename
+    configuration keys or change runtime readers.

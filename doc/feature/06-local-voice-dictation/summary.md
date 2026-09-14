@@ -25,6 +25,12 @@ Existing Windows model bytes were moved from `%LOCALAPPDATA%\DSHmux\models` to
 `%USERPROFILE%\.dshmux\models` and reverified at SHA-1
 `4af2b29d7ec73d781377bfd1758ca957a807e941`.
 
+VS Code settings are now presented as three ordered blocks. General settings
+remain under `DSHmux`, session sounds live under `DSHmux: Feedback Sounds`, and
+all voice-dictation controls live under `DSHmux: Experimental` immediately
+below it. The opt-in description states that the model is 1.6 GB before enable
+starts setup. Configuration keys and behavior are unchanged.
+
 ## Verification
 
 - TypeScript compilation: PASS.

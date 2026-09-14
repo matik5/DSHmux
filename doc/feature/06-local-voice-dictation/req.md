@@ -178,6 +178,18 @@ configured local dependencies are available:
 - Record time to final transcript after Stop, peak memory attributable to the
   prototype where observable, and runtime errors. These are feasibility
   measurements, not production performance promises.
+
+## R7 — Settings presentation
+
+- Keep general DSHmux settings in the primary settings block.
+- Put the four existing session-feedback sound settings in a separate
+  `DSHmux: Feedback Sounds` block.
+- Put all local voice-dictation settings in a separate
+  `DSHmux: Experimental` block immediately below the feedback-sounds block.
+- State the approximately 1.6 GB model download size in the opt-in setting's
+  description before the user enables it.
+- Preserve every existing configuration key, default, scope, and runtime
+  behavior so current user settings continue to apply.
 - For a CONDITIONAL GO or NO-GO, name the smallest viable next step without
   silently implementing a different backend.
 

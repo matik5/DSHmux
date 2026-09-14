@@ -171,6 +171,20 @@ Those licenses allow modification, linking, and redistribution of the compiled
 runtime. `runtime/THIRD_PARTY_NOTICES.md` accompanies the artifacts. The model
 weights remain outside the repository and package.
 
+## Settings presentation
+
+- `contributes.configuration` contains three ordered groups: `DSHmux` (10),
+  `DSHmux: Feedback Sounds` (20), and `DSHmux: Experimental` (30).
+- The feedback group owns the unchanged `completionSound`, `soundStart`,
+  `soundDone`, and `soundAsk` keys. The experimental group owns all four
+  unchanged `experimental.localDictation` keys.
+- The manifest regression test confirms group adjacency, membership, localized
+  titles, the visible 1.6 GB model-size notice, and retention of the
+  machine-overridable `dshPath` setting.
+- Mac DSHmux-scoped verification: **270 PASS, 0 FAIL, 2 platform skips**.
+- `vsce package`: PASS; the generated 0.4.8 VSIX contains the revised manifest
+  and both localization files.
+
 ## Close-out audit
 
 | Requirement | Called implementation and evidence | Result |
@@ -180,12 +194,18 @@ weights remain outside the repository and package.
 | R4 | `DshChatView` state events → chrome dictation messages → existing composer insertion seam | PASS on Mac; deterministic Windows contract PASS; Windows live audio blocked |
 | R5 | Opt-in target gate, single-flight setup, bounded child process and audio buffer | PASS |
 | R6 | 270/0/1 suite, package listing, checksums, Mac live evidence, repeated Windows probe | Partial: Windows live phrases/latency/RSS unavailable |
+| R7 | Ordered `contributes.configuration` array plus manifest regression test | PASS |
 
 Every plan item marked ✅ has both code and a caller or recorded runtime/package
 evidence. No managed-model implementation is dead code: `DshChatView` owns and
 calls the manager, preflight derives the same canonical path, and the worker
 passes that validated path to the native host without a shell. The only gap is
 T9's live Windows microphone checkpoint.
+
+The settings manifest now exposes general settings first, `DSHmux: Feedback
+Sounds` second, and `DSHmux: Experimental` third. A deterministic manifest test
+confirms that feedback sounds directly precede experimental dictation and that
+all existing setting keys remain in their intended group.
 
 ## Verdict — CONDITIONAL GO
 

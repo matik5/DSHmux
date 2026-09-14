@@ -13,6 +13,7 @@
 | R4 | T2, T3, T7, T9 | Setup plus Start/partial/Stop/final/cancel through the existing composer path. |
 | R5 | T1, T3, T5, T7 | Opt-in single-flight model setup; bounded native process; disabled path has no work. |
 | R6 | T4, T8, T9, T10 | Deterministic, live, offline, package, performance, and close-out evidence. |
+| R7 | T11 | Manifest test verifies ordered blocks, membership, titles, and preserved keys. |
 
 ### T1 — Build the DSH native streaming host
 
@@ -335,6 +336,37 @@ verified code + Mac evidence + Windows evidence -> verdict -> summary + TODO
 
 **Completion criteria**: all close-out documents agree and no pending item is
 misrepresented as complete.
+
+### T11 — Group feedback and experimental settings
+
+**Status**: ✅ done
+
+**Files**:
+
+- `package.json:79`
+- `package.nls.json:1`
+- `package.nls.zh-cn.json:1`
+- `test/chatViewLayout.test.js:1`
+
+- [x] Retain general settings under `DSHmux`.
+- [x] Move the four unchanged feedback-sound keys into
+  `DSHmux: Feedback Sounds`.
+- [x] Move all unchanged local-dictation keys into `DSHmux: Experimental`
+  immediately below feedback sounds.
+- [x] Add localized titles, the 1.6 GB model-size notice on the opt-in setting,
+  and deterministic manifest coverage.
+
+```json
+"configuration": [
+  { "title": "DSHmux", "order": 10 },
+  { "title": "DSHmux: Feedback Sounds", "order": 20 },
+  { "title": "DSHmux: Experimental", "order": 30 }
+]
+```
+
+**Completion criteria**: VS Code receives three ordered settings blocks,
+feedback sounds directly precede experimental dictation, and no setting key or
+runtime behavior changes.
 
 ## Dependency order
 
