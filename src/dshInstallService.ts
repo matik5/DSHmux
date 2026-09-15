@@ -61,6 +61,24 @@ export interface ManagedNpmLaunchSpec {
   shell: boolean;
 }
 
+export interface ManagedPnpmInstallSpec {
+  command: "npm";
+  args: string[];
+  cwd: string;
+  binPath: string;
+  packageSpec: string;
+}
+
+/** Shell-free executable contract shared by Doctor and source installation. */
+export interface PnpmLaunchSpec {
+  command: string;
+  argsPrefix: string[];
+  shell: false;
+  resolvedPath: string;
+  /** Directory containing pnpm/pnpm.cmd for nested package-script invocations. */
+  runtimePath?: string;
+}
+
 /** Executable portion shared by Doctor's npm probe and the real installer. */
 export interface NpmLaunchSpec {
   command: string;
@@ -112,6 +130,44 @@ export function managedDshBin(
     "lib",
     "bin.js"
   );
+}
+
+/** Versioned extension-owned pnpm prefix. */
+export function managedPnpmRoot(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathApi(platform).join(storageDir, "managed-pnpm", TESTED_PNPM_VERSION);
+}
+
+/** Direct pnpm JS entry; avoids PowerShell and cmd shim policy/quoting. */
+export function managedPnpmBin(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathApi(platform).join(
+    managedPnpmRoot(storageDir, platform),
+    "node_modules",
+    "pnpm",
+    "bin",
+    "pnpm.cjs"
+  );
+}
+
+/** Pinned pnpm installation owned by DSHmux rather than the user's global prefix. */
+export function buildManagedPnpmInstallSpec(
+  storageDir: string,
+  platform: NodeJS.Platform = process.platform
+): ManagedPnpmInstallSpec {
+  const cwd = managedPnpmRoot(storageDir, platform);
+  const packageSpec = `pnpm@${TESTED_PNPM_VERSION}`;
+  return {
+    command: "npm",
+    args: ["install", "--prefix", cwd, "--no-save", "--no-audit", "--no-fund", packageSpec],
+    cwd,
+    binPath: managedPnpmBin(storageDir, platform),
+    packageSpec,
+  };
 }
 
 /** Structured argv for a pinned, non-global, extension-managed npm install. */
@@ -188,13 +244,6 @@ export function buildSourceCloneArgs(
   ];
 }
 
-export function buildPnpmExecArgs(pnpmArgs: string[]): string[] {
-  return [
-    "exec", "--yes", `--package=pnpm@${TESTED_PNPM_VERSION}`,
-    "--", "pnpm", ...pnpmArgs,
-  ];
-}
-
 /** Recreate Windows workspace links so mixed drive-letter targets cannot survive a repair. */
 export function buildSourceInstallArgs(
   platform: NodeJS.Platform = process.platform
@@ -256,6 +305,78 @@ export function resolveNpmLaunchSpec(
   throw new Error("npm was detected, but its Windows executable could not be resolved safely");
 }
 
+/**
+ * Resolve pnpm without executing Windows script shims. npm-installed pnpm keeps
+ * its JS entry below the prefix's node_modules directory, so it can be invoked
+ * directly with the already verified Node executable.
+ */
+export function resolvePnpmLaunchSpec(
+  nodePath: string,
+  managedBin: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  exists: (candidate: string) => boolean
+): PnpmLaunchSpec | null {
+  const api = pathApi(platform);
+  const pathValue = Object.entries(env)
+    .find(([key]) => key.toLowerCase() === "path")?.[1] ?? "";
+  const delimiter = platform === "win32" ? ";" : ":";
+  const directories = pathValue
+    .split(delimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+  const jsCandidates = [managedBin];
+
+  if (platform === "win32") {
+    const appData = Object.entries(env)
+      .find(([key]) => key.toLowerCase() === "appdata")?.[1];
+    if (appData) {
+      jsCandidates.push(path.win32.join(appData, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs"));
+    }
+    for (const directory of directories) {
+      jsCandidates.push(path.win32.join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"));
+    }
+  } else {
+    for (const directory of directories) {
+      jsCandidates.push(api.join(api.dirname(directory), "lib", "node_modules", "pnpm", "bin", "pnpm.cjs"));
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const candidate of jsCandidates) {
+    const key = platform === "win32" ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (exists(candidate)) {
+      const nodeModules = api.dirname(api.dirname(api.dirname(candidate)));
+      return {
+        command: nodePath,
+        argsPrefix: [candidate],
+        shell: false,
+        resolvedPath: candidate,
+        runtimePath: api.join(nodeModules, ".bin"),
+      };
+    }
+  }
+
+  if (platform === "win32") {
+    for (const directory of directories) {
+      const executable = path.win32.join(directory, "pnpm.exe");
+      if (exists(executable)) {
+        return {
+          command: executable,
+          argsPrefix: [],
+          shell: false,
+          resolvedPath: executable,
+          runtimePath: path.win32.dirname(executable),
+        };
+      }
+    }
+    return null;
+  }
+  return { command: "pnpm", argsPrefix: [], shell: false, resolvedPath: "pnpm" };
+}
+
 export function buildManagedNpmLaunchSpec(
   install: ManagedInstallSpec,
   nodePath: string,
@@ -280,6 +401,25 @@ export function isSupportedNodeVersion(version: string | null | undefined): bool
   const minor = Number(match[2]);
   if (major === 22) return minor >= 19;
   return major >= 24;
+}
+
+/** DSH source builds are verified only against the single pinned pnpm release. */
+export function isSupportedPnpmVersion(version: string | null | undefined): boolean {
+  return version?.trim().replace(/^v/, "") === TESTED_PNPM_VERSION;
+}
+
+export function checkManagedPnpmInstall(
+  binPath: string,
+  nodePath: string,
+  probe: ManagedInstallProbe
+): ManagedInstallCheck {
+  if (!probe.exists(binPath)) return { valid: false, binPath, version: null };
+  const result = probe.run(nodePath, [binPath, "--version"], {
+    timeoutMs: 5_000,
+    shell: false,
+  });
+  const version = result.ok ? result.stdout.trim().split(/\r?\n/)[0] || null : null;
+  return { valid: isSupportedPnpmVersion(version), binPath, version };
 }
 
 /** Verify an installed managed CLI before the manager or Doctor trusts it. */
