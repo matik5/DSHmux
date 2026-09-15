@@ -5,6 +5,7 @@ import { runDoctor, classifyInstallType, redactPath } from "../out/dshDoctor.js"
 const HOME = "/home/user";
 const NODE = "/usr/local/bin/node";
 const DSH = "/usr/local/bin/dsh";
+const PNPM = "/managed/pnpm.cjs";
 
 function makeProbe(overrides = {}, runTable = new Map()) {
   const existsMap = new Map(overrides.existsEntries ?? []);
@@ -17,6 +18,7 @@ function makeProbe(overrides = {}, runTable = new Map()) {
     hostLabel: "local",
     configuredDshPath: undefined,
     managedDshPath: undefined,
+    managedPnpmPath: PNPM,
     exists: (p) => existsMap.get(p) ?? false,
     realPath: (p) => overrides.realPathEntries?.find(([key]) => key === p)?.[1] ?? null,
     run: (cmd, args) => runTable.get(`${cmd} ${args.join(" ")}`) ?? { ok: false, stdout: "" },
@@ -24,13 +26,15 @@ function makeProbe(overrides = {}, runTable = new Map()) {
     resolveDsh: () => overrides.dshFound ?? { path: null, tried: [] },
     resolveNode: () => NODE,
     resolveNpm: () => ({ command: "npm", argsPrefix: [], shell: false }),
+    resolvePnpm: () => ({ command: NODE, argsPrefix: [PNPM], shell: false, resolvedPath: PNPM, runtimePath: "/managed/.bin" }),
     ...overrides,
   };
 }
 
-function runtime(nodeVersion = "v24.0.0", { npm = true } = {}) {
+function runtime(nodeVersion = "v24.0.0", { npm = true, pnpm = true, pnpmVersion = "11.7.0" } = {}) {
   const table = new Map([[`${NODE} --version`, { ok: true, stdout: nodeVersion }]]);
   if (npm) table.set("npm --version", { ok: true, stdout: "11.0.0" });
+  if (pnpm) table.set(`${NODE} ${PNPM} --version`, { ok: true, stdout: pnpmVersion });
   return table;
 }
 
@@ -46,13 +50,22 @@ test("missing runtime states are ordered for managed repair", () => {
   const noNpm = runDoctor(makeProbe({ existsEntries: [[NODE, true]] }, runtime("v24.0.0", { npm: false })));
   assert.equal(noNpm.state, "npm-missing");
 
+  const noPnpm = runDoctor(makeProbe({ existsEntries: [[NODE, true]] }, runtime("v24.0.0", { pnpm: false })));
+  assert.equal(noPnpm.state, "pnpm-missing");
+
+  const wrongPnpm = runDoctor(makeProbe(
+    { existsEntries: [[NODE, true]] },
+    runtime("v24.0.0", { pnpmVersion: "12.0.0" })
+  ));
+  assert.equal(wrongPnpm.state, "pnpm-unsupported");
+
   const noDsh = runDoctor(makeProbe({ existsEntries: [[NODE, true]] }, runtime()));
   assert.equal(noDsh.state, "dsh-missing");
   assert.equal(noDsh.node.supported, true);
   assert.equal(noDsh.npm.available, true);
 });
 
-test("Git and pnpm are not probed or required", () => {
+test("Git is not probed and compatible pnpm is required for repair", () => {
   const calls = [];
   const table = runtime();
   const base = makeProbe({ existsEntries: [[NODE, true]] }, table);
@@ -62,7 +75,7 @@ test("Git and pnpm are not probed or required", () => {
   };
   assert.equal(runDoctor(base).state, "dsh-missing");
   assert.ok(!calls.includes("git"));
-  assert.ok(!calls.includes("pnpm"));
+  assert.ok(calls.includes(NODE));
 });
 
 test("a runnable existing DSH is ready even when Node probe is unavailable", () => {
@@ -75,6 +88,7 @@ test("a runnable existing DSH is ready even when Node probe is unavailable", () 
   }));
   assert.equal(report.state, "ready");
   assert.equal(report.dsh.installType, "npm-global");
+  assert.equal(report.pnpm.available, false);
 });
 
 test("resolved but unrunnable DSH is repairable", () => {
@@ -189,6 +203,37 @@ test("Doctor probes the exact resolved npm launcher", () => {
   assert.deepEqual(calls[1], {
     cmd: node,
     args: [npmCli, "--version"],
+    opts: { timeoutMs: 5_000, shell: false },
+  });
+});
+
+test("Doctor probes the exact shell-free pnpm launcher and records its path", () => {
+  const node = "C:\\Program Files\\nodejs\\node.exe";
+  const pnpmCli = "C:\\Users\\me\\.dshmux\\managed-pnpm\\11.7.0\\node_modules\\pnpm\\bin\\pnpm.cjs";
+  const calls = [];
+  const report = runDoctor(makeProbe({
+    platform: "win32",
+    managedPnpmPath: pnpmCli,
+    resolveNode: () => node,
+    resolvePnpm: () => ({ command: node, argsPrefix: [pnpmCli], shell: false, resolvedPath: pnpmCli, runtimePath: "C:\\Users\\me\\.dshmux\\managed-pnpm\\11.7.0\\node_modules\\.bin" }),
+    existsEntries: [[node, true]],
+    run: (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (args.length === 1 && args[0] === "--version") return { ok: true, stdout: "v26.8.2" };
+      if (cmd === "npm") return { ok: true, stdout: "11.19.1" };
+      if (args[0] === pnpmCli) return { ok: true, stdout: "11.7.0\r\n" };
+      return { ok: false, stdout: "" };
+    },
+  }));
+  assert.deepEqual(report.pnpm, {
+    available: true,
+    version: "11.7.0",
+    supported: true,
+    path: pnpmCli,
+  });
+  assert.deepEqual(calls[2], {
+    cmd: node,
+    args: [pnpmCli, "--version"],
     opts: { timeoutMs: 5_000, shell: false },
   });
 });
