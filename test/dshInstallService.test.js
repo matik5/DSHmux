@@ -10,19 +10,25 @@ import {
   TESTED_SOURCE_TAG,
   TESTED_SOURCE_REVISION,
   TESTED_SOURCE_TREE_URL,
+  TESTED_PNPM_VERSION,
   managedDshRoot,
   managedDshBin,
+  managedPnpmRoot,
+  managedPnpmBin,
   buildManagedInstallSpec,
+  buildManagedPnpmInstallSpec,
   buildGlobalInstallSpec,
   buildPatchedSourceCheckoutSpec,
   buildSourceCheckoutSpec,
   buildSourceCloneArgs,
   buildSourceInstallArgs,
-  buildPnpmExecArgs,
   buildManagedNpmLaunchSpec,
   resolveNpmLaunchSpec,
+  resolvePnpmLaunchSpec,
   isSupportedNodeVersion,
+  isSupportedPnpmVersion,
   checkManagedInstall,
+  checkManagedPnpmInstall,
 } from "../out/dshInstallService.js";
 import { TESTED_DSH_VERSION } from "../out/versionCheck.js";
 
@@ -56,6 +62,25 @@ test("managed paths are versioned and platform-correct", () => {
     managedDshBin("C:\\Users\\me\\Code Storage", "win32"),
     "C:\\Users\\me\\Code Storage\\managed-dsh\\0.1.5-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"
   );
+  assert.equal(
+    managedPnpmRoot("C:\\Users\\me\\Code Storage", "win32"),
+    "C:\\Users\\me\\Code Storage\\managed-pnpm\\11.7.0"
+  );
+  assert.equal(
+    managedPnpmBin("C:\\Users\\me\\Code Storage", "win32"),
+    "C:\\Users\\me\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\pnpm\\bin\\pnpm.cjs"
+  );
+});
+
+test("managed pnpm install spec is pinned, structured, and non-global", () => {
+  const spec = buildManagedPnpmInstallSpec("C:\\Users\\me\\Code Storage", "win32");
+  assert.equal(spec.cwd, "C:\\Users\\me\\Code Storage\\managed-pnpm\\11.7.0");
+  assert.equal(spec.binPath, `${spec.cwd}\\node_modules\\pnpm\\bin\\pnpm.cjs`);
+  assert.deepEqual(spec.args, [
+    "install", "--prefix", spec.cwd, "--no-save", "--no-audit", "--no-fund", "pnpm@11.7.0",
+  ]);
+  assert.equal(spec.packageSpec, `pnpm@${TESTED_PNPM_VERSION}`);
+  assert.ok(!spec.args.includes("--global"));
 });
 
 test("managed npm spec is pinned, structured, and non-global", () => {
@@ -96,9 +121,6 @@ test("custom location is a normal official deepseek-harness checkout", () => {
   assert.deepEqual(buildSourceCloneArgs(spec.cwd), [
     "clone", "--branch", "dsh-v0.1.5-rc.2", "--depth", "1",
     "https://github.com/deepseek-ai/deepseek-harness.git", spec.cwd,
-  ]);
-  assert.deepEqual(buildPnpmExecArgs(["build"]), [
-    "exec", "--yes", "--package=pnpm@11.7.0", "--", "pnpm", "build",
   ]);
 });
 
@@ -173,6 +195,53 @@ test("Windows npm resolver fails before Doctor can claim an unusable npm shim", 
   );
 });
 
+test("Windows pnpm resolver prefers managed JS and never returns script shims", () => {
+  const node = "C:\\Program Files\\nodejs\\node.exe";
+  const managed = "C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\pnpm\\bin\\pnpm.cjs";
+  const global = "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\pnpm\\bin\\pnpm.cjs";
+  const launch = resolvePnpmLaunchSpec(
+    node,
+    managed,
+    { Path: "C:\\Program Files\\nodejs;C:\\Users\\me\\AppData\\Roaming\\npm", APPDATA: "C:\\Users\\me\\AppData\\Roaming" },
+    "win32",
+    (candidate) => candidate === managed || candidate === global || candidate.endsWith("pnpm.cmd")
+  );
+  assert.deepEqual(launch, {
+    command: node,
+    argsPrefix: [managed],
+    shell: false,
+    resolvedPath: managed,
+    runtimePath: "C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\.bin",
+  });
+});
+
+test("Windows pnpm resolver supports npm-global JS and native exe fallbacks", () => {
+  const node = "C:\\node\\node.exe";
+  const global = "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\pnpm\\bin\\pnpm.cjs";
+  assert.equal(resolvePnpmLaunchSpec(
+    node, "C:\\missing\\pnpm.cjs",
+    { Path: "C:\\tools", APPDATA: "C:\\Users\\me\\AppData\\Roaming" },
+    "win32", (candidate) => candidate === global
+  ).resolvedPath, global);
+  assert.equal(resolvePnpmLaunchSpec(
+    node, "C:\\missing\\pnpm.cjs", { Path: "C:\\tools" }, "win32",
+    (candidate) => candidate === "C:\\tools\\pnpm.exe"
+  ).runtimePath, "C:\\tools");
+  assert.equal(resolvePnpmLaunchSpec(
+    node, "C:\\missing\\pnpm.cjs", { Path: "C:\\tools" }, "win32", () => false
+  ), null);
+});
+
+test("POSIX pnpm resolver uses managed JS then direct executable fallback", () => {
+  const managed = "/storage/managed-pnpm/11.7.0/node_modules/pnpm/bin/pnpm.cjs";
+  const launch = resolvePnpmLaunchSpec("/node", managed, { PATH: "/usr/bin" }, "linux", (p) => p === managed);
+  assert.equal(launch.command, "/node");
+  assert.equal(launch.runtimePath, "/storage/managed-pnpm/11.7.0/node_modules/.bin");
+  assert.deepEqual(resolvePnpmLaunchSpec("/node", managed, { PATH: "/usr/bin" }, "linux", () => false), {
+    command: "pnpm", argsPrefix: [], shell: false, resolvedPath: "pnpm",
+  });
+});
+
 test("managed npm launch uses the augmented POSIX PATH without a shell", () => {
   const spec = buildManagedInstallSpec("/Users/me/Library/Application Support/Code", "darwin");
   const launch = buildManagedNpmLaunchSpec(
@@ -192,6 +261,28 @@ test("official Node engine range boundaries", () => {
   for (const version of [null, "", "node", "v20.99.0", "v22.18.9", "v23.0.0"]) {
     assert.equal(isSupportedNodeVersion(version), false, String(version));
   }
+});
+
+test("pnpm compatibility accepts only the pinned tested version", () => {
+  for (const version of ["11.7.0", "v11.7.0", " 11.7.0\n"]) assert.equal(isSupportedPnpmVersion(version), true);
+  for (const version of [null, "", "11.6.0", "11.7.1", "12.0.0"]) assert.equal(isSupportedPnpmVersion(version), false);
+});
+
+test("managed pnpm validation invokes the JS entry through Node", () => {
+  const calls = [];
+  const p = {
+    exists: () => true,
+    run: (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      return { ok: true, stdout: "11.7.0\r\n" };
+    },
+  };
+  assert.deepEqual(checkManagedPnpmInstall("C:\\pnpm.cjs", "C:\\node.exe", p), {
+    valid: true, binPath: "C:\\pnpm.cjs", version: "11.7.0",
+  });
+  assert.deepEqual(calls[0], {
+    cmd: "C:\\node.exe", args: ["C:\\pnpm.cjs", "--version"], opts: { timeoutMs: 5_000, shell: false },
+  });
 });
 
 function probe(exists, result) {

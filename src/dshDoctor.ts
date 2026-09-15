@@ -25,8 +25,11 @@ import {
 import { dshCompatibility, TESTED_DSH_VERSION, type DshCompatibility } from "./versionCheck.js";
 import {
   isSupportedNodeVersion,
+  isSupportedPnpmVersion,
   resolveNpmLaunchSpec,
+  resolvePnpmLaunchSpec,
   type NpmLaunchSpec,
+  type PnpmLaunchSpec,
 } from "./dshInstallService.js";
 
 /** How DSH was installed (inferred from the resolved binary path). */
@@ -38,6 +41,8 @@ export type DoctorState =
   | "node-missing"
   | "node-unsupported"
   | "npm-missing"
+  | "pnpm-missing"
+  | "pnpm-unsupported"
   | "dsh-missing"
   | "dsh-unrunnable";
 
@@ -57,6 +62,7 @@ export interface DoctorReport {
     supported: boolean;
   };
   npm: ToolInfo;
+  pnpm: ToolInfo & { supported: boolean; path?: string };
   dsh: {
     /**
      * `dshmux.dshPath` as configured (empty/missing → undefined); a
@@ -129,6 +135,14 @@ export interface DoctorProbe {
     env: NodeJS.ProcessEnv,
     platform: NodeJS.Platform
   ) => NpmLaunchSpec | null;
+  /** pnpm executable resolved exactly as source installation will use it. */
+  resolvePnpm: (
+    nodePath: string,
+    managedPnpmPath: string,
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform
+  ) => PnpmLaunchSpec | null;
+  managedPnpmPath: string;
 }
 
 const PROBE_TIMEOUT_MS = 5_000;
@@ -137,7 +151,8 @@ const PROBE_TIMEOUT_MS = 5_000;
 export function realDoctorProbe(
   hostLabel: string,
   configuredDshPath: string | undefined,
-  managedDshPath?: string
+  managedDshPath: string | undefined,
+  managedPnpmPath: string
 ): DoctorProbe {
   const env = process.env;
   const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), env, false);
@@ -154,6 +169,7 @@ export function realDoctorProbe(
     hostLabel,
     configuredDshPath,
     managedDshPath,
+    managedPnpmPath,
     exists: (p) => fs.existsSync(p),
     realPath: (p) => {
       try {
@@ -186,6 +202,8 @@ export function realDoctorProbe(
         return null;
       }
     },
+    resolvePnpm: (nodePath, managedBin, e, platform) =>
+      resolvePnpmLaunchSpec(nodePath, managedBin, e, platform, fs.existsSync),
   };
 }
 
@@ -272,6 +290,33 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
   };
   const npm = probeNpm();
 
+  // --- pnpm (required only for setup/repair, not an existing DSH runtime) ----
+  const probePnpm = (): DoctorReport["pnpm"] => {
+    if (!node.runnable || !node.supported || !npm.available) {
+      return { available: false, supported: false };
+    }
+    const launch = probe.resolvePnpm(
+      nodePath,
+      probe.managedPnpmPath,
+      probe.env,
+      probe.platform
+    );
+    if (!launch) return { available: false, supported: false };
+    const res = probe.run(launch.command, [...launch.argsPrefix, "--version"], {
+      timeoutMs: PROBE_TIMEOUT_MS,
+      shell: launch.shell,
+    });
+    if (!res.ok) return { available: false, supported: false, path: launch.resolvedPath };
+    const version = firstVersionLine(res.stdout);
+    return {
+      available: true,
+      version,
+      supported: isSupportedPnpmVersion(version),
+      path: launch.resolvedPath,
+    };
+  };
+  const pnpm = probePnpm();
+
   // --- DSH (reuse the single discovery algorithm) ------------------------------
   const managed = probe.managedDshPath?.trim() || undefined;
   const managedVersion = managed && probe.exists(managed) ? probe.dshVersion(managed) : null;
@@ -319,6 +364,10 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
     state = "node-unsupported";
   } else if (!npm.available) {
     state = "npm-missing";
+  } else if (!pnpm.available) {
+    state = "pnpm-missing";
+  } else if (!pnpm.supported) {
+    state = "pnpm-unsupported";
   } else {
     state = "dsh-missing";
   }
@@ -329,6 +378,7 @@ export function runDoctor(probe: DoctorProbe): DoctorReport {
     host: { platform: probe.platform, arch: probe.arch, label: probe.hostLabel },
     node,
     npm,
+    pnpm,
     dsh,
     state,
     warnings,

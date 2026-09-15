@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as vscode from "vscode";
 import {
   realDoctorProbe,
@@ -21,12 +21,19 @@ import {
   buildSourceCheckoutSpec,
   buildSourceCloneArgs,
   buildSourceInstallArgs,
-  buildPnpmExecArgs,
+  buildManagedPnpmInstallSpec,
   checkManagedInstall,
+  checkManagedPnpmInstall,
   managedDshBin,
+  managedPnpmBin,
   resolveNpmLaunchSpec,
+  resolvePnpmLaunchSpec,
+  isSupportedNodeVersion,
+  isSupportedPnpmVersion,
   type ManagedNpmLaunchSpec,
   type ManagedInstallSpec,
+  type ManagedPnpmInstallSpec,
+  type PnpmLaunchSpec,
 } from "./dshInstallService.js";
 import { configuredDshBin } from "./configuration.js";
 import {
@@ -84,7 +91,8 @@ export function runDoctorForLauncher(context: vscode.ExtensionContext): DoctorRe
   const managed = candidates.find(
     (candidate) => resolveDshVersion(candidate) === TESTED_DSH_VERSION
   ) ?? candidates[0];
-  return runDoctor(realDoctorProbe(hostLabel(), configuredDshBin(), managed));
+  const pnpm = managedPnpmBin(managedStorageForContext(context), process.platform);
+  return runDoctor(realDoctorProbe(hostLabel(), configuredDshBin(), managed, pnpm));
 }
 
 type CheckIcon = "ok" | "warn" | "fail";
@@ -101,6 +109,8 @@ function stateKey(state: DoctorState): I18nKey {
     case "node-missing": return "doctor.state.nodeMissing";
     case "node-unsupported": return "doctor.state.nodeUnsupported";
     case "npm-missing": return "doctor.state.npmMissing";
+    case "pnpm-missing": return "doctor.state.pnpmMissing";
+    case "pnpm-unsupported": return "doctor.state.pnpmUnsupported";
     case "dsh-missing": return "doctor.state.dshMissing";
     case "dsh-unrunnable": return "doctor.state.dshUnrunnable";
   }
@@ -133,10 +143,15 @@ export function doctorWarningTexts(report: DoctorReport): string[] {
   return report.warnings.map(warningText);
 }
 
-export function doctorActionFor(report: DoctorReport): "repair" | "node" | "npm" | null {
-  if (report.state === "ready") return null;
+export function doctorActionFor(report: DoctorReport): "repair" | "node" | "npm" | "pnpm" | null {
+  if (report.state === "ready") {
+    return report.node.runnable && report.node.supported && report.npm.available && !report.pnpm.supported
+      ? "pnpm"
+      : null;
+  }
   if (!report.node.runnable || !report.node.supported) return "node";
   if (!report.npm.available) return "npm";
+  if (!report.pnpm.supported) return "pnpm";
   return "repair";
 }
 
@@ -148,8 +163,10 @@ export interface ManagedInstallRunResult {
 
 export interface ManagedInstallRuntime {
   mkdir: (dir: string) => Promise<void>;
+  resolvePnpm: () => PnpmLaunchSpec | null;
   run: (
     spec: ManagedInstallSpec,
+    pnpm: PnpmLaunchSpec,
     token: vscode.CancellationToken,
     onOutput: (text: string) => void
   ) => Promise<ManagedInstallRunResult>;
@@ -173,6 +190,21 @@ export function prepareManagedNpmLaunch(
     ...buildManagedNpmLaunchSpec(install, nodeSpec.command, env, platform, exists),
     env,
   };
+}
+
+/** Make bare `pnpm` calls from nested package scripts resolve to the verified tool. */
+export function preparePnpmEnvironment(
+  pnpm: PnpmLaunchSpec,
+  baseEnv: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): NodeJS.ProcessEnv {
+  if (!pnpm.runtimePath) return baseEnv;
+  return spawnEnvironment({
+    command: pnpm.command,
+    args: pnpm.argsPrefix,
+    shell: false,
+    runtimePath: pnpm.runtimePath,
+  }, baseEnv, platform);
 }
 
 export function waitForManagedInstallChild(
@@ -216,6 +248,7 @@ export function waitForManagedInstallChild(
 
 async function runChild(
   spec: ManagedInstallSpec,
+  pnpm: PnpmLaunchSpec,
   token: vscode.CancellationToken,
   onOutput: (text: string) => void
 ): Promise<ManagedInstallRunResult> {
@@ -238,6 +271,7 @@ async function runChild(
       runtimePath: pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined,
     };
     const env = spawnEnvironment(nodeSpec, process.env, process.platform);
+    const sourceEnv = preparePnpmEnvironment(pnpm, env, process.platform);
     const npm = resolveNpmLaunchSpec(nodeSpec.command, env, process.platform, fs.existsSync);
     const launch = spec.scope === "source"
       ? null
@@ -263,7 +297,7 @@ async function runChild(
         let output = "";
         const child = spawn(command, args, {
           cwd,
-          env,
+          env: sourceEnv,
           shell: false,
           windowsHide: true,
         });
@@ -310,8 +344,8 @@ async function runChild(
         ["build"],
       ]) {
         const result = await runStep(
-          npm.command,
-          [...npm.argsPrefix, ...buildPnpmExecArgs(pnpmArgs)],
+          pnpm.command,
+          [...pnpm.argsPrefix, ...pnpmArgs],
           spec.cwd
         );
         if (!result.ok) return result;
@@ -332,9 +366,59 @@ async function runChild(
   }
 }
 
-function realInstallRuntime(): ManagedInstallRuntime {
+function resolveVerifiedPnpm(storageDir: string): PnpmLaunchSpec | null {
+  const node = resolveNodeExecutable(
+    process.platform,
+    process.execPath,
+    os.homedir(),
+    process.env,
+    false
+  );
+  const pathApi = process.platform === "win32" ? path.win32 : path.posix;
+  const nodeSpec: DshSpawnSpec = {
+    command: node,
+    args: [],
+    shell: false,
+    runtimePath: pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined,
+  };
+  const env = spawnEnvironment(nodeSpec, process.env, process.platform);
+  const nodeResult = spawnSync(node, ["--version"], {
+    encoding: "utf8", env, timeout: 5_000, shell: false, windowsHide: true,
+  });
+  if (nodeResult.status !== 0 || !isSupportedNodeVersion(nodeResult.stdout)) return null;
+  let npm;
+  try {
+    npm = resolveNpmLaunchSpec(node, env, process.platform, fs.existsSync);
+  } catch {
+    return null;
+  }
+  const npmResult = spawnSync(npm.command, [...npm.argsPrefix, "--version"], {
+    encoding: "utf8", env, timeout: 5_000, shell: npm.shell, windowsHide: true,
+  });
+  if (npmResult.status !== 0) return null;
+  const launch = resolvePnpmLaunchSpec(
+    node,
+    managedPnpmBin(storageDir, process.platform),
+    env,
+    process.platform,
+    fs.existsSync
+  );
+  if (!launch) return null;
+  const result = spawnSync(launch.command, [...launch.argsPrefix, "--version"], {
+    encoding: "utf8",
+    env,
+    timeout: 5_000,
+    shell: false,
+    windowsHide: true,
+  });
+  return result.status === 0 && isSupportedPnpmVersion(result.stdout) ? launch : null;
+}
+
+function realInstallRuntime(context: vscode.ExtensionContext): ManagedInstallRuntime {
+  const storageDir = managedStorageForContext(context);
   return {
     mkdir: (dir) => fs.promises.mkdir(dir, { recursive: true }).then(() => undefined),
+    resolvePnpm: () => resolveVerifiedPnpm(storageDir),
     run: runChild,
     validate: (spec) => {
       const node = resolveNodeExecutable(
@@ -344,7 +428,12 @@ function realInstallRuntime(): ManagedInstallRuntime {
         process.env,
         false
       );
-      const probe = realDoctorProbe(hostLabel(), configuredDshBin(), spec.binPath);
+      const probe = realDoctorProbe(
+        hostLabel(),
+        configuredDshBin(),
+        spec.binPath,
+        managedPnpmBin(storageDir, process.platform)
+      );
       if (spec.scope === "global") {
         const binPath = resolveDshPath(os.homedir(), process.platform).path;
         const version = binPath ? resolveDshVersion(binPath) : null;
@@ -433,8 +522,13 @@ export async function chooseManagedInstall(
 /** Explicitly confirmed, cancellable, pinned installation into a visible location. */
 export async function runManagedInstall(
   context: vscode.ExtensionContext,
-  runtime: ManagedInstallRuntime = realInstallRuntime()
+  runtime: ManagedInstallRuntime = realInstallRuntime(context)
 ): Promise<boolean> {
+  const pnpm = runtime.resolvePnpm();
+  if (!pnpm) {
+    vscode.window.showErrorMessage(t("install.pnpmRequired"));
+    return false;
+  }
   const chosen = await chooseManagedInstall(context);
   if (!chosen) return false;
   const { spec, storageDir, sourceBin } = chosen;
@@ -461,7 +555,7 @@ export async function runManagedInstall(
         title: t("install.managedProgress"),
         cancellable: true,
       },
-      (_progress, token) => runtime.run(spec, token, append)
+      (_progress, token) => runtime.run(spec, pnpm, token, append)
     );
   } catch (err) {
     append(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -497,11 +591,117 @@ export async function runNpmInstallGuidance(): Promise<void> {
   }
 }
 
+export interface PnpmInstallRuntime {
+  mkdir: (dir: string) => Promise<void>;
+  run: (
+    spec: ManagedPnpmInstallSpec,
+    token: vscode.CancellationToken,
+    onOutput: (text: string) => void
+  ) => Promise<ManagedInstallRunResult>;
+  validate: (spec: ManagedPnpmInstallSpec) => { valid: boolean; version: string | null };
+}
+
+async function runPnpmInstallChild(
+  spec: ManagedPnpmInstallSpec,
+  token: vscode.CancellationToken,
+  onOutput: (text: string) => void
+): Promise<ManagedInstallRunResult> {
+  if (token.isCancellationRequested) return { ok: false, cancelled: true, exitCode: null };
+  try {
+    const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), process.env, false);
+    const pathApi = process.platform === "win32" ? path.win32 : path.posix;
+    const env = spawnEnvironment({
+      command: node,
+      args: [],
+      shell: false,
+      runtimePath: pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined,
+    }, process.env, process.platform);
+    const npm = resolveNpmLaunchSpec(node, env, process.platform, fs.existsSync);
+    onOutput(`Node: ${node}\nnpm: ${npm.command}${npm.argsPrefix[0] ? ` ${npm.argsPrefix[0]}` : ""}\n\n`);
+    const child = spawn(npm.command, [...npm.argsPrefix, ...spec.args], {
+      cwd: spec.cwd,
+      env,
+      shell: npm.shell,
+      windowsHide: true,
+    });
+    return waitForManagedInstallChild(child, token, onOutput);
+  } catch (err) {
+    onOutput(`${err instanceof Error ? err.message : String(err)}\n`);
+    return { ok: false, cancelled: false, exitCode: null };
+  }
+}
+
+function realPnpmInstallRuntime(): PnpmInstallRuntime {
+  return {
+    mkdir: (dir) => fs.promises.mkdir(dir, { recursive: true }).then(() => undefined),
+    run: runPnpmInstallChild,
+    validate: (spec) => {
+      const node = resolveNodeExecutable(process.platform, process.execPath, os.homedir(), process.env, false);
+      return checkManagedPnpmInstall(spec.binPath, node, {
+        exists: fs.existsSync,
+        run: (command, args, opts) => {
+          const pathApi = process.platform === "win32" ? path.win32 : path.posix;
+          const env = spawnEnvironment({
+            command: node,
+            args: [],
+            shell: false,
+            runtimePath: pathApi.isAbsolute(node) ? pathApi.dirname(node) : undefined,
+          }, process.env, process.platform);
+          const result = spawnSync(command, args, {
+            encoding: "utf8", env, timeout: opts.timeoutMs, shell: false, windowsHide: true,
+          });
+          return { ok: result.status === 0, stdout: result.stdout ?? "" };
+        },
+      });
+    },
+  };
+}
+
+export async function runManagedPnpmInstall(
+  context: vscode.ExtensionContext,
+  runtime: PnpmInstallRuntime = realPnpmInstallRuntime()
+): Promise<boolean> {
+  const spec = buildManagedPnpmInstallSpec(managedStorageForContext(context), process.platform);
+  const output = outputChannel();
+  output.clear();
+  output.show(true);
+  let remaining = OUTPUT_LIMIT;
+  const append = (value: string): void => {
+    if (remaining <= 0) return;
+    const text = value.slice(0, remaining);
+    remaining -= text.length;
+    output.append(text);
+  };
+  append(`npm ${spec.args.join(" ")}\n\n`);
+  let result: ManagedInstallRunResult;
+  try {
+    await runtime.mkdir(spec.cwd);
+    result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t("install.pnpmProgress"), cancellable: true },
+      (_progress, token) => runtime.run(spec, token, append)
+    );
+  } catch (err) {
+    append(`${err instanceof Error ? err.message : String(err)}\n`);
+    result = { ok: false, cancelled: false, exitCode: null };
+  }
+  if (result.cancelled) return false;
+  const check = result.ok ? runtime.validate(spec) : { valid: false, version: null };
+  if (result.ok && check.valid) {
+    vscode.window.showInformationMessage(t("install.pnpmSuccess"));
+    return true;
+  }
+  append(`\nVerification: ${check.version ?? "failed"}\n`);
+  const openLog = t("install.openLog");
+  if (await vscode.window.showErrorMessage(t("install.pnpmFailed"), openLog) === openLog) output.show(true);
+  return false;
+}
+
 /** Full Doctor report and the one action appropriate to the current state. */
 export async function runDoctorCommand(
   context: vscode.ExtensionContext,
   onChanged?: () => void | Promise<unknown>,
-  runtime?: ManagedInstallRuntime
+  runtime?: ManagedInstallRuntime,
+  pnpmRuntime?: PnpmInstallRuntime
 ): Promise<void> {
   const report = runDoctorForLauncher(context);
   const home = os.homedir();
@@ -512,6 +712,11 @@ export async function runDoctorCommand(
     .filter(Boolean).join(" · ");
   items.push(checkItem(report.node.runnable && report.node.supported ? "ok" : "fail", t("doctor.row.node"), nodeDetail || t("doctor.notFound")));
   items.push(checkItem(report.npm.available ? "ok" : "fail", t("doctor.row.npm"), report.npm.version ?? t("doctor.notFound")));
+  const pnpmDetail = [
+    report.pnpm.version ?? t("doctor.notFound"),
+    report.pnpm.path ? redactPath(report.pnpm.path, home) : undefined,
+  ].filter(Boolean).join(" · ");
+  items.push(checkItem(report.pnpm.supported ? "ok" : "fail", t("doctor.row.pnpm"), pnpmDetail));
   const dshDetail = [
     report.dsh.version ?? t("doctor.notFound"),
     t(compatKey(report.dsh.compatibility)),
@@ -525,6 +730,7 @@ export async function runDoctorCommand(
   if (action === "repair") items.push(checkItem("ok", t("doctor.action.repair"), undefined, "repair"));
   if (action === "node") items.push(checkItem("ok", t("install.nodeRequired"), undefined, "node"));
   if (action === "npm") items.push(checkItem("ok", t("install.npmMissing"), undefined, "npm"));
+  if (action === "pnpm") items.push(checkItem("ok", t("doctor.action.installPnpm"), undefined, "pnpm"));
   items.push(checkItem("ok", t("doctor.checkAgain"), undefined, "again"));
 
   const picked = await vscode.window.showQuickPick(items, {
@@ -535,12 +741,16 @@ export async function runDoctorCommand(
   if (!picked?.action) return;
   if (picked.action === "again") {
     onChanged?.();
-    return runDoctorCommand(context, onChanged, runtime);
+    return runDoctorCommand(context, onChanged, runtime, pnpmRuntime);
   }
   if (picked.action === "node") return runNodeInstallGuidance();
   if (picked.action === "npm") return runNpmInstallGuidance();
+  if (picked.action === "pnpm" && await runManagedPnpmInstall(context, pnpmRuntime)) {
+    await onChanged?.();
+    return runDoctorCommand(context, onChanged, runtime, pnpmRuntime);
+  }
   if (picked.action === "repair" && await runManagedInstall(context, runtime)) {
     await onChanged?.();
-    return runDoctorCommand(context, onChanged, runtime);
+    return runDoctorCommand(context, onChanged, runtime, pnpmRuntime);
   }
 }

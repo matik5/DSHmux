@@ -24,6 +24,7 @@ let outputChannels;
 let progressCalls;
 let quickPickAnswers;
 let quickPickCalls;
+let quickPickItems;
 let informationCalls;
 let folderAnswers;
 const workspaceValues = new Map();
@@ -37,6 +38,7 @@ function reset() {
   progressCalls = [];
   quickPickAnswers = [];
   quickPickCalls = 0;
+  quickPickItems = [];
   informationCalls = [];
   folderAnswers = [];
   workspaceValues.clear();
@@ -71,8 +73,9 @@ const fakeVscode = {
     },
     showOpenDialog: async () => folderAnswers.shift(),
     showErrorMessage: async (message) => { errors.push(message); return undefined; },
-    showQuickPick: async () => {
+    showQuickPick: async (items) => {
       quickPickCalls++;
+      quickPickItems.push(items);
       return quickPickAnswers.shift();
     },
     createOutputChannel: (name) => {
@@ -120,7 +123,14 @@ function runtime(overrides = {}) {
     calls,
     value: {
       mkdir: async (dir) => calls.mkdir.push(dir),
-      run: async (spec, _token, onOutput) => {
+      resolvePnpm: () => ({
+        command: "/node",
+        argsPrefix: ["/managed/pnpm.cjs"],
+        shell: false,
+        resolvedPath: "/managed/pnpm.cjs",
+        runtimePath: "/managed/node_modules/.bin",
+      }),
+      run: async (spec, _pnpm, _token, onOutput) => {
         calls.run.push(spec);
         onOutput("installed\n");
         return { ok: true, cancelled: false, exitCode: 0 };
@@ -128,6 +138,26 @@ function runtime(overrides = {}) {
       validate: (spec) => {
         calls.validate.push(spec);
         return { valid: true, version: "0.1.5-rc.2" };
+      },
+      ...overrides,
+    },
+  };
+}
+
+function pnpmRuntime(overrides = {}) {
+  const calls = { mkdir: [], run: [], validate: [] };
+  return {
+    calls,
+    value: {
+      mkdir: async (dir) => calls.mkdir.push(dir),
+      run: async (spec, _token, onOutput) => {
+        calls.run.push(spec);
+        onOutput("pnpm installed\n");
+        return { ok: true, cancelled: false, exitCode: 0 };
+      },
+      validate: (spec) => {
+        calls.validate.push(spec);
+        return { valid: true, version: "11.7.0" };
       },
       ...overrides,
     },
@@ -151,6 +181,17 @@ test("managed install cancellation at confirmation makes no changes", async () =
   assert.deepEqual(rt.calls.mkdir, []);
   assert.deepEqual(rt.calls.run, []);
   assert.equal(outputChannels.length, 0);
+});
+
+test("managed DSH install is gated before chooser or mutation when pnpm is unavailable", async () => {
+  const svc = fresh();
+  const rt = runtime({ resolvePnpm: () => null });
+  assert.equal(await svc.runManagedInstall(context, rt.value), false);
+  assert.equal(informationCalls.length, 0);
+  assert.deepEqual(rt.calls.mkdir, []);
+  assert.deepEqual(rt.calls.run, []);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /pnpm 11\.7\.0.*before DSH/i);
 });
 
 test("managed install runs exact pinned non-global npm spec and verifies it", async () => {
@@ -319,11 +360,26 @@ test("managed npm launch inherits Doctor's resolved Node directory", () => {
   assert.deepEqual(prepared.args, spec.args);
 });
 
+test("source environment prepends the verified pnpm bin for nested scripts", () => {
+  const svc = fresh();
+  const prepared = svc.preparePnpmEnvironment({
+    command: "C:\\Program Files\\nodejs\\node.exe",
+    argsPrefix: ["C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\pnpm\\bin\\pnpm.cjs"],
+    shell: false,
+    resolvedPath: "C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\pnpm\\bin\\pnpm.cjs",
+    runtimePath: "C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\.bin",
+  }, { Path: "C:\\Program Files\\nodejs;C:\\Windows\\System32" }, "win32");
+  assert.equal(
+    prepared.Path,
+    "C:\\Code Storage\\managed-pnpm\\11.7.0\\node_modules\\.bin;C:\\Program Files\\nodejs;C:\\Windows\\System32"
+  );
+});
+
 test("nonzero npm exit reports one concise failure", async () => {
   const svc = fresh();
   modalAnswer = "Install to shown location";
   const rt = runtime({
-    run: async (_spec, _token, onOutput) => {
+    run: async (_spec, _pnpm, _token, onOutput) => {
       onOutput("npm ERR simulated\n");
       return { ok: false, cancelled: false, exitCode: 1 };
     },
@@ -353,7 +409,7 @@ test("Doctor output is bounded", async () => {
   const svc = fresh();
   modalAnswer = "Install to shown location";
   const rt = runtime({
-    run: async (_spec, _token, onOutput) => {
+    run: async (_spec, _pnpm, _token, onOutput) => {
       onOutput("x".repeat(100_000));
       return { ok: false, cancelled: false, exitCode: 1 };
     },
@@ -372,19 +428,78 @@ test("Node and npm guidance point to the official Node download", async () => {
   assert.deepEqual(opened, []);
 });
 
+test("managed pnpm install uses pinned non-global npm spec and verifies it", async () => {
+  const svc = fresh();
+  const rt = pnpmRuntime();
+  assert.equal(await svc.runManagedPnpmInstall(context, rt.value), true);
+  assert.equal(rt.calls.mkdir.length, 1);
+  assert.equal(rt.calls.run.length, 1);
+  const spec = rt.calls.run[0];
+  assert.deepEqual(spec.args, [
+    "install", "--prefix", spec.cwd, "--no-save", "--no-audit", "--no-fund", "pnpm@11.7.0",
+  ]);
+  assert.deepEqual(rt.calls.validate, [spec]);
+  assert.match(outputChannels[0].text, /pnpm@11\.7\.0/);
+  assert.ok(messages.some((message) => /pnpm 11\.7\.0 is installed and verified/.test(message)));
+});
+
+test("managed pnpm install stops on cancellation and reports failed verification", async () => {
+  const svc = fresh();
+  const cancelled = pnpmRuntime({
+    run: async () => ({ ok: false, cancelled: true, exitCode: null }),
+  });
+  assert.equal(await svc.runManagedPnpmInstall(context, cancelled.value), false);
+  assert.deepEqual(cancelled.calls.validate, []);
+  assert.deepEqual(errors, []);
+
+  const nonzero = pnpmRuntime({
+    run: async (_spec, _token, onOutput) => {
+      onOutput("npm ERR simulated\n");
+      return { ok: false, cancelled: false, exitCode: 1 };
+    },
+  });
+  assert.equal(await svc.runManagedPnpmInstall(context, nonzero.value), false);
+  assert.match(errors.at(-1), /pnpm installation failed/i);
+
+  const failed = pnpmRuntime({
+    validate: () => ({ valid: false, version: "11.6.0" }),
+  });
+  assert.equal(await svc.runManagedPnpmInstall(context, failed.value), false);
+  assert.match(errors.at(-1), /pnpm installation failed/i);
+});
+
+test("source installation uses the verified pnpm launch without npm exec", () => {
+  fresh();
+  const fs = require("node:fs");
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "installService.ts"), "utf8");
+  assert.doesNotMatch(source, /buildPnpmExecArgs|--package=pnpm/);
+  assert.match(source, /pnpm\.command[\s\S]*\.\.\.pnpm\.argsPrefix[\s\S]*\.\.\.pnpmArgs/);
+  assert.match(source, /preparePnpmEnvironment\(pnpm, env, process\.platform\)/);
+});
+
 test("Doctor selects exactly one state-appropriate repair action", () => {
   const svc = fresh();
   const base = {
     state: "dsh-missing",
     node: { runnable: true, supported: true },
     npm: { available: true },
+    pnpm: { available: true, supported: true, version: "11.7.0" },
   };
   assert.equal(svc.doctorActionFor(base), "repair");
   assert.equal(svc.doctorActionFor({ ...base, state: "dsh-unrunnable" }), "repair");
   assert.equal(svc.doctorActionFor({ ...base, node: { runnable: false, supported: false } }), "node");
   assert.equal(svc.doctorActionFor({ ...base, node: { runnable: true, supported: false } }), "node");
   assert.equal(svc.doctorActionFor({ ...base, npm: { available: false } }), "npm");
+  assert.equal(svc.doctorActionFor({ ...base, pnpm: { available: false, supported: false } }), "pnpm");
+  assert.equal(svc.doctorActionFor({ ...base, pnpm: { available: true, supported: false, version: "12.0.0" } }), "pnpm");
   assert.equal(svc.doctorActionFor({ ...base, state: "ready" }), null);
+  assert.equal(svc.doctorActionFor({ ...base, state: "ready", pnpm: { available: false, supported: false } }), "pnpm");
+  assert.equal(svc.doctorActionFor({
+    ...base,
+    state: "ready",
+    node: { runnable: false, supported: false },
+    pnpm: { available: false, supported: false },
+  }), null);
 });
 
 test("Doctor Check again refreshes the launcher before reopening", async () => {
@@ -400,6 +515,20 @@ test("Doctor Check again refreshes the launcher before reopening", async () => {
     () => { refreshCalls++; }
   );
 
+  assert.equal(refreshCalls, 1);
+  assert.equal(quickPickCalls, 2);
+  assert.ok(quickPickItems[0].some((item) => item.label.includes("pnpm")));
+});
+
+test("Doctor pnpm action installs, refreshes, and reopens the report", async () => {
+  const svc = fresh();
+  quickPickAnswers.push({ action: "pnpm" }, undefined);
+  const rt = pnpmRuntime();
+  let refreshCalls = 0;
+
+  await svc.runDoctorCommand(context, () => { refreshCalls++; }, undefined, rt.value);
+
+  assert.equal(rt.calls.run.length, 1);
   assert.equal(refreshCalls, 1);
   assert.equal(quickPickCalls, 2);
 });
