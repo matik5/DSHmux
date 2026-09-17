@@ -223,16 +223,21 @@ test("a Node miss is not cached across Doctor Check again", (t) => {
   // Use a drive-less POSIX view on Windows so ':' remains the PATH delimiter,
   // while both spellings still address the same file on the current drive.
   const home = nativeHome.replace(/^[A-Za-z]:/, "").replace(/\\/g, "/");
+  // Simulate a platform that can never match the host: when platform ===
+  // process.platform, resolveNodeExecutable also probes the host's real
+  // absolute Node locations and login shell (Finder-launched IDEs), which
+  // CI images have — that would turn the deliberate miss into a host hit.
+  const plat = process.platform === "linux" ? "darwin" : "linux";
   const binDir = path.posix.join(home, "runtime-bin");
   const node = path.posix.join(binDir, "node");
   const env = { PATH: binDir, SHELL: "/missing-shell" };
   const execPath = "/Applications/Code Helper";
 
-  assert.equal(resolveNodeExecutable("linux", execPath, home, env), "node");
+  assert.equal(resolveNodeExecutable(plat, execPath, home, env), "node");
   fs.mkdirSync(path.dirname(node), { recursive: true });
   fs.writeFileSync(node, "");
 
-  assert.equal(resolveNodeExecutable("linux", execPath, home, env), node);
+  assert.equal(resolveNodeExecutable(plat, execPath, home, env), node);
 });
 
 test("spawnEnvironment preserves the Windows Path key and prepends Node", () => {
