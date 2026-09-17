@@ -1141,6 +1141,18 @@ export const STRINGS = {
     fr: "Installation de DSH 0.1.5-rc.2…",
     de: "DSH 0.1.5-rc.2 wird installiert…",
   },
+  "install.pnpmConfirm": {
+    en: "Install {package}.\n\nLocation: {path}",
+    zh: "安装 {package}。\n\n位置：{path}",
+    ja: "{package} をインストールします。\n\n場所: {path}",
+    ko: "{package}을(를) 설치합니다.\n\n위치: {path}",
+    et: "Paigaldatakse {package}.\n\nAsukoht: {path}",
+    uk: "Встановлення {package}.\n\nМісце: {path}",
+    es: "Instalar {package}.\n\nUbicación: {path}",
+    pt: "Instalar {package}.\n\nLocal: {path}",
+    fr: "Installer {package}.\n\nEmplacement : {path}",
+    de: "{package} wird installiert.\n\nOrt: {path}",
+  },
   "install.pnpmProgress": {
     en: "Installing pnpm 11.7.0…",
     zh: "正在安装 pnpm 11.7.0…",

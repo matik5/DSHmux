@@ -62,19 +62,51 @@ export function managedStorageDirForParent(
   return (platform === "win32" ? path.win32 : path.posix).join(parent, ".dshmux");
 }
 
-export function managedStorageForContext(context: vscode.ExtensionContext): string {
-  const remembered = context.workspaceState.get<string>(MANAGED_STORAGE_KEY)?.trim();
-  if (remembered) return remembered;
-  const parent = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
-  return managedStorageDirForParent(parent, process.platform);
+/**
+ * Ordered, deduplicated managed storage roots. Index 0 is where new
+ * installs write (remembered choice, else the user-level default); the
+ * rest are read-only legacy fallbacks (0.4.8 project-local, 0.4.7
+ * globalStorage).
+ */
+export function managedStorageRootsForContext(
+  context: vscode.ExtensionContext
+): string[] {
+  const roots: string[] = [];
+  const add = (root: string | undefined): void => {
+    if (!root?.trim()) return;
+    if (!roots.some((existing) => existing.toLowerCase() === root.toLowerCase())) {
+      roots.push(root);
+    }
+  };
+  add(context.workspaceState.get<string>(MANAGED_STORAGE_KEY)?.trim());
+  add(managedStorageDirForParent(os.homedir(), process.platform));
+  const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspace) add(managedStorageDirForParent(workspace, process.platform));
+  add(context.globalStorageUri.fsPath);
+  return roots;
 }
 
-/** Current user-selected location followed by the pre-0.4.7 storage fallback. */
+export function managedStorageForContext(context: vscode.ExtensionContext): string {
+  return managedStorageRootsForContext(context)[0];
+}
+
+/** First managed pnpm that exists on disk, else the new default's pnpm. */
+export function managedPnpmCandidateForContext(
+  context: vscode.ExtensionContext,
+  exists: (path: string) => boolean = fs.existsSync
+): string {
+  const candidates = managedStorageRootsForContext(context)
+    .map((root) => managedPnpmBin(root, process.platform));
+  return candidates.find((candidate) => exists(candidate)) ?? candidates[0];
+}
+
+/** Explicit source checkout followed by the managed bin of every storage root in order. */
 export function managedBinsForContext(context: vscode.ExtensionContext): string[] {
-  const current = managedDshBin(managedStorageForContext(context), process.platform);
-  const legacy = managedDshBin(context.globalStorageUri.fsPath, process.platform);
   const source = context.workspaceState.get<string>(SOURCE_CHECKOUT_KEY)?.trim();
-  return [source, current, legacy]
+  const roots = managedStorageRootsForContext(context);
+  return [source,
+    ...roots.map((root) => managedDshBin(root, process.platform))
+  ]
     .filter((candidate): candidate is string => Boolean(candidate))
     .filter((candidate, index, all) =>
       all.findIndex((other) => other.toLowerCase() === candidate.toLowerCase()) === index
@@ -91,7 +123,7 @@ export function runDoctorForLauncher(context: vscode.ExtensionContext): DoctorRe
   const managed = candidates.find(
     (candidate) => resolveDshVersion(candidate) === TESTED_DSH_VERSION
   ) ?? candidates[0];
-  const pnpm = managedPnpmBin(managedStorageForContext(context), process.platform);
+  const pnpm = managedPnpmCandidateForContext(context);
   return runDoctor(realDoctorProbe(hostLabel(), configuredDshBin(), managed, pnpm));
 }
 
@@ -366,7 +398,7 @@ async function runChild(
   }
 }
 
-function resolveVerifiedPnpm(storageDir: string): PnpmLaunchSpec | null {
+function resolveVerifiedPnpm(pnpmBins: string[]): PnpmLaunchSpec | null {
   const node = resolveNodeExecutable(
     process.platform,
     process.execPath,
@@ -396,29 +428,26 @@ function resolveVerifiedPnpm(storageDir: string): PnpmLaunchSpec | null {
     encoding: "utf8", env, timeout: 5_000, shell: npm.shell, windowsHide: true,
   });
   if (npmResult.status !== 0) return null;
-  const launch = resolvePnpmLaunchSpec(
-    node,
-    managedPnpmBin(storageDir, process.platform),
-    env,
-    process.platform,
-    fs.existsSync
-  );
-  if (!launch) return null;
-  const result = spawnSync(launch.command, [...launch.argsPrefix, "--version"], {
-    encoding: "utf8",
-    env,
-    timeout: 5_000,
-    shell: false,
-    windowsHide: true,
-  });
-  return result.status === 0 && isSupportedPnpmVersion(result.stdout) ? launch : null;
+  for (const pnpmBin of pnpmBins) {
+    const launch = resolvePnpmLaunchSpec(node, pnpmBin, env, process.platform, fs.existsSync);
+    if (!launch) continue;
+    const result = spawnSync(launch.command, [...launch.argsPrefix, "--version"], {
+      encoding: "utf8",
+      env,
+      timeout: 5_000,
+      shell: false,
+      windowsHide: true,
+    });
+    if (result.status === 0 && isSupportedPnpmVersion(result.stdout)) return launch;
+  }
+  return null;
 }
 
 function realInstallRuntime(context: vscode.ExtensionContext): ManagedInstallRuntime {
-  const storageDir = managedStorageForContext(context);
+  const roots = managedStorageRootsForContext(context);
   return {
     mkdir: (dir) => fs.promises.mkdir(dir, { recursive: true }).then(() => undefined),
-    resolvePnpm: () => resolveVerifiedPnpm(storageDir),
+    resolvePnpm: () => resolveVerifiedPnpm(roots.map((root) => managedPnpmBin(root, process.platform))),
     run: runChild,
     validate: (spec) => {
       const node = resolveNodeExecutable(
@@ -432,7 +461,7 @@ function realInstallRuntime(context: vscode.ExtensionContext): ManagedInstallRun
         hostLabel(),
         configuredDshBin(),
         spec.binPath,
-        managedPnpmBin(storageDir, process.platform)
+        managedPnpmCandidateForContext(context)
       );
       if (spec.scope === "global") {
         const binPath = resolveDshPath(os.homedir(), process.platform).path;
@@ -564,7 +593,12 @@ export async function runManagedInstall(
   if (result.cancelled) return false;
   const check = result.ok ? runtime.validate(spec) : { valid: false, version: null };
   if (result.ok && check.valid) {
-    if (storageDir) await context.workspaceState.update(MANAGED_STORAGE_KEY, storageDir);
+    if (
+      storageDir
+      && storageDir.toLowerCase() !== managedStorageForContext(context).toLowerCase()
+    ) {
+      await context.workspaceState.update(MANAGED_STORAGE_KEY, storageDir);
+    }
     if (sourceBin) await context.workspaceState.update(SOURCE_CHECKOUT_KEY, sourceBin);
     vscode.window.showInformationMessage(t("install.managedSuccess"));
     return true;
@@ -662,6 +696,16 @@ export async function runManagedPnpmInstall(
   runtime: PnpmInstallRuntime = realPnpmInstallRuntime()
 ): Promise<boolean> {
   const spec = buildManagedPnpmInstallSpec(managedStorageForContext(context), process.platform);
+  const confirm = t("install.managedRun");
+  if (
+    await vscode.window.showInformationMessage(
+      t("install.pnpmConfirm", { package: spec.packageSpec, path: spec.cwd }),
+      { modal: true },
+      confirm
+    ) !== confirm
+  ) {
+    return false;
+  }
   const output = outputChannel();
   output.clear();
   output.show(true);
