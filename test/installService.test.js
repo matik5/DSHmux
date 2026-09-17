@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const { EventEmitter } = require("node:events");
+const os = require("node:os");
 const path = require("node:path");
 
 const workspaceDir = process.platform === "win32" ? "C:\\Projects\\Current" : "/Projects/Current";
@@ -12,7 +13,8 @@ const globalStorageDir = process.platform === "win32"
   : "/Users/me/Code Storage";
 const alternateParent = process.platform === "win32" ? "D:\\My Projects" : "/My Projects";
 const managedStorageDir = path.join(workspaceDir, ".dshmux");
-const managedCheckoutDir = path.join(managedStorageDir, "deepseek-harness");
+const homeStorageDir = path.join(os.homedir(), ".dshmux");
+const managedCheckoutDir = path.join(homeStorageDir, "deepseek-harness");
 const alternateCheckoutDir = path.join(alternateParent, "deepseek-harness");
 const sourceBinFor = (checkoutDir) => path.join(checkoutDir, "apps", "cli", "lib", "bin.js");
 
@@ -170,7 +172,7 @@ test("managed install cancellation at confirmation makes no changes", async () =
   assert.equal(await svc.runManagedInstall(context, rt.value), false);
   assert.equal(messages.length, 1);
   assert.match(messages[0], /@deepseek-ai\/dsh@0\.1\.5-rc\.2/);
-  assert.ok(messages[0].includes(managedStorageDir));
+  assert.ok(messages[0].includes(homeStorageDir), "modal shows the user-level default destination");
   assert.deepEqual(informationCalls[0].items, [
     "Install globally",
     "Install to shown location",
@@ -216,7 +218,7 @@ test("managed install runs exact pinned non-global npm spec and verifies it", as
   assert.match(outputChannels[0].text, /npm install --prefix/);
   assert.match(outputChannels[0].text, /installed/);
   assert.ok(messages.some((message) => /installed and verified/.test(message)));
-  assert.equal(workspaceValues.get("dsh.managedStorageDir"), managedStorageDir);
+  assert.equal(workspaceValues.has("dsh.managedStorageDir"), false, "default confirm is not persisted");
 });
 
 test("Change selects a parent for an ordinary deepseek-harness checkout", async () => {
@@ -286,14 +288,53 @@ test("global choice runs the pinned npm global install and does not persist a pr
   assert.equal(workspaceValues.has("dsh.managedStorageDir"), false);
 });
 
-test("remembered source checkout precedes project and legacy managed installs", () => {
+test("remembered source checkout precedes default, project, and legacy managed installs", () => {
   const svc = fresh();
   const source = sourceBinFor(path.join(path.dirname(workspaceDir), "deepseek-harness"));
   workspaceValues.set("dsh.sourceCheckoutBin", source);
+  const dshBinIn = (root) => path.join(
+    root, "managed-dsh", "0.1.5-rc.2", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"
+  );
   const bins = svc.managedBinsForContext(context);
-  assert.equal(bins[0], source);
-  assert.ok(bins.some((bin) => bin.includes(path.join("Current", ".dshmux", "managed-dsh"))));
-  assert.ok(bins.some((bin) => bin.includes(path.join("Code Storage", "managed-dsh"))));
+  assert.deepEqual(bins, [
+    source,
+    dshBinIn(homeStorageDir),
+    dshBinIn(managedStorageDir),
+    dshBinIn(globalStorageDir),
+  ]);
+});
+
+test("storage roots default to the user-level .dshmux and remember an explicit choice", () => {
+  const svc = fresh();
+  assert.equal(svc.managedStorageForContext(context), homeStorageDir);
+  workspaceValues.set("dsh.managedStorageDir", alternateParent);
+  assert.equal(svc.managedStorageForContext(context), alternateParent);
+  const roots = svc.managedStorageRootsForContext(context);
+  assert.deepEqual(roots, [
+    alternateParent,
+    homeStorageDir,
+    managedStorageDir,
+    globalStorageDir,
+  ]);
+});
+
+test("storage roots deduplicate a remembered root equal to the default", () => {
+  const svc = fresh();
+  workspaceValues.set("dsh.managedStorageDir", homeStorageDir);
+  assert.deepEqual(svc.managedStorageRootsForContext(context), [
+    homeStorageDir,
+    managedStorageDir,
+    globalStorageDir,
+  ]);
+});
+
+test("pnpm candidate prefers an existing legacy root over an absent default", () => {
+  const svc = fresh();
+  const legacyPnpm = path.join(
+    managedStorageDir, "managed-pnpm", "11.7.0", "node_modules", "pnpm", "bin", "pnpm.cjs"
+  );
+  const candidate = svc.managedPnpmCandidateForContext(context, (p) => p === legacyPnpm);
+  assert.equal(candidate, legacyPnpm);
 });
 
 test("cancelled child is not validated or reported as success", async () => {
@@ -430,6 +471,7 @@ test("Node and npm guidance point to the official Node download", async () => {
 
 test("managed pnpm install uses pinned non-global npm spec and verifies it", async () => {
   const svc = fresh();
+  modalAnswer = "Install";
   const rt = pnpmRuntime();
   assert.equal(await svc.runManagedPnpmInstall(context, rt.value), true);
   assert.equal(rt.calls.mkdir.length, 1);
@@ -443,8 +485,21 @@ test("managed pnpm install uses pinned non-global npm spec and verifies it", asy
   assert.ok(messages.some((message) => /pnpm 11\.7\.0 is installed and verified/.test(message)));
 });
 
+test("declined pnpm confirmation installs nothing", async () => {
+  const svc = fresh();
+  const rt = pnpmRuntime();
+  assert.equal(await svc.runManagedPnpmInstall(context, rt.value), false);
+  assert.deepEqual(rt.calls.mkdir, []);
+  assert.deepEqual(rt.calls.run, []);
+  assert.deepEqual(outputChannels, []);
+  assert.ok(messages.some((message) => message.includes(homeStorageDir)), "declined modal still names the destination");
+  assert.ok(messages.some((message) => message.includes("pnpm@11.7.0")));
+  assert.deepEqual(errors, []);
+});
+
 test("managed pnpm install stops on cancellation and reports failed verification", async () => {
   const svc = fresh();
+  modalAnswer = "Install";
   const cancelled = pnpmRuntime({
     run: async () => ({ ok: false, cancelled: true, exitCode: null }),
   });
@@ -522,6 +577,7 @@ test("Doctor Check again refreshes the launcher before reopening", async () => {
 
 test("Doctor pnpm action installs, refreshes, and reopens the report", async () => {
   const svc = fresh();
+  modalAnswer = "Install";
   quickPickAnswers.push({ action: "pnpm" }, undefined);
   const rt = pnpmRuntime();
   let refreshCalls = 0;
