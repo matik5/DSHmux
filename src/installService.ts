@@ -491,8 +491,8 @@ export async function chooseManagedInstall(
   context: vscode.ExtensionContext
 ): Promise<ChosenManagedInstall | null> {
   let storageDir = managedStorageForContext(context);
-  let sourceParent: string | undefined;
-  let sourceKind: "official" | "patched" = "official";
+  let sourceParent: string | undefined = storageDir;
+  let sourceKind: "official" | "patched" = "patched";
   const installGlobal = t("install.globalRun");
   const installHere = t("install.localRun");
   const installPatched = t("install.patchedRun");
@@ -528,6 +528,7 @@ export async function chooseManagedInstall(
       continue;
     }
     if (choice === installOfficial) {
+      sourceParent = undefined;
       sourceKind = "official";
       continue;
     }

@@ -3,17 +3,17 @@
 import * as path from "node:path";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
 
-/** Official upstream pinned for DSHmux 0.4.7. */
+/** Official upstream used as the patch branch base. */
 export const TESTED_SOURCE_REPO = "https://github.com/deepseek-ai/deepseek-harness.git";
-export const TESTED_SOURCE_TAG = "dsh-v0.1.5-rc.2";
-export const TESTED_SOURCE_REVISION = "fb2c4b9e698e30edb738bca4cf0618587db7d203";
+export const TESTED_SOURCE_TAG = "dsh-v0.1.7-rc.1";
+export const TESTED_SOURCE_REVISION = "46a7f68b0922371ce7144b668b90e377d8e799f4";
 export const TESTED_SOURCE_TREE_URL =
   TESTED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + TESTED_SOURCE_TAG;
 
 /** Compatibility-patched source alternative maintained for DSHmux. */
 export const PATCHED_SOURCE_REPO = "https://github.com/matik5/deepseek-harness.git";
-export const PATCHED_SOURCE_BRANCH = "matik/dsh-patches-0.1.5-rc.2";
-export const PATCHED_SOURCE_REVISION = "5f54644c4fcc83e18bc6cbf8055997390cc21969";
+export const PATCHED_SOURCE_BRANCH = "matik/dsh-patches-0.1.7-rc.1";
+export const PATCHED_SOURCE_REVISION = "67ddcb32a7cf8ec2e8f028979d3bebe7588b5bc0";
 export const PATCHED_SOURCE_TREE_URL =
   PATCHED_SOURCE_REPO.replace(/\.git$/, "") + "/tree/" + PATCHED_SOURCE_BRANCH;
 
@@ -215,7 +215,7 @@ export function buildSourceCheckoutSpec(
   source: SourceCheckout = OFFICIAL_SOURCE
 ): ManagedInstallSpec {
   const api = pathApi(platform);
-  const cwd = normalizeWindowsDriveLetter(api.join(parentDir, "deepseek-harness"), platform);
+  const cwd = normalizeWindowsDriveLetter(api.join(parentDir, `deepseek-harness-${TESTED_DSH_VERSION}`), platform);
   return {
     command: "npm",
     args: [],
@@ -392,7 +392,7 @@ export function buildManagedNpmLaunchSpec(
   };
 }
 
-/** Official 0.1.5-rc.2 engine range: ^22.19.0 OR >=24.0.0 (Node 23 excluded). */
+/** DSH 0.1.7-rc.1 engine range: ^22.19.0 OR >=24.0.0 (Node 23 excluded). */
 export function isSupportedNodeVersion(version: string | null | undefined): boolean {
   if (!version) return false;
   const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);

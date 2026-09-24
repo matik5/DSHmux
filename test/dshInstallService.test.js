@@ -34,33 +34,33 @@ import { TESTED_DSH_VERSION } from "../out/versionCheck.js";
 
 test("official source metadata is pinned", () => {
   assert.equal(TESTED_SOURCE_REPO, "https://github.com/deepseek-ai/deepseek-harness.git");
-  assert.equal(TESTED_SOURCE_TAG, "dsh-v0.1.5-rc.2");
-  assert.equal(TESTED_SOURCE_REVISION, "fb2c4b9e698e30edb738bca4cf0618587db7d203");
+  assert.equal(TESTED_SOURCE_TAG, "dsh-v0.1.7-rc.1");
+  assert.equal(TESTED_SOURCE_REVISION, "46a7f68b0922371ce7144b668b90e377d8e799f4");
   assert.equal(
     TESTED_SOURCE_TREE_URL,
-    "https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-rc.2"
+    "https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.7-rc.1"
   );
   assert.equal(DSH_PACKAGE_NAME, "@deepseek-ai/dsh");
 });
 
 test("patched source alternative is pinned to the maintained DSHmux branch", () => {
   assert.equal(PATCHED_SOURCE_REPO, "https://github.com/matik5/deepseek-harness.git");
-  assert.equal(PATCHED_SOURCE_BRANCH, "matik/dsh-patches-0.1.5-rc.2");
-  assert.equal(PATCHED_SOURCE_REVISION, "5f54644c4fcc83e18bc6cbf8055997390cc21969");
+  assert.equal(PATCHED_SOURCE_BRANCH, "matik/dsh-patches-0.1.7-rc.1");
+  assert.equal(PATCHED_SOURCE_REVISION, "67ddcb32a7cf8ec2e8f028979d3bebe7588b5bc0");
   assert.equal(
     PATCHED_SOURCE_TREE_URL,
-    "https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.5-rc.2"
+    "https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.7-rc.1"
   );
 });
 
 test("managed paths are versioned and platform-correct", () => {
   assert.equal(
     managedDshRoot("/Users/me/Library/Application Support/Code", "darwin"),
-    "/Users/me/Library/Application Support/Code/managed-dsh/0.1.5-rc.2"
+    "/Users/me/Library/Application Support/Code/managed-dsh/0.1.7-rc.1"
   );
   assert.equal(
     managedDshBin("C:\\Users\\me\\Code Storage", "win32"),
-    "C:\\Users\\me\\Code Storage\\managed-dsh\\0.1.5-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"
+    "C:\\Users\\me\\Code Storage\\managed-dsh\\0.1.7-rc.1\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"
   );
   assert.equal(
     managedPnpmRoot("C:\\Users\\me\\Code Storage", "win32"),
@@ -86,7 +86,7 @@ test("managed pnpm install spec is pinned, structured, and non-global", () => {
 test("managed npm spec is pinned, structured, and non-global", () => {
   const spec = buildManagedInstallSpec("C:\\Users\\me\\Code Storage", "win32");
   assert.equal(spec.command, "npm");
-  assert.equal(spec.cwd, "C:\\Users\\me\\Code Storage\\managed-dsh\\0.1.5-rc.2");
+  assert.equal(spec.cwd, "C:\\Users\\me\\Code Storage\\managed-dsh\\0.1.7-rc.1");
   assert.deepEqual(spec.args, [
     "install",
     "--prefix",
@@ -115,18 +115,18 @@ test("global npm spec is explicit, pinned, and independent of project storage", 
 test("custom location is a normal official deepseek-harness checkout", () => {
   const spec = buildSourceCheckoutSpec("D:\\My Projects", "win32");
   assert.equal(spec.scope, "source");
-  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness");
-  assert.equal(spec.binPath, "D:\\My Projects\\deepseek-harness\\apps\\cli\\lib\\bin.js");
-  assert.match(spec.packageSpec, /deepseek-ai\/deepseek-harness\.git#dsh-v0\.1\.5-rc\.2$/);
+  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness-0.1.7-rc.1");
+  assert.equal(spec.binPath, "D:\\My Projects\\deepseek-harness-0.1.7-rc.1\\apps\\cli\\lib\\bin.js");
+  assert.match(spec.packageSpec, /deepseek-ai\/deepseek-harness\.git#dsh-v0\.1\.7-rc\.1$/);
   assert.deepEqual(buildSourceCloneArgs(spec.cwd), [
-    "clone", "--branch", "dsh-v0.1.5-rc.2", "--depth", "1",
+    "clone", "--branch", "dsh-v0.1.7-rc.1", "--depth", "1",
     "https://github.com/deepseek-ai/deepseek-harness.git", spec.cwd,
   ]);
 });
 
 test("patched checkout uses the fork branch and canonical Windows drive casing", () => {
   const spec = buildPatchedSourceCheckoutSpec("d:\\My Projects", "win32");
-  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness");
+  assert.equal(spec.cwd, "D:\\My Projects\\deepseek-harness-0.1.7-rc.1");
   assert.equal(spec.packageSpec, `${PATCHED_SOURCE_REPO}#${PATCHED_SOURCE_BRANCH}`);
   assert.deepEqual(spec.source, {
     repo: PATCHED_SOURCE_REPO,
@@ -293,7 +293,7 @@ function probe(exists, result) {
 }
 
 test("managed install validation rejects incomplete, failed, and wrong-version installs", () => {
-  const bin = "/storage/managed-dsh/0.1.5-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js";
+  const bin = "/storage/managed-dsh/0.1.7-rc.1/node_modules/@deepseek-ai/dsh/lib/bin.js";
   assert.deepEqual(checkManagedInstall(bin, "/node", "linux", probe(false, { ok: true, stdout: TESTED_DSH_VERSION })), {
     valid: false, binPath: bin, version: null,
   });

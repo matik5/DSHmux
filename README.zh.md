@@ -39,7 +39,7 @@
 
 ## 环境要求
 
-- 已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：`npm i -g @deepseek-ai/dsh`（Remote SSH/WSL/容器窗口中，请安装在远程主机上）
+- **DSHmux: Doctor** 默认安装固定版本的 [`matik/dsh-patches-0.1.7-rc.1`](https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.7-rc.1) 源码构建；也可选择官方 npm 包。在 Remote SSH/WSL/容器窗口中，安装发生在远程主机上。
 - VS Code ≥ 1.90（通过 Open VSX 亦可用于 Antigravity）
 
 ## 安装

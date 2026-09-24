@@ -83,7 +83,7 @@ test("a runnable existing DSH is ready even when Node probe is unavailable", () 
     resolveNode: () => "node",
     existsEntries: [[DSH, true]],
     dshFound: { path: DSH, tried: [DSH] },
-    dshVersions: { [DSH]: "0.1.5-rc.2" },
+    dshVersions: { [DSH]: "0.1.7-rc.1" },
     realPathEntries: [[DSH, "/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]],
   }));
   assert.equal(report.state, "ready");
@@ -100,13 +100,13 @@ test("resolved but unrunnable DSH is repairable", () => {
 });
 
 test("valid managed DSH wins over configured and discovered candidates", () => {
-  const managed = `${HOME}/storage/managed-dsh/0.1.5-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js`;
+  const managed = `${HOME}/storage/managed-dsh/0.1.7-rc.1/node_modules/@deepseek-ai/dsh/lib/bin.js`;
   let discoveryCalls = 0;
   const probe = makeProbe({
     managedDshPath: managed,
     configuredDshPath: "/configured/dsh",
     existsEntries: [[NODE, true], [managed, true], ["/configured/dsh", true]],
-    dshVersions: { [managed]: "0.1.5-rc.2", "/configured/dsh": "0.1.5-rc.1" },
+    dshVersions: { [managed]: "0.1.7-rc.1", "/configured/dsh": "0.1.5-rc.1" },
   }, runtime());
   probe.resolveDsh = () => { discoveryCalls++; return { path: DSH, tried: [DSH] }; };
   const report = runDoctor(probe);
@@ -121,7 +121,7 @@ test("incomplete or wrong-version managed install is ignored", () => {
   const report = runDoctor(makeProbe({
     managedDshPath: managed,
     existsEntries: [[NODE, true], [managed, true], [DSH, true]],
-    dshVersions: { [managed]: "0.1.5-rc.1", [DSH]: "0.1.5-rc.2" },
+    dshVersions: { [managed]: "0.1.5-rc.1", [DSH]: "0.1.7-rc.1" },
     dshFound: { path: DSH, tried: [managed, DSH] },
   }, runtime()));
   assert.equal(report.state, "ready");
@@ -134,7 +134,7 @@ test("stale configured path warns but discovery still works", () => {
     configuredDshPath: "/old/machine/dsh",
     existsEntries: [[NODE, true], [DSH, true]],
     dshFound: { path: DSH, tried: [`${HOME}/bin/dsh`, DSH] },
-    dshVersions: { [DSH]: "0.1.5-rc.2" },
+    dshVersions: { [DSH]: "0.1.7-rc.1" },
   }, runtime()));
   assert.equal(report.state, "ready");
   assert.ok(report.warnings.includes("stale-configured-path"));
@@ -165,7 +165,7 @@ test("Windows npm shim classification and workspace host label survive", () => {
     resolveNode: () => node,
     existsEntries: [[node, true], [bin, true]],
     dshFound: { path: bin, tried: [bin] },
-    dshVersions: { [bin]: "0.1.5-rc.2" },
+    dshVersions: { [bin]: "0.1.7-rc.1" },
   }, table));
   assert.equal(report.state, "ready");
   assert.equal(report.dsh.installType, "npm-global");

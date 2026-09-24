@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+- Doctor now defaults to the revision-pinned, JPEG-compatible `matik/dsh-patches-0.1.7-rc.1` source build in a versioned checkout. The official `@deepseek-ai/dsh@0.1.7-rc.1` npm package remains selectable.
+
+### Fixed
+- DSH 0.1.7-rc.1 plugin preloads, boot entries and batches with base-relative URLs now load in the embedded webview; the new dark favicon is also resolved.
+
 ## [0.4.7] - 2026-09-13
 
 ### Changed
