@@ -18,9 +18,10 @@ import {
 } from "./configuration.js";
 import { dshWebviewPortMappings } from "./webviewPortMapping.js";
 import { sessionTitleOf } from "./workspaceTracker.js";
-import { runDoctorForLauncher } from "./installService.js";
+import { runDoctorForLauncher, runManagedInstall } from "./installService.js";
 import type { DoctorReport } from "./dshDoctor.js";
-import { isUpdateAvailable } from "./versionCheck.js";
+import { isUpdateAvailable, TESTED_DSH_VERSION } from "./versionCheck.js";
+import { PATCHED_SOURCE_BRANCH } from "./dshInstallService.js";
 import { showUpgradeOptions, upgradeInfo } from "./versionCheckService.js";
 import {
   chatChromeHtml,
@@ -269,6 +270,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       actionFailedTemplate: t("chrome.actionFailed", { message: "{message}" }),
       updateLatestTemplate: t("upgrade.latestChip", { version: "{version}" }),
       updateNextTemplate: t("upgrade.nextChip", { version: "{version}" }),
+      upgradePatched: t("upgrade.patchedChip", { version: TESTED_DSH_VERSION, branch: PATCHED_SOURCE_BRANCH }),
     };
   }
 
@@ -390,6 +392,21 @@ export class DshChatView implements vscode.WebviewViewProvider {
             this.manager.dshBinPath,
             channel
           );
+        }
+        return;
+      }
+      case "upgrade-patched": {
+        if (await runManagedInstall(this.context, undefined, true)) {
+          await this.refreshDoctor();
+          if (this.manager.state === "ready") {
+            const restart = t("upgrade.restartDsh");
+            if (await vscode.window.showInformationMessage(t("upgrade.restartPrompt"), restart) === restart) {
+              const stopped = new Promise<void>((resolve) => this.manager.once("exit", () => resolve()));
+              this.manager.stop();
+              await stopped;
+              await this.manager.start({ cwd: workspaceRoot() });
+            }
+          }
         }
         return;
       }

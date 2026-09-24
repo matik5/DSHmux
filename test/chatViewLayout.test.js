@@ -41,6 +41,7 @@ test("compact chrome is capped below the approved 44 CSS px budget", () => {
   assert.deepEqual(tabOrder, [...tabOrder].sort((a, b) => a - b));
   assert.match(chromeSource, /id="dshmux-full-text" type="checkbox"/);
   assert.match(chromeSource, /id="dshmux-process-action"/);
+  assert.match(chromeSource, /id="dshmux-upgrade-patched"[^>]*data-command="upgrade-patched"/);
   const overflowSource = chromeSource.slice(
     chromeSource.indexOf('id="dshmux-overflow"'),
     chromeSource.indexOf('id="dshmux-overlay"')

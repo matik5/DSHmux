@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
-const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, resolveConfiguredDshPath, normalizeWindowsDriveLetter, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
+const { parseUrlLine, splitLaunchUrl, resolveDshPath, resolveStartBin, readyTimeoutForBin, resolveConfiguredDshPath, normalizeWindowsDriveLetter, probeNoOpenSupport, resolveNodeExecutable, spawnEnvironment, spawnSpec, DshServerManager, sameFsPath } = require("../out/serverManager.js");
 
 /**
  * Write an executable fake dsh into a temp dir (platform-aware shim).
@@ -81,6 +81,12 @@ test("parseUrlLine extracts the ready URL", () => {
   assert.equal(parseUrlLine("some other line"), null);
   assert.equal(parseUrlLine(""), null);
   assert.equal(parseUrlLine("prefix dsh web: http://127.0.0.1:3080 suffix"), "http://127.0.0.1:3080");
+});
+
+test("source checkouts get enough time for user MCP startup", () => {
+  assert.equal(readyTimeoutForBin("/Users/me/harness/apps/cli/lib/bin.js"), 120_000);
+  assert.equal(readyTimeoutForBin("C:\\harness\\apps\\cli\\lib\\bin.js"), 120_000);
+  assert.equal(readyTimeoutForBin("/usr/local/bin/dsh"), 30_000);
 });
 
 test("parseUrlLine keeps the launch token query (token-auth DSH)", () => {

@@ -4,9 +4,11 @@
 
 ### Changed
 - Doctor now defaults to the revision-pinned, JPEG-compatible `matik/dsh-patches-0.1.7-rc.1` source build in a versioned checkout. The official `@deepseek-ai/dsh@0.1.7-rc.1` npm package remains selectable.
+- The DSHmux menu offers that patched build directly, even when a working older DSH is running. After verification, the explicit upgrade selects its binary and updates `dshmux.dshPath`.
 
 ### Fixed
 - DSH 0.1.7-rc.1 plugin preloads, boot entries and batches with base-relative URLs now load in the embedded webview; the new dark favicon is also resolved.
+- Source checkouts now have 120 seconds to start when a profile initializes slow MCP servers; other DSH installs retain the 30-second timeout.
 
 ## [0.4.7] - 2026-09-13
 

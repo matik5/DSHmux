@@ -243,6 +243,7 @@
       "open-settings": copy.openSettings,
       "open-doctor": copy.openDoctor,
       "show-status": copy.statusVersions,
+      "upgrade-patched": copy.upgradePatched,
     };
     Array.prototype.forEach.call(overflow.querySelectorAll("[data-command]"), function (button) {
       var command = button.getAttribute("data-command");

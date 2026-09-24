@@ -80,6 +80,10 @@ const URL_LINE_RE = /dsh web: (http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?)/;
 // Source checkouts and cold starts can spend several seconds resolving
 // packages and loading native modules before printing the ready URL.
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
+// A source checkout with user profile patches may wait for MCP tool discovery
+// before printing its URL. The maintained 0.1.7 checkout took 62s with five
+// configured MCP servers on 2026-09-24, so give source builds a bounded margin.
+const SOURCE_READY_TIMEOUT_MS = 120_000;
 const SIGKILL_GRACE_MS = 6_000;
 const WORKSPACE_BASELINE_TIMEOUT_MS = 5_000;
 // Bound for a single /api request. Without it a stale keep-alive socket in a
@@ -534,6 +538,13 @@ export function resolveStartBin(
     : resolveDshPath(home, platform);
 }
 
+/** Allow source builds to finish profile/MCP initialization before declaring failure. */
+export function readyTimeoutForBin(bin: string): number {
+  return /(?:^|[\\/])apps[\\/]cli[\\/]lib[\\/]bin\.js$/i.test(bin)
+    ? SOURCE_READY_TIMEOUT_MS
+    : DEFAULT_READY_TIMEOUT_MS;
+}
+
 /**
  * Owns one `dsh web` child process. Emits:
  *  - "state" ({state, url?, message?}) on every transition
@@ -626,7 +637,7 @@ export class DshServerManager extends EventEmitter {
     const resolved = resolveStartBin(opts, configuredBin);
     const bin = resolved.path ?? "dsh";
     const cwd = opts.cwd ?? os.homedir();
-    const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
+    const readyTimeoutMs = opts.readyTimeoutMs ?? readyTimeoutForBin(bin);
 
     // Launch diagnostic: which binary, which version.
     const version = resolveDshVersion(bin);

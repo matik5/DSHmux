@@ -488,7 +488,8 @@ interface ChosenManagedInstall {
 
 /** Show the exact destination, allow changing its parent, and use native Cancel. */
 export async function chooseManagedInstall(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  patchedOnly = false
 ): Promise<ChosenManagedInstall | null> {
   let storageDir = managedStorageForContext(context);
   let sourceParent: string | undefined = storageDir;
@@ -508,9 +509,9 @@ export async function chooseManagedInstall(
     const choice = await vscode.window.showInformationMessage(
       t("install.managedConfirm", { package: spec.packageSpec, path: spec.cwd }),
       { modal: true },
-      installGlobal,
+      ...(patchedOnly ? [] : [installGlobal]),
       installHere,
-      sourceSwitch,
+      ...(patchedOnly ? [] : [sourceSwitch]),
       change
     );
     if (choice === installGlobal) {
@@ -552,14 +553,15 @@ export async function chooseManagedInstall(
 /** Explicitly confirmed, cancellable, pinned installation into a visible location. */
 export async function runManagedInstall(
   context: vscode.ExtensionContext,
-  runtime: ManagedInstallRuntime = realInstallRuntime(context)
+  runtime: ManagedInstallRuntime = realInstallRuntime(context),
+  patchedOnly = false
 ): Promise<boolean> {
   const pnpm = runtime.resolvePnpm();
   if (!pnpm) {
     vscode.window.showErrorMessage(t("install.pnpmRequired"));
     return false;
   }
-  const chosen = await chooseManagedInstall(context);
+  const chosen = await chooseManagedInstall(context, patchedOnly);
   if (!chosen) return false;
   const { spec, storageDir, sourceBin } = chosen;
 
@@ -601,6 +603,16 @@ export async function runManagedInstall(
       await context.workspaceState.update(MANAGED_STORAGE_KEY, storageDir);
     }
     if (sourceBin) await context.workspaceState.update(SOURCE_CHECKOUT_KEY, sourceBin);
+    if (patchedOnly && sourceBin) {
+      try {
+        await vscode.workspace.getConfiguration("dshmux").update(
+          "dshPath", sourceBin, vscode.ConfigurationTarget.Global
+        );
+      } catch (error) {
+        append(`Could not update dshmux.dshPath: ${error instanceof Error ? error.message : String(error)}\n`);
+        vscode.window.showWarningMessage(t("install.settingsUpdateFailed"));
+      }
+    }
     vscode.window.showInformationMessage(t("install.managedSuccess"));
     return true;
   }

@@ -29,6 +29,9 @@ let quickPickCalls;
 let quickPickItems;
 let informationCalls;
 let folderAnswers;
+let configUpdates;
+let configUpdateError;
+let warnings;
 const workspaceValues = new Map();
 
 function reset() {
@@ -43,6 +46,9 @@ function reset() {
   quickPickItems = [];
   informationCalls = [];
   folderAnswers = [];
+  configUpdates = [];
+  configUpdateError = undefined;
+  warnings = [];
   workspaceValues.clear();
 }
 
@@ -53,6 +59,7 @@ const fakeVscode = {
     file: (value) => ({ toString: () => value, fsPath: value }),
   },
   ProgressLocation: { Notification: 15 },
+  ConfigurationTarget: { Global: 1 },
   env: {
     language: "en",
     remoteName: undefined,
@@ -63,6 +70,10 @@ const fakeVscode = {
     getConfiguration: () => ({
       inspect: () => undefined,
       get: (_key, fallback) => fallback,
+      update: async (key, value, target) => {
+        if (configUpdateError) throw configUpdateError;
+        configUpdates.push({ key, value, target });
+      },
     }),
   },
   window: {
@@ -75,6 +86,7 @@ const fakeVscode = {
     },
     showOpenDialog: async () => folderAnswers.shift(),
     showErrorMessage: async (message) => { errors.push(message); return undefined; },
+    showWarningMessage: async (message) => { warnings.push(message); return undefined; },
     showQuickPick: async (items) => {
       quickPickCalls++;
       quickPickItems.push(items);
@@ -219,6 +231,7 @@ test("managed install runs exact pinned non-global npm spec and verifies it", as
   assert.match(outputChannels[0].text, /installed/);
   assert.ok(messages.some((message) => /installed and verified/.test(message)));
   assert.equal(workspaceValues.has("dsh.managedStorageDir"), false, "default confirm is not persisted");
+  assert.deepEqual(configUpdates, [], "Doctor install does not change user settings");
 });
 
 test("Change selects a parent for an ordinary deepseek-harness checkout", async () => {
@@ -257,6 +270,33 @@ test("patched source is offered as a project checkout under .dshmux", async () =
     workspaceValues.get("dsh.sourceCheckoutBin"),
     sourceBinFor(managedCheckoutDir)
   );
+});
+
+test("patched upgrade offers only the pinned fork and a destination change", async () => {
+  const svc = fresh();
+  modalAnswer = "Install to shown location";
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value, true), true);
+  assert.deepEqual(informationCalls[0].items, ["Install to shown location", "Change…"]);
+  assert.match(informationCalls[0].message, /matik\/dsh-patches-0\.1\.7-rc\.1/);
+  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.1.7-rc.1");
+  assert.equal(workspaceValues.get("dsh.sourceCheckoutBin"), sourceBinFor(managedCheckoutDir));
+  assert.deepEqual(configUpdates, [{
+    key: "dshPath", value: sourceBinFor(managedCheckoutDir), target: fakeVscode.ConfigurationTarget.Global,
+  }]);
+});
+
+test("patched upgrade keeps the verified workspace checkout if Settings update fails", async () => {
+  const svc = fresh();
+  modalAnswer = "Install to shown location";
+  configUpdateError = new Error("Settings are read-only");
+  const rt = runtime();
+
+  assert.equal(await svc.runManagedInstall(context, rt.value, true), true);
+  assert.equal(workspaceValues.get("dsh.sourceCheckoutBin"), sourceBinFor(managedCheckoutDir));
+  assert.equal(configUpdates.length, 0);
+  assert.match(warnings[0], /dshmux\.dshPath could not be updated/);
 });
 
 test("Change from patched source installs the repo directly under the chosen parent", async () => {
@@ -589,12 +629,11 @@ test("Doctor pnpm action installs, refreshes, and reopens the report", async () 
   assert.equal(quickPickCalls, 2);
 });
 
-test("install service does not rewrite global dshPath configuration", () => {
+test("only the explicit patched upgrade updates dshPath after verification", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "installService.ts"), "utf8");
-  assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"/);
-  assert.doesNotMatch(source, /ConfigurationTarget|\.update\("dshPath"|runPrimaryInstallFlow/);
+  assert.match(source, /if \(patchedOnly && sourceBin\)/);
   assert.match(source, /buildPatchedSourceCheckoutSpec/);
 });
 
