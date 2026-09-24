@@ -7,3 +7,5 @@ DSHmux's `matik/dsh-0.1.7-rc.1` worktree loads the 0.1.7 Web UI by rewriting rel
 The Harness fork's `matik/dsh-patches-0.1.7-rc.1` branch starts at `dsh-v0.1.7-rc.1` and adds JPEG request-image projection for endpoints without WebP support. It is published at `67ddcb32a7cf8ec2e8f028979d3bebe7588b5bc0`; durable alpha images remain unchanged.
 
 Review of upstream VS Code fix [`c1403dd`](https://github.com/floatinghotpot/deepseek-harness-web-for-vscode/commit/c1403ddc05cdb0f8952e808f14eb9228ccd21607): its diagnosis matches the live 0.1.7 document. It covers all three plugin URL forms, every boot batch, and the dark favicon while retaining the earlier absolute form. DSHmux required the same normalization because its document assembly had the same absolute-only assumption.
+
+The extension version was raised to 0.4.9, packaged from a clean dependency install and regenerated compiler output, and installed in the user's Visual Studio Code extension directory.

@@ -101,8 +101,8 @@ test("existing extension identity and host-safe configuration remain intact", ()
   assert.ok(pkg.capabilities?.untrustedWorkspaces?.restrictedConfigurations?.includes("dshmux.dshPath"));
 });
 
-test("feature release manifests agree on version 0.4.8", () => {
-  assert.equal(pkg.version, "0.4.8");
-  assert.equal(lock.version, "0.4.8");
-  assert.equal(lock.packages?.[""]?.version, "0.4.8");
+test("feature release manifests agree on version 0.4.9", () => {
+  assert.equal(pkg.version, "0.4.9");
+  assert.equal(lock.version, "0.4.9");
+  assert.equal(lock.packages?.[""]?.version, "0.4.9");
 });

@@ -10,3 +10,5 @@
 | R4 | T4 | Version constant drives Doctor, path discovery, and compatibility display; README and changelogs describe installation. | `npm test` and Harness `doc-sync` (42 gates passed). |
 
 No unmet requirement was found. The real server check covers startup, authenticated index retrieval, asset caching, and URL assembly. It does not operate a VS Code Extension Development Host or an external image provider; the request-image encoder and serialized snapshot tests cover those code paths without provider credentials.
+
+The 0.4.9 follow-up used `npm ci`, passed `npm test` (255 passed, one skipped), cleared generated `out/`, compiled again, and packaged `dshmux-0.4.9.vsix` (79 files, 1.08 MB). Its manifest and compiled source were inspected before the VSIX was installed into VS Code; the installed `matik5.dshmux@0.4.9` files retain the pinned Harness revision.

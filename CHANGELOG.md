@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.4.9] - 2026-09-24
 
 ### Changed
 - Doctor now defaults to the revision-pinned, JPEG-compatible `matik/dsh-patches-0.1.7-rc.1` source build in a versioned checkout. The official `@deepseek-ai/dsh@0.1.7-rc.1` npm package remains selectable.

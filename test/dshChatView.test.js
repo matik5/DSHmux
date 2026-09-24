@@ -126,7 +126,7 @@ function makeContext(workspaceState = makeWorkspaceState()) {
   return {
     globalStorageUri: { fsPath: "/tmp/dsh-global" },
     extensionUri: { fsPath: path.resolve(__dirname, "..") },
-    extension: { packageJSON: { version: "0.4.8" } },
+    extension: { packageJSON: { version: "0.4.9" } },
     workspaceState,
     subscriptions: [],
   };
@@ -619,7 +619,7 @@ test("invalid messages are ignored and approved overflow routes stay discoverabl
   assert.deepEqual(lastPosted(view, "status-detail"), {
     type: "status-detail",
     state: "ready",
-    extensionVersion: "0.4.8",
+    extensionVersion: "0.4.9",
     dshVersion: "0.1.7-rc.1",
   });
 });
