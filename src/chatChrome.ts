@@ -42,6 +42,7 @@ export interface ChatChromeCopy {
   actionFailedTemplate: string;
   updateLatestTemplate: string;
   updateNextTemplate: string;
+  upgradePatched: string;
 }
 
 export interface ChatChromeInit {
@@ -138,6 +139,7 @@ export function chatChromeHtml(
   <div class="dshmux-menu-separator" role="separator"></div>
   <button id="dshmux-update-latest" type="button" data-command="upgrade-latest" hidden></button>
   <button id="dshmux-update-next" type="button" data-command="upgrade-next" hidden></button>
+  <button id="dshmux-upgrade-patched" type="button" data-command="upgrade-patched"></button>
   <button id="dshmux-process-action" type="button" data-command=""></button>
 </div>
 

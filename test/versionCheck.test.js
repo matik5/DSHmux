@@ -16,13 +16,13 @@ import {
 } from "../out/versionCheck.js";
 
 test("dshCompatibility pins this DSHmux release to the verified DSH build", () => {
-  assert.equal(TESTED_DSH_VERSION, "0.1.5-rc.2");
-  assert.equal(dshCompatibility("0.1.5-rc.2"), "tested");
-  assert.equal(dshCompatibility(" 0.1.5-rc.2 "), "tested");
+  assert.equal(TESTED_DSH_VERSION, "0.1.7-rc.1");
+  assert.equal(dshCompatibility("0.1.7-rc.1"), "tested");
+  assert.equal(dshCompatibility(" 0.1.7-rc.1 "), "tested");
   assert.equal(dshCompatibility("0.1.5-rc.1"), "older");
   assert.equal(dshCompatibility("0.1.5-alpha.2"), "older");
   assert.equal(dshCompatibility("0.1.4"), "older");
-  assert.equal(dshCompatibility("0.1.5"), "newer");
+  assert.equal(dshCompatibility("0.1.5"), "older");
   assert.equal(dshCompatibility("0.2.0"), "newer");
   assert.equal(dshCompatibility("dev-build"), "unknown");
   assert.equal(dshCompatibility(undefined), "unknown");
@@ -105,8 +105,8 @@ test("upgradeCommandFor: unknown/custom path returns null", () => {
 });
 
 test("managed DSH paths never receive global or npx upgrade commands", () => {
-  const posix = "/storage/managed-dsh/0.1.5-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js";
-  const windows = "C:\\Code Storage\\managed-dsh\\0.1.5-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
+  const posix = "/storage/managed-dsh/0.1.7-rc.1/node_modules/@deepseek-ai/dsh/lib/bin.js";
+  const windows = "C:\\Code Storage\\managed-dsh\\0.1.7-rc.1\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
   assert.equal(isDshmuxManagedPath(posix), true);
   assert.equal(isDshmuxManagedPath(windows), true);
   assert.equal(upgradeCommandFor(posix), null);

@@ -78,7 +78,7 @@ const SHELL_IMPORT_RE = /\.\/((?:vendor|langs)\/[A-Za-z0-9_.-]+\.js)/g;
 // capture runs to the closing `</script>`.
 const BOOT_RE = /(?:window\.__DSH_BOOT__|globalThis\["__DSH_BOOT__"\])\s*=\s*(\{.*?\})<\/script>/s;
 const REV_RE = /"rev"\s*:\s*"([^"]+)"/;
-const SERVER_STATIC_RE = /(src|href)="(?:\/|\.\/)(manifest\.webmanifest|favicon\.svg)"/g;
+const SERVER_STATIC_RE = /(src|href)="(?:\/|\.\/)?(manifest\.webmanifest|favicon(?:-dark)?\.svg)"/g;
 // DSH boot-manifest preloads: injectBootManifest (dsh-client-modules >= rc.8)
 // emits blocking <script src="/plugins/..."> tags for @deepseek-ai/dsh-client-modules
 // and @deepseek-ai/dsh-client-runtime before window.__DSH_BOOT__. They are
@@ -87,7 +87,12 @@ const SERVER_STATIC_RE = /(src|href)="(?:\/|\.\/)(manifest\.webmanifest|favicon\
 // and the module-system queue never receives the client-modules registration.
 // The owning webview also maps this loopback port to the extension host; that
 // is required when DSH runs under Remote SSH/WSL/a dev container.
-const PLUGIN_PRELOAD_RE = /(src|href)="(\/plugins\/[^"]+)"/g;
+const PLUGIN_PRELOAD_RE = /(src|href)="((?:\.\/|\/)?plugins\/[^"]+)"/g;
+
+function serverPluginUrl(ref: string, serverBase: string): string | undefined {
+  const path = ref.replace(/^(?:\.\/|\/)/, "");
+  return path.startsWith("plugins/") ? `${serverBase}/${path}` : undefined;
+}
 
 interface AssetRef {
   /** Server request target, including a query string when present. */
@@ -152,7 +157,9 @@ export function rewriteBootPluginUrls(html: string, serverBase: string): string 
     return html;
   }
   for (const item of [...(graph.entries ?? []), ...(graph.batches ?? [])]) {
-    if (item.url?.startsWith("/")) item.url = serverBase + item.url;
+    if (typeof item.url !== "string") continue;
+    item.url = serverPluginUrl(item.url, serverBase)
+      ?? (item.url.startsWith("/") ? serverBase + item.url : item.url);
   }
   const next = JSON.stringify(graph).replaceAll("<", "\\u003c");
   return html.replace(m[1], next);
@@ -167,7 +174,10 @@ export function rewriteBootPluginUrls(html: string, serverBase: string): string 
  * empty ("Failed to load plugins / HTML did not preload .../client.js").
  */
 export function rewriteBootPluginPreloads(html: string, serverBase: string): string {
-  return html.replace(PLUGIN_PRELOAD_RE, (_m, attr: string, url: string) => `${attr}="${serverBase}${url}"`);
+  return html.replace(PLUGIN_PRELOAD_RE, (original, attr: string, url: string) => {
+    const absolute = serverPluginUrl(url, serverBase);
+    return absolute ? `${attr}="${absolute}"` : original;
+  });
 }
 
 function buildCsp(cspSource: string): string {

@@ -92,6 +92,17 @@ test("rewriteBootPluginUrls rewrites DSH 0.1.2 batched plugin urls", () => {
   assert.ok(!out.includes('"url":"/plugins/'));
 });
 
+test("rewrites 0.1.7 base-relative preloads, boot entries, and both application batches", () => {
+  const base = "http://127.0.0.1:9999";
+  const html = `<base href="./"><link rel="preload" href="plugins/??a/client.js&amp;rev=1"><script src="./plugins/??b/client.js&amp;rev=2"></script><script>globalThis["__DSH_BOOT__"] = {"rev":"r","entries":[{"url":"plugins/a/client.js"}],"batches":[{"phase":"application","url":"./plugins/??a/client.js"},{"phase":"application","url":"plugins/??b/client.js"}]}</script>`;
+  const out = rewriteBootPluginPreloads(rewriteBootPluginUrls(html, base), base);
+  for (const ref of ["plugins/??a/client.js&amp;rev=1", "plugins/??b/client.js&amp;rev=2", "plugins/a/client.js", "plugins/??a/client.js", "plugins/??b/client.js"]) {
+    assert.ok(out.includes(`${base}/${ref}`), ref);
+  }
+  assert.ok(!/(?:src|href)="(?:\.\/)?plugins\//.test(out));
+  assert.ok(!/"url":"(?:\.\/)?plugins\//.test(out));
+});
+
 test("rewriteBootPluginPreloads makes preload script src absolute (rc.8 boot manifest)", () => {
   const html = `<head><script>(()=>{window.__ModuleLoader__={mode:"queue"}})()</script><script src="/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=m1"></script><script src="/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=r1"></script><script>window.__DSH_BOOT__ = {"entries":[{"id":"p","url":"/plugins/p/client.js?rev=1"}]}</script></head>`;
   const out = rewriteBootPluginPreloads(html, "http://127.0.0.1:9999");

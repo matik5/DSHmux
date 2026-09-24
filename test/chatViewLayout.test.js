@@ -41,6 +41,7 @@ test("compact chrome is capped below the approved 44 CSS px budget", () => {
   assert.deepEqual(tabOrder, [...tabOrder].sort((a, b) => a - b));
   assert.match(chromeSource, /id="dshmux-full-text" type="checkbox"/);
   assert.match(chromeSource, /id="dshmux-process-action"/);
+  assert.match(chromeSource, /id="dshmux-upgrade-patched"[^>]*data-command="upgrade-patched"/);
   const overflowSource = chromeSource.slice(
     chromeSource.indexOf('id="dshmux-overflow"'),
     chromeSource.indexOf('id="dshmux-overlay"')
@@ -101,8 +102,8 @@ test("existing extension identity and host-safe configuration remain intact", ()
   assert.ok(pkg.capabilities?.untrustedWorkspaces?.restrictedConfigurations?.includes("dshmux.dshPath"));
 });
 
-test("feature release manifests agree on version 0.4.8", () => {
-  assert.equal(pkg.version, "0.4.8");
-  assert.equal(lock.version, "0.4.8");
-  assert.equal(lock.packages?.[""]?.version, "0.4.8");
+test("feature release manifests agree on version 0.4.9", () => {
+  assert.equal(pkg.version, "0.4.9");
+  assert.equal(lock.version, "0.4.9");
+  assert.equal(lock.packages?.[""]?.version, "0.4.9");
 });
