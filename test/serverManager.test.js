@@ -58,7 +58,7 @@ function fakeDshJs(dir, opts = {}) {
     ? `require("node:fs").writeFileSync(${JSON.stringify(opts.recordArgs)}, JSON.stringify(process.argv.slice(2)));\n`
     : "";
   const body = [
-    'if (process.argv.includes("--version")) { process.stdout.write("0.1.1-test\\n"); process.exit(0); }',
+    `if (process.argv.includes("--version")) { process.stdout.write(${JSON.stringify((opts.version ?? "0.1.1-test") + "\n")}); process.exit(0); }`,
     `if (process.argv.includes("--help")) { ${helpOut}process.exit(0); }`,
     opts.failMessage
       ? `process.stderr.write(${JSON.stringify(`${opts.failMessage}\n`)}); process.exit(42);`
@@ -549,6 +549,19 @@ test("start() passes --no-open when the live web --help supports it (rc mismatch
   const spawned = JSON.parse(fs.readFileSync(argsFile, "utf8"));
   assert.ok(spawned.includes("--no-open"), `expected --no-open in spawn args, got ${JSON.stringify(spawned)}`);
   const exited = new Promise((r) => manager.once("exit", r));
+  manager.stop();
+  await exited;
+});
+
+test("start() passes --no-open for a modern DSH even when help misses the flag", async (t) => {
+  const dir = tmpdir(t);
+  const argsFile = path.join(dir, "args.json");
+  const bin = fakeDshJs(dir, { version: "0.1.7-rc.1", recordArgs: argsFile });
+  const manager = new DshServerManager();
+  await manager.start({ dshBin: bin, cwd: dir });
+  const spawned = JSON.parse(fs.readFileSync(argsFile, "utf8"));
+  assert.ok(spawned.includes("--no-open"), `expected --no-open in spawn args, got ${JSON.stringify(spawned)}`);
+  const exited = new Promise((resolve) => manager.once("exit", resolve));
   manager.stop();
   await exited;
 });

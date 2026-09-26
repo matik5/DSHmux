@@ -374,10 +374,9 @@ const noOpenProbeCache = new Map<string, boolean | null>();
  * dsh CLI — the CLI version cannot tell which web-app rc an npx cache
  * resolved ("CLI rc.7 + web-app rc.8" mixes exist and would wrongly skip the
  * flag → dsh auto-opens a browser), and passing the unknown option on old
- * web-apps makes commander exit and kills startup. The live `--help` text is
- * authoritative regardless of the CLI/web-app pairing. Returns null when the
- * probe itself fails (missing binary, timeout) — callers fall back to the
- * CLI-version gate.
+ * web-apps makes commander exit and kills startup. A positive `--help` result
+ * also covers mixed versions where the CLI reports an older version. Returns
+ * null when the probe itself fails (missing binary, timeout).
  */
 export function probeNoOpenSupport(bin: string): boolean | null {
   if (noOpenProbeCache.has(bin)) return noOpenProbeCache.get(bin)!;
@@ -669,11 +668,12 @@ export class DshServerManager extends EventEmitter {
     const args = ["web", "--port", "0"];
     // rc.8+ auto-opens the default browser (openBrowser default true); the
     // embedded-UI use case must suppress it. The --no-open flag is owned by
-    // dsh-web-app, not the CLI, so decide by probing the live `web --help`
-    // (authoritative even under a CLI/web-app rc mismatch); when the probe
-    // itself fails, fall back to the CLI-version gate (03-upgrade-channels R1).
+    // dsh-web-app, not the CLI. Either a live help result or a known modern
+    // version is sufficient. A negative help probe can be stale or incomplete
+    // in the extension host; letting it override a modern version opens the
+    // external browser on every start.
     const noOpenProbe = probeNoOpenSupport(bin);
-    const passNoOpen = noOpenProbe ?? shouldPassNoOpen(version ?? undefined);
+    const passNoOpen = noOpenProbe === true || shouldPassNoOpen(version ?? undefined);
     if (passNoOpen) args.push("--no-open");
     args.push(...(opts.extraArgs ?? []));
 
