@@ -78,6 +78,12 @@
           "scope": "machine-overridable",
           "description": "%setting.dshPath.description%"
         },
+        "dshmux.panTokenFile": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Path to a local 0600 PAN event token file. Empty disables quiet turn-end reporting."
+        },
         "dshmux.themeSync": {
           "type": "string",
           "enum": [

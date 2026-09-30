@@ -14,8 +14,9 @@ import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates } from "./versionCheckService.js";
-import { configuredDshBin } from "./configuration.js";
+import { configuredDshBin, dshmuxConfiguration } from "./configuration.js";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
+import { PanLifecycleObserver } from "./panLifecycle.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -35,6 +36,19 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
+  const panLifecycle = new PanLifecycleObserver(manager, context.workspaceState,
+    () => dshmuxConfiguration("panTokenFile", ""));
+  context.subscriptions.push(panLifecycle);
+  manager.on("state", (info) => {
+    if (info.state === "ready") panLifecycle.start(workspaceRoot());
+    else panLifecycle.stop();
+  });
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration("dshmux.panTokenFile")) {
+      panLifecycle.stop();
+      if (manager?.state === "ready") panLifecycle.start(workspaceRoot());
+    }
+  }));
 
   const theme = registerThemeSync(
     context,
@@ -123,6 +137,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (normalizePath(newRoot) !== normalizePath(trackedRoot)) {
         trackedRoot = newRoot;
         panels.closeAll();
+        panLifecycle.stop();
+        if (manager?.state === "ready") panLifecycle.start(newRoot);
       }
     })
   );
