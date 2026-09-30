@@ -36,10 +36,12 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     agentId: "agent-1", request: {questions: [{id: "pick", header: "Choice",
       question: "Which one?", options: [{label: "First"}, {label: "Second"}]}]}};
   let socket;
+  let streamId;
   server.on("connection", ws => {
     socket = ws;
     ws.once("message", bytes => {
       const open = JSON.parse(bytes.toString());
+      streamId = open.streamId;
       assert.equal(open.endpoint, "$events");
       ws.send(JSON.stringify({type: "item", streamId: open.streamId,
         value: {type: "ready", clientId: "client-1", host: {home: tmp}}}));
@@ -52,6 +54,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
   let answer;
   let result;
   let acked = false;
+  let cancelled = false;
   let questionPosts = 0;
   const fetchImpl = async (url, options) => {
     const endpoint = new URL(String(url)).pathname;
@@ -69,8 +72,10 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     if (endpoint === "/api/v1/mailbox/responses") return jsonResponse({ok: true, responses: answer ? [answer] : []});
     if (endpoint === "/api/$events/result") {
       result = JSON.parse(options.body).payload.args;
+      socket.send(JSON.stringify({type: "item", streamId, value: {type: "cancel", eventId}}));
       return jsonResponse({result: {ok: true}});
     }
+    if (endpoint.endsWith("/cancel")) { cancelled = true; return jsonResponse({ok: true}); }
     if (endpoint.endsWith("/ack")) { acked = true; return jsonResponse({ok: true}); }
     throw new Error(`unexpected ${endpoint}`);
   };
@@ -98,6 +103,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     await until(() => acked);
     assert.equal(result.eventId, eventId);
     assert.deepEqual(result.outcome, {kind: "result", value: {answers: [{id: "pick", selected: ["Second"]}]}});
+    assert.equal(cancelled, false, "our own result must not cancel its PAN answer");
   } finally {
     bridge.dispose();
     socket?.close();

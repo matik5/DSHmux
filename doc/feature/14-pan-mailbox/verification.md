@@ -4,7 +4,7 @@ R1/R3/R6: `src/extension.ts` constructs `PanQuestionBridge` and starts it on DSH
 
 R2: the same test encrypts a viewer response, checks route metadata, and asserts that `$events/result` receives the original DSH event ID and selected label. PAN ack occurs after the DSH result succeeds.
 
-R4: the request ID is derived from the Host event ID. The exact encrypted body is saved locally with 0600 permissions for idempotent retry. A `cancel` frame calls PAN cancellation and removes the spool file. A second test checks this behavior. A post-reconnect sweep cancels spool records no longer present in the DSH event stream.
+R4: the request ID is derived from the Host event ID. The exact encrypted body is saved locally with 0600 permissions for idempotent retry. A competing desktop result's `cancel` frame calls PAN cancellation and removes the spool file. A second test checks this behavior. The answer test also injects the DSH `cancel` emitted by our own winning result and confirms that it does not cancel the PAN response. A post-reconnect sweep cancels spool records no longer present in the DSH event stream.
 
 R5: a third test proves multi-select is delegated with `next` and PAN is not called. The same guard rejects multiple questions and oversized content.
 

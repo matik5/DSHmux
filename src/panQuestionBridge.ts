@@ -18,7 +18,7 @@ type Invocation = { type: "waterfall"; event: "user-questions/request"; eventId:
   agentId: string; request: { questions: Question[] } };
 type Context = { source_id: string; viewer_public_key: Uint8Array; private_key: Uint8Array };
 type Pending = { frame: Invocation; requestId: string; body?: RecordValue; questionId?: string;
-  cancelled: boolean; processing: boolean; delivering: boolean };
+  cancelled: boolean; processing: boolean; delivering: boolean; settling: boolean; resultAccepted: boolean };
 
 function record(value: unknown): value is RecordValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -173,7 +173,9 @@ export class PanQuestionBridge implements vscode.Disposable {
       }
       for (const pending of this.pending.values()) {
         if (pending.body && !pending.questionId && !pending.processing) await this.postQuestion(pending);
-        if (pending.cancelled && !pending.processing && pending.questionId) await this.cancel(pending.frame.eventId);
+        if (pending.cancelled && !pending.resultAccepted && !pending.processing && pending.questionId) {
+          await this.cancel(pending.frame.eventId);
+        }
       }
       if (this.clientId && this.pending.size) await this.pollAnswers();
     } catch (error) {
@@ -263,7 +265,8 @@ export class PanQuestionBridge implements vscode.Disposable {
   private async handle(frame: Invocation): Promise<void> {
     const existing = this.pending.get(frame.eventId);
     if (existing) { existing.frame = frame; return; }
-    const pending: Pending = {frame, requestId: stableId(frame.eventId), cancelled: false, processing: true, delivering: false};
+    const pending: Pending = {frame, requestId: stableId(frame.eventId), cancelled: false,
+      processing: true, delivering: false, settling: false, resultAccepted: false};
     this.pending.set(frame.eventId, pending);
     try {
       const context = await this.cryptoContext();
@@ -295,6 +298,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     const pending = this.pending.get(eventId);
     if (!pending) return;
     pending.cancelled = true;
+    if (pending.settling || pending.resultAccepted) return;
     if (pending.processing || !pending.questionId) return;
     try { await this.pan("POST", `/api/v1/mailbox/questions/${pending.requestId}/cancel`, {}); }
     catch (error) { console.warn("[dsh] PAN question cancellation:", error instanceof Error ? error.message : String(error)); return; }
@@ -307,7 +311,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     const response = await this.pan("GET", "/api/v1/mailbox/responses");
     if (!Array.isArray(response.responses)) return;
     for (const pending of this.pending.values()) {
-      if (pending.cancelled || pending.delivering || !pending.questionId) continue;
+      if ((pending.cancelled && !pending.resultAccepted) || pending.delivering || !pending.questionId) continue;
       const answer = response.responses.find(value => record(value) && value.request_id === pending.requestId);
       if (!record(answer)) continue;
       pending.delivering = true;
@@ -342,7 +346,13 @@ export class PanQuestionBridge implements vscode.Disposable {
     if (message.length > 4000 || (index < 0 && !message)) throw new Error("PAN answer is empty or too long");
     const selected = index >= 0 ? [q.options![index]!.label] : [];
     const value = {answers: [{id: q.id, selected, ...(message ? {custom: message} : {})}]};
-    await this.result(pending.frame.eventId, {kind: "result", value});
+    if (!pending.resultAccepted) {
+      pending.settling = true;
+      try {
+        await this.result(pending.frame.eventId, {kind: "result", value});
+        pending.resultAccepted = true;
+      } finally { pending.settling = false; }
+    }
     await this.pan("POST", `/api/v1/mailbox/responses/${answer.question_id}/ack`, {response_id: answer.response_id});
     this.pending.delete(pending.frame.eventId);
     fs.rmSync(this.spoolPath(pending.requestId), {force: true});
