@@ -1,0 +1,1 @@
+- ⏭️ T5 — After the owner creates the viewer vault, ask a live DSH question, answer on iPhone, and verify ACKED in PAN monitor. The viewer vault is not initialized yet; the adapter is installed but deliberately delegates to the desktop until it exists.

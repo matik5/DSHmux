@@ -17,6 +17,7 @@ import { checkForUpdates } from "./versionCheckService.js";
 import { configuredDshBin, dshmuxConfiguration } from "./configuration.js";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
 import { PanLifecycleObserver } from "./panLifecycle.js";
+import { PanQuestionBridge } from "./panQuestionBridge.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -38,15 +39,19 @@ export function activate(context: vscode.ExtensionContext): void {
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
   const panLifecycle = new PanLifecycleObserver(manager, context.workspaceState,
     () => dshmuxConfiguration("panTokenFile", ""));
-  context.subscriptions.push(panLifecycle);
+  const panQuestions = new PanQuestionBridge(manager,
+    () => dshmuxConfiguration("panTokenFile", ""),
+    () => dshmuxConfiguration("panMailboxKeyFile", ""));
+  context.subscriptions.push(panLifecycle, panQuestions);
   manager.on("state", (info) => {
-    if (info.state === "ready") panLifecycle.start(workspaceRoot());
-    else panLifecycle.stop();
+    if (info.state === "ready") { panLifecycle.start(workspaceRoot()); panQuestions.start(); }
+    else { panLifecycle.stop(); panQuestions.stop(); }
   });
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
-    if (event.affectsConfiguration("dshmux.panTokenFile")) {
+    if (event.affectsConfiguration("dshmux.panTokenFile") || event.affectsConfiguration("dshmux.panMailboxKeyFile")) {
       panLifecycle.stop();
-      if (manager?.state === "ready") panLifecycle.start(workspaceRoot());
+      panQuestions.stop();
+      if (manager?.state === "ready") { panLifecycle.start(workspaceRoot()); panQuestions.start(); }
     }
   }));
 

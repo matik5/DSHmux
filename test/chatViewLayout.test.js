@@ -84,7 +84,8 @@ test("chat webview retains context and packaged media includes chrome assets", (
     /registerWebviewViewProvider\(DshChatView\.viewType, chatView, \{[\s\S]*?retainContextWhenHidden: true/
   );
   assert.ok(pkg.files.includes("media/**"));
-  assert.deepEqual(pkg.dependencies, { ws: "^8.21.3" }, "UI feature must add no runtime package");
+  assert.deepEqual(pkg.dependencies, {"libsodium-wrappers-sumo": "^0.8.4", ws: "^8.21.3"},
+    "only the WebSocket and PAN mailbox crypto runtimes are packaged");
   assert.match(extensionSource, /panels\.open\([\s\S]*?JSON\.stringify\(\{ sessionId \}\)/);
 });
 

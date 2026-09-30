@@ -38,6 +38,8 @@
     "README.zh.md",
     "media/icon.png",
     "node_modules/ws/**",
+    "node_modules/libsodium-wrappers-sumo/**",
+    "node_modules/libsodium-sumo/**",
     "CHANGELOG.md",
     "CHANGELOG.zh.md"
   ],
@@ -83,6 +85,12 @@
           "default": "",
           "scope": "machine-overridable",
           "description": "Path to a local 0600 PAN event token file. Empty disables quiet turn-end reporting."
+        },
+        "dshmux.panMailboxKeyFile": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Path to the local 0600 PAN mailbox private key. Empty disables question forwarding. A missing key is created only if the PAN source has no key registered."
         },
         "dshmux.themeSync": {
           "type": "string",
@@ -160,6 +168,7 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
+    "libsodium-wrappers-sumo": "^0.8.4",
     "ws": "^8.21.3"
   },
   "activationEvents": [
