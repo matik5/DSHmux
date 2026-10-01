@@ -1127,6 +1127,16 @@ export class DshServerManager extends EventEmitter {
     return { items, archivedItems };
   }
 
+  /** Read metadata for the exact asking Agent/Session, regardless of active chat. */
+  async describeQuestionSession(sessionId: string): Promise<{ title?: string; cwd?: string } | undefined> {
+    const list = await this.api("session.list", {});
+    const session = (list.items ?? []).find((item: any) => item.sessionId === sessionId);
+    if (!session) return undefined;
+    const title = session.projections?.values?.title;
+    return {title: typeof title === "string" ? title : undefined,
+      cwd: typeof session.cwd === "string" ? session.cwd : undefined};
+  }
+
   /** Search visible DSH session message content without activating a session. */
   async searchSessions(query: string): Promise<SessionSearchResult> {
     const value = await this.api("session.search", { query });

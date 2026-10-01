@@ -1201,3 +1201,19 @@ test("sameFsPath matches normalized and realpath forms", (t) => {
     assert.equal(sameFsPath(link + "/", real), true);
   }
 });
+
+
+test("question session description matches exact ID across workspaces", async () => {
+  const manager = Object.create(DshServerManager.prototype);
+  manager.api = async (method, payload) => {
+    assert.equal(method, "session.list"); assert.deepEqual(payload, {});
+    return {items: [
+      {sessionId: "active-other", cwd: "/projects/Other", projections: {values: {title: "Wrong chat"}}},
+      {sessionId: "asking", cwd: "/projects/Billing", projections: {values: {title: "Fix invoices"}}},
+      {sessionId: "unnamed", cwd: "/projects/Empty", projections: {values: {title: null}}},
+    ]};
+  };
+  assert.deepEqual(await manager.describeQuestionSession("asking"), {title: "Fix invoices", cwd: "/projects/Billing"});
+  assert.equal(await manager.describeQuestionSession("unknown-child"), undefined);
+  assert.deepEqual(await manager.describeQuestionSession("unnamed"), {title: undefined, cwd: "/projects/Empty"});
+});

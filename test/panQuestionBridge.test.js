@@ -79,7 +79,11 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     if (endpoint.endsWith("/ack")) { acked = true; return jsonResponse({ok: true}); }
     throw new Error(`unexpected ${endpoint}`);
   };
-  const manager = {serverUrl: `http://127.0.0.1:${port}`, authCookie: "test=cookie"};
+  const manager = {serverUrl: `http://127.0.0.1:${port}`, authCookie: "test=cookie",
+    describeQuestionSession: async id => {
+      assert.equal(id, "agent-1");
+      return {title: "Database migration", cwd: "/private/projects/Billing"};
+    }};
   const bridge = new PanQuestionBridge(manager, () => tokenFile, () => keyFile, fetchImpl);
   try {
     bridge.start();
@@ -89,6 +93,9 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     const plaintext = JSON.parse(sodium.to_string(sodium.crypto_box_open_easy(
       decode(posted.ciphertext), decode(posted.nonce), agentPublic, viewer.privateKey)));
     assert.equal(plaintext.prompt, "Which one?");
+    assert.deepEqual(plaintext.context, {chat_name: "Database migration", project_name: "Billing"});
+    assert.equal(posted.context, undefined);
+    assert.doesNotMatch(JSON.stringify(posted), /Database migration|Billing|private\/projects/);
     assert.equal(plaintext.choices[1].label, "Second");
     assert.equal(plaintext.request_id, questionPayload(frame, "source-1").requestId);
     const responseId = "3427c05e-9b76-4e7e-961d-e94ac2f7b143";
@@ -198,4 +205,24 @@ test("multi-select question delegates to DSH desktop without posting to PAN", as
     await new Promise(resolve => server.close(resolve));
     fs.rmSync(tmp, {recursive: true, force: true});
   }
+});
+
+
+test("display metadata changes neither routing IDs nor old spool ciphertext", async () => {
+  const frame = {eventId: "45936f2c-3456-4d86-a101-d6f217b48ebc", agentId: "agent-1",
+    request: {questions: [{id: "q", question: "Continue?"}]}};
+  const plain = questionPayload(frame, "source");
+  const named = questionPayload(frame, "source", {project_name: "Billing", chat_name: "Fix"});
+  assert.equal(named.requestId, plain.requestId);
+  assert.equal(named.workstreamId, plain.workstreamId);
+  assert.equal(named.runId, plain.runId);
+  const bridge = new PanQuestionBridge({describeQuestionSession: async () => { throw new Error("offline"); }}, () => "", () => "");
+  assert.equal(await bridge.displayContext(frame), undefined);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-pan-spool-context-"));
+  const spoolBridge = new PanQuestionBridge({}, () => "", () => path.join(tmp, "key"));
+  try {
+    const original = {ciphertext: "already-encrypted", workstream_id: plain.workstreamId};
+    fs.writeFileSync(spoolBridge.spoolPath(plain.requestId), JSON.stringify(original), {mode: 0o600});
+    assert.deepEqual(spoolBridge.encryptedBody(frame, {source_id: "source"}, named.plaintext.context).body, original);
+  } finally { fs.rmSync(tmp, {recursive: true, force: true}); }
 });

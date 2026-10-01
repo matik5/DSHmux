@@ -17,6 +17,7 @@ type Question = { id: string; question: string; header?: string; detail?: string
 type Invocation = { type: "waterfall"; event: "user-questions/request"; eventId: string;
   agentId: string; request: { questions: Question[] } };
 type Context = { source_id: string; viewer_public_key: Uint8Array; private_key: Uint8Array };
+type DisplayContext = { project_name?: string; chat_name?: string };
 type Pending = { frame: Invocation; requestId: string; body?: RecordValue; questionId?: string;
   cancelled: boolean; processing: boolean; delivering: boolean; settling: boolean; resultAccepted: boolean };
 
@@ -63,7 +64,7 @@ function wireQuestion(value: unknown): Invocation | undefined {
   return value as Invocation;
 }
 
-export function questionPayload(frame: Invocation, sourceId: string): { requestId: string; plaintext: RecordValue;
+export function questionPayload(frame: Invocation, sourceId: string, display?: DisplayContext): { requestId: string; plaintext: RecordValue;
   workstreamId: string; runId: string } {
   const q = frame.request.questions[0]!;
   const workstreamId = ID.test(frame.agentId) ? frame.agentId : `agent.${stableId(frame.agentId)}`;
@@ -78,6 +79,7 @@ export function questionPayload(frame: Invocation, sourceId: string): { requestI
   return {requestId, workstreamId, runId, plaintext: {
     version: 1, direction: "agent_to_viewer", source_id: sourceId, request_id: requestId,
     workstream_id: workstreamId, run_id: runId, title, prompt, choices, allow_message: true,
+    ...(display && Object.keys(display).length ? {context: display} : {}),
   }};
 }
 
@@ -246,8 +248,21 @@ export class PanQuestionBridge implements vscode.Disposable {
     }
   }
 
-  private encryptedBody(frame: Invocation, context: Context): {body: RecordValue; requestId: string} {
-    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id);
+  private async displayContext(frame: Invocation): Promise<DisplayContext | undefined> {
+    try {
+      const session = await this.manager.describeQuestionSession(frame.agentId);
+      if (!session) return undefined;
+      const chat = session.title?.trim().slice(0, 200);
+      const project = session.cwd?.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop()?.trim().slice(0, 200);
+      return {...(chat ? {chat_name: chat} : {}), ...(project ? {project_name: project} : {})};
+    } catch {
+      // Metadata availability must never prevent a question or guess another chat.
+      return undefined;
+    }
+  }
+
+  private encryptedBody(frame: Invocation, context: Context, display?: DisplayContext): {body: RecordValue; requestId: string} {
+    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id, display);
     const file = this.spoolPath(requestId);
     if (fs.existsSync(file)) return {body: JSON.parse(privateFile(file)) as RecordValue, requestId};
     const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
@@ -270,7 +285,8 @@ export class PanQuestionBridge implements vscode.Disposable {
     this.pending.set(frame.eventId, pending);
     try {
       const context = await this.cryptoContext();
-      const {body} = this.encryptedBody(frame, context);
+      const display = fs.existsSync(this.spoolPath(pending.requestId)) ? undefined : await this.displayContext(frame);
+      const {body} = this.encryptedBody(frame, context, display);
       pending.body = body;
       await this.postQuestion(pending);
       if (!pending.cancelled) await this.pollAnswers();
