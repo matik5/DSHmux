@@ -124,6 +124,7 @@ export class PanQuestionBridge implements vscode.Disposable {
   dispose(): void { this.stop(); }
 
   private async pan(method: string, endpoint: string, body?: RecordValue): Promise<RecordValue> {
+    if (!this.active) throw new Error("PAN question bridge is stopped");
     const token = privateFile(this.tokenFile().trim());
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -144,6 +145,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     await sodium.ready;
     const info = await this.pan("GET", "/api/v1/mailbox/bootstrap");
     if (typeof info.source_id !== "string" || typeof info.viewer_public_key !== "string") throw new Error("PAN bootstrap invalid");
+    if (!this.active) throw new Error("PAN question bridge is stopped");
     const keyPath = this.keyFile().trim();
     let privateKey: Uint8Array;
     if (fs.existsSync(keyPath)) {
@@ -285,7 +287,9 @@ export class PanQuestionBridge implements vscode.Disposable {
     this.pending.set(frame.eventId, pending);
     try {
       const context = await this.cryptoContext();
+      if (!this.active) return;
       const display = fs.existsSync(this.spoolPath(pending.requestId)) ? undefined : await this.displayContext(frame);
+      if (!this.active) return;
       const {body} = this.encryptedBody(frame, context, display);
       pending.body = body;
       await this.postQuestion(pending);
@@ -376,7 +380,7 @@ export class PanQuestionBridge implements vscode.Disposable {
 
   private async result(eventId: string, outcome: RecordValue): Promise<void> {
     const base = this.manager.serverUrl;
-    if (!base || !this.clientId) throw new Error("DSH event stream is not ready");
+    if (!this.active || !base || !this.clientId) throw new Error("DSH event stream is not ready");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {

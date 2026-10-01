@@ -226,3 +226,35 @@ test("display metadata changes neither routing IDs nor old spool ciphertext", as
     assert.deepEqual(spoolBridge.encryptedBody(frame, {source_id: "source"}, named.plaintext.context).body, original);
   } finally { fs.rmSync(tmp, {recursive: true, force: true}); }
 });
+
+test("disabling while bootstrap is in flight creates no key and forwards no question", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-pan-stop-"));
+  const tokenFile = path.join(tmp, "token");
+  const keyFile = path.join(tmp, "key");
+  fs.writeFileSync(tokenFile, "test-token\n", {mode: 0o600});
+  let release;
+  let calls = 0;
+  const bridge = new PanQuestionBridge({}, () => tokenFile, () => keyFile, async () => {
+    calls++;
+    return new Promise(resolve => { release = () => resolve(jsonResponse({ok: true,
+      source_id: "source", viewer_public_key: "unused", agent_public_key: null})); });
+  });
+  const warn = console.warn;
+  console.warn = () => undefined;
+  try {
+    bridge.active = true;
+    const handling = bridge.handle({eventId: "45936f2c-3456-4d86-a101-d6f217b48ebc", agentId: "agent-1",
+      request: {questions: [{id: "q", question: "Continue?"}]}});
+    await until(() => release);
+    bridge.dispose();
+    release();
+    await handling;
+    assert.equal(calls, 1);
+    assert.equal(fs.existsSync(keyFile), false);
+    assert.equal(fs.existsSync(path.join(tmp, "dshmux-questions")), false);
+  } finally {
+    console.warn = warn;
+    bridge.dispose();
+    fs.rmSync(tmp, {recursive: true, force: true});
+  }
+});

@@ -11,5 +11,8 @@
   "setting.frameFontScale.description": "内嵌 DSH 界面内容的缩放（1 = 默认大小）。数值越小，DSH 界面越紧凑。",
   "command.openPanel.title": "打开面板",
   "command.doctor.title": "运行 DSH 诊断",
-  "view.chat.name": "DSHmux"
+  "view.chat.name": "DSHmux",
+  "setting.panEnabled.description": "启用实验性的 PAN 集成，用于静默回合结束通知和加密问答。默认关闭；仅配置凭据路径不会启用。更改立即生效。",
+  "setting.panTokenFile.description": "扩展主机上的本地私密（0600）PAN 令牌文件路径。需启用 PAN 集成。留空会停用两种 PAN 流程。",
+  "setting.panMailboxKeyFile.description": "扩展主机上的本地私密（0600）PAN 邮箱密钥路径。需启用 PAN 集成并配置令牌。留空会停用问题转发。只有尚未注册来源密钥时才创建缺失的密钥。"
 }

@@ -68,6 +68,18 @@ To make DSH use your project as its default workspace, open that folder in the w
 | `dshmux.soundAsk` | `true` | Play a sound when the harness asks for your input, such as a question or approval prompt (requires the master switch). |
 | `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |
 
+## Optional PAN integration (experimental)
+
+PAN is **off by default** and is not required for normal DSH chat. Set `dshmux.panEnabled` to `true` to enable quiet turn-end reporting and encrypted forwarding of supported single questions/answers. Existing token/key paths alone do not enable it. Turn it off at any time without restarting DSH.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `dshmux.panEnabled` | `false` | Explicit opt-in for both PAN flows. |
+| `dshmux.panTokenFile` | empty | Absolute path to a private local bearer-token file on the extension host; required for either flow. |
+| `dshmux.panMailboxKeyFile` | empty | Absolute path to a private mailbox key on the extension host; required for questions/answers. Leave empty for quiet events only. |
+
+See [DSHmux PAN client protocol](doc/pan-protocol.md) for configuration, sent/received message formats, encryption, answer validation, ACK, cancellation and retry limits. The PAN counterpart is still under development; this documents the current DSHmux adapter only.
+
 ## Development
 
 ```sh

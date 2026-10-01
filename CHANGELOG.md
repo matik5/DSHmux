@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- PAN integration now requires explicit `dshmux.panEnabled` opt-in (default off), with immediate runtime enable/disable. Credential paths alone no longer enable forwarding.
+- Documented the experimental DSHmux PAN client protocol, including encrypted questions, answers, ACK, cancellation and retry limits.
+
 ## [0.4.9] - 2026-09-24
 
 ### Changed

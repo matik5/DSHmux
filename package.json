@@ -84,13 +84,13 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "description": "Path to a local 0600 PAN event token file. Empty disables quiet turn-end reporting."
+          "description": "%setting.panTokenFile.description%"
         },
         "dshmux.panMailboxKeyFile": {
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "description": "Path to the local 0600 PAN mailbox private key. Empty disables question forwarding. A missing key is created only if the PAN source has no key registered."
+          "description": "%setting.panMailboxKeyFile.description%"
         },
         "dshmux.themeSync": {
           "type": "string",
@@ -131,6 +131,12 @@
           "minimum": 0.5,
           "maximum": 1.5,
           "description": "%setting.frameFontScale.description%"
+        },
+        "dshmux.panEnabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine-overridable",
+          "description": "%setting.panEnabled.description%"
         }
       }
     },

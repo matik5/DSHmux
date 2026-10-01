@@ -67,6 +67,18 @@
 | `dshmux.soundAsk` | `true` | 需要您输入时（例如提问或审批提示）播放提示音（需开启总开关）。 |
 | `dshmux.frameFontScale` | `0.9` | 内嵌 DSH 界面内容的缩放（1 = 默认大小）；数值越小，界面越紧凑。范围 0.5–1.5。 |
 
+## 可选 PAN 集成（实验性）
+
+PAN **默认关闭**，正常 DSH 聊天无需 PAN。设置 `dshmux.panEnabled=true` 可启用静默回合结束通知以及受支持的单问题加密问答。仅配置凭据路径不会启用；关闭后立即停止，无需重启 DSH。
+
+| 设置 | 默认值 | 用途 |
+|---|---|---|
+| `dshmux.panEnabled` | `false` | 显式启用两种 PAN 流程。 |
+| `dshmux.panTokenFile` | 空 | 扩展主机上的私密本地令牌文件绝对路径，两种流程均需配置。 |
+| `dshmux.panMailboxKeyFile` | 空 | 扩展主机上的私密邮箱密钥绝对路径；问答流程需要，留空仅发送静默事件。 |
+
+详见 [DSHmux PAN 客户端协议（英文）](doc/pan-protocol.md)：配置、发送/接收格式、加密、答案校验、确认、取消及重试限制。PAN 对端仍在开发；本文仅说明当前 DSHmux 适配器。
+
 ## 开发
 
 ```sh

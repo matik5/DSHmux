@@ -80,3 +80,17 @@ test("extension-host observer sends live turn and replays after failure", async 
     fs.rmSync(tmp, {recursive: true, force: true});
   }
 });
+
+test("stopped observer drops queued lifecycle delivery", async () => {
+  let requests = 0;
+  let updates = 0;
+  const observer = new PanLifecycleObserver({}, {update: async () => { updates++; }},
+    () => "unused-token", async () => { requests++; });
+  const follow = {cursor: 0, failed: false, pending: Promise.resolve()};
+  observer.active = true;
+  observer.queue("session-1", follow, {type: "turn/end", seq: 1, time: Date.now()});
+  observer.dispose();
+  await follow.pending;
+  assert.equal(requests, 0);
+  assert.equal(updates, 0);
+});

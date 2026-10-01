@@ -160,7 +160,7 @@ export class PanLifecycleObserver implements vscode.Disposable {
     if (follow.failed || !Number.isSafeInteger(raw.seq) || (raw.seq as number) <= (follow.cursor ?? -1)) return;
     follow.pending = follow.pending.then(async () => {
       const seq = raw.seq as number;
-      if (follow.failed) return;
+      if (!this.active || follow.failed) return;
       if (seq <= (follow.cursor ?? -1)) return;
       const event = wireEvent(raw);
       if (event) await this.deliver(sessionId, event);
@@ -174,6 +174,7 @@ export class PanLifecycleObserver implements vscode.Disposable {
   }
 
   private async deliver(sessionId: string, event: WireEvent): Promise<void> {
+    if (!this.active) return;
     const tokenFile = this.tokenFile().trim();
     const token = readToken(tokenFile);
     const controller = new AbortController();

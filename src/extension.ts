@@ -14,10 +14,11 @@ import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates } from "./versionCheckService.js";
-import { configuredDshBin, dshmuxConfiguration } from "./configuration.js";
+import { affectsDshmuxConfiguration, configuredDshBin, dshmuxConfiguration } from "./configuration.js";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
 import { PanLifecycleObserver } from "./panLifecycle.js";
 import { PanQuestionBridge } from "./panQuestionBridge.js";
+import { PanIntegration } from "./panIntegration.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -37,21 +38,22 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
-  const panLifecycle = new PanLifecycleObserver(manager, context.workspaceState,
-    () => dshmuxConfiguration("panTokenFile", ""));
-  const panQuestions = new PanQuestionBridge(manager,
-    () => dshmuxConfiguration("panTokenFile", ""),
-    () => dshmuxConfiguration("panMailboxKeyFile", ""));
-  context.subscriptions.push(panLifecycle, panQuestions);
-  manager.on("state", (info) => {
-    if (info.state === "ready") { panLifecycle.start(workspaceRoot()); panQuestions.start(); }
-    else { panLifecycle.stop(); panQuestions.stop(); }
-  });
+  const panManager = manager;
+  const pan = new PanIntegration(
+    () => new PanLifecycleObserver(panManager, context.workspaceState,
+      () => dshmuxConfiguration("panTokenFile", "")),
+    () => new PanQuestionBridge(panManager,
+      () => dshmuxConfiguration("panTokenFile", ""),
+      () => dshmuxConfiguration("panMailboxKeyFile", ""))
+  );
+  const syncPan = (): void => pan.sync(
+    dshmuxConfiguration("panEnabled", false), panManager.state === "ready", workspaceRoot()
+  );
+  context.subscriptions.push(pan);
+  manager.on("state", syncPan);
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
-    if (event.affectsConfiguration("dshmux.panTokenFile") || event.affectsConfiguration("dshmux.panMailboxKeyFile")) {
-      panLifecycle.stop();
-      panQuestions.stop();
-      if (manager?.state === "ready") { panLifecycle.start(workspaceRoot()); panQuestions.start(); }
+    if (["panEnabled", "panTokenFile", "panMailboxKeyFile"].some(key => affectsDshmuxConfiguration(event, key))) {
+      syncPan();
     }
   }));
 
@@ -142,8 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (normalizePath(newRoot) !== normalizePath(trackedRoot)) {
         trackedRoot = newRoot;
         panels.closeAll();
-        panLifecycle.stop();
-        if (manager?.state === "ready") panLifecycle.start(newRoot);
+        syncPan();
       }
     })
   );
