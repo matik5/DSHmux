@@ -78,6 +78,8 @@ PAN is **off by default** and is not required for normal DSH chat. Set `dshmux.p
 | `dshmux.panTokenFile` | empty | Absolute path to a private local bearer-token file on the extension host; required for either flow. |
 | `dshmux.panMailboxKeyFile` | empty | Absolute path to a private mailbox key on the extension host; required for questions/answers. Leave empty for quiet events only. |
 
+Version0.4.10 requires PAN migration0017/0018 and its runtime-contact/response-evidence API. Reload the VS Code window after installing. Existing private keys and reply queues are retained; harness acceptance is shown separately from model progress.
+
 See [DSHmux PAN client protocol](doc/pan-protocol.md) for configuration, sent/received message formats, encryption, answer validation, ACK, cancellation and retry limits. The PAN counterpart is still under development; this documents the current DSHmux adapter only.
 
 ## Development

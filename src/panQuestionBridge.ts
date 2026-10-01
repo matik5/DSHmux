@@ -39,7 +39,7 @@ function privateFile(file: string): string {
   return fs.readFileSync(file, "utf8").trim();
 }
 
-function stableId(value: string): string {
+export function stableId(value: string): string {
   const bytes = createHash("sha256").update(`dsh-question-v1|${value}`).digest().subarray(0, 16);
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -94,6 +94,7 @@ export class PanQuestionBridge implements vscode.Disposable {
   private reconcileAfter = 0;
   private pending = new Map<string, Pending>();
   private context?: Context;
+  private receiptRetryAt = 0;
 
   constructor(private readonly manager: DshServerManager,
               private readonly tokenFile: () => string,
@@ -171,6 +172,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     this.busy = true;
     try {
       if (!this.socket) this.connect();
+      await this.drainReceipts();
       if (this.clientId && this.reconcileAfter && Date.now() >= this.reconcileAfter) {
         this.reconcileAfter = 0;
         await this.reconcileSpool();
@@ -237,7 +239,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     const active = new Set([...this.pending.values()].map(item => item.requestId));
     for (const name of fs.readdirSync(dir).filter(item => UUID.test(item.replace(/\.json$/, "")) && item.endsWith(".json"))) {
       const requestId = name.slice(0, -5);
-      if (active.has(requestId)) continue;
+      if (active.has(requestId) || fs.existsSync(this.receiptPath(requestId))) continue;
       try {
         const status = await this.pan("GET", `/api/v1/mailbox/questions/${requestId}`);
         if (status.status === "OPEN" || status.status === "ANSWERED") {
@@ -308,6 +310,9 @@ export class PanQuestionBridge implements vscode.Disposable {
 
   private async postQuestion(pending: Pending): Promise<void> {
     if (!pending.body || pending.questionId) return;
+    const workstream = String(pending.body.workstream_id);
+    await this.pan("POST", "/api/v1/contexts", {version: 1, operation_id: stableId(`context:${pending.requestId}`),
+      workstream_id: workstream, session_id: workstream, run_id: pending.body.run_id});
     const result = await this.pan("POST", "/api/v1/mailbox/questions", pending.body);
     if (typeof result.question_id !== "string") throw new Error("PAN question response missing id");
     pending.questionId = result.question_id;
@@ -366,6 +371,18 @@ export class PanQuestionBridge implements vscode.Disposable {
     if (message.length > 4000 || (index < 0 && !message)) throw new Error("PAN answer is empty or too long");
     const selected = index >= 0 ? [q.options![index]!.label] : [];
     const value = {answers: [{id: q.id, selected, ...(message ? {custom: message} : {})}]};
+    const file = this.receiptPath(pending.requestId);
+    const receipt = {source_id: context.source_id, question_id: answer.question_id, accepted: false,
+      ack: {response_id: answer.response_id}, evidence: {version: 1,
+        operation_id: stableId(`delivered:${pending.requestId}:${answer.response_id}`),
+        request_id: pending.requestId, response_id: answer.response_id,
+        workstream_id: values.workstreamId, run_id: values.runId, kind: "delivered"}};
+    if (fs.existsSync(file)) {
+      const prior: unknown = JSON.parse(privateFile(file));
+      if (!record(prior) || prior.source_id !== context.source_id || prior.question_id !== answer.question_id ||
+          !record(prior.ack) || prior.ack.response_id !== answer.response_id) throw new Error("PAN receipt route mismatch");
+      pending.resultAccepted ||= prior.accepted === true;
+    } else this.saveReceipt(file, receipt);
     if (!pending.resultAccepted) {
       pending.settling = true;
       try {
@@ -373,9 +390,48 @@ export class PanQuestionBridge implements vscode.Disposable {
         pending.resultAccepted = true;
       } finally { pending.settling = false; }
     }
-    await this.pan("POST", `/api/v1/mailbox/responses/${answer.question_id}/ack`, {response_id: answer.response_id});
+    // An uncertain external outcome remains prepared, never falsely ACKed on restart.
+    receipt.accepted = true;
+    this.saveReceipt(file, receipt);
+    // Acceptance is durable before PAN ACK; never resubmit it to DSH after restart.
     this.pending.delete(pending.frame.eventId);
-    fs.rmSync(this.spoolPath(pending.requestId), {force: true});
+    await this.flushReceipt(file);
+  }
+
+  private receiptPath(requestId: string): string {
+    const dir = path.join(path.dirname(this.keyFile().trim()), "dshmux-delivery");
+    fs.mkdirSync(dir, {recursive: true, mode: 0o700});
+    return path.join(dir, `${requestId}.json`);
+  }
+
+  private saveReceipt(file: string, value: RecordValue): void {
+    const temp = `${file}.${process.pid}.tmp`;
+    const fd = fs.openSync(temp, "w", 0o600);
+    try { fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(temp, file);
+  }
+
+  private async flushReceipt(file: string): Promise<void> {
+    const saved: unknown = JSON.parse(privateFile(file));
+    const context = await this.cryptoContext();
+    if (!record(saved) || saved.source_id !== context.source_id || typeof saved.question_id !== "string" ||
+        !record(saved.ack) || !record(saved.evidence) || typeof saved.evidence.request_id !== "string") {
+      throw new Error("PAN receipt route invalid; journal retained");
+    }
+    if (saved.accepted !== true) return; // Await live invocation or explicit operator reconciliation.
+    await this.pan("POST", `/api/v1/mailbox/responses/${saved.question_id}/ack`, saved.ack);
+    await this.pan("POST", `/api/v1/mailbox/responses/${saved.question_id}/evidence`, saved.evidence);
+    fs.rmSync(this.spoolPath(saved.evidence.request_id), {force: true});
+    fs.rmSync(file, {force: true});
+  }
+
+  private async drainReceipts(): Promise<void> {
+    if (Date.now() < this.receiptRetryAt) return;
+    const dir = path.dirname(this.receiptPath(stableId("receipts")));
+    for (const name of fs.readdirSync(dir).filter(name => UUID.test(name.slice(0, -5)) && name.endsWith(".json")).slice(0, 20)) {
+      try { await this.flushReceipt(path.join(dir, name)); }
+      catch (error) { this.receiptRetryAt = Date.now() + 60000; throw error; }
+    }
   }
 
   private async result(eventId: string, outcome: RecordValue): Promise<void> {

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type * as vscode from "vscode";
 import WebSocket from "ws";
@@ -18,6 +18,14 @@ function wireEvent(value: unknown): WireEvent | undefined {
   if (!isRecord(value) || value.type !== "turn/end" || !Number.isSafeInteger(value.seq) ||
       !Number.isFinite(value.time)) return undefined;
   return value as WireEvent;
+}
+
+function identityId(value: string): string {
+  const bytes = createHash("sha256").update(`dsh-question-v1|${value}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function eventId(sessionId: string, seq: number): string {
@@ -54,6 +62,7 @@ interface FollowState {
   pending: Promise<void>;
   cursor: number | undefined;
   failed: boolean;
+  snapshotReady?: boolean;
 }
 
 /** Runs in the extension host, independently of all DSHmux webviews. */
@@ -63,6 +72,8 @@ export class PanLifecycleObserver implements vscode.Disposable {
   private polling = false;
   private active = false;
   private root = "";
+  private lastContact = 0;
+  private declared = new Set<string>();
 
   constructor(private readonly manager: DshServerManager,
               private readonly state: vscode.Memento,
@@ -106,6 +117,21 @@ export class PanLifecycleObserver implements vscode.Disposable {
         this.follows.delete(id);
       }
       for (const id of ids) if (!this.follows.has(id)) this.follow(id);
+      if (Date.now() - this.lastContact >= 60000) {
+        for (const id of ids) {
+          if (!this.declared.has(id)) {
+            const safeId = /^[A-Za-z0-9_.:-]{1,120}$/.test(id) ? id : `agent.${identityId(id)}`;
+            await this.post("/api/v1/contexts", {version: 1, operation_id: identityId(`lifecycle-context:${id}`),
+              workstream_id: safeId, session_id: safeId, run_id: `dsh:${id}`, event_run_id: `dsh:${id}`});
+            this.declared.add(id);
+          }
+        }
+        const live = [...ids].map(id => ({session_id: /^[A-Za-z0-9_.:-]{1,120}$/.test(id) ? id : `agent.${identityId(id)}`,
+          harness_ready: this.follows.get(id)?.snapshotReady === true && this.follows.get(id)?.socket.readyState === WebSocket.OPEN}));
+        for (let i = 0; i < live.length; i += 20) await this.post("/api/v1/runtime/contact", {
+          version: 1, operation_id: randomUUID(), observed_at: new Date().toISOString(), sessions: live.slice(i, i + 20)});
+        this.lastContact = Date.now();
+      }
     } catch (error) {
       console.warn("[dsh] PAN lifecycle session poll failed:", error instanceof Error ? error.message : String(error));
     } finally {
@@ -136,6 +162,8 @@ export class PanLifecycleObserver implements vscode.Disposable {
       if (frame.type !== "item" || !isRecord(frame.value)) return;
       const value = frame.value;
       if (value.type === "snapshot" && Number.isSafeInteger(value.cursor)) {
+        follow.snapshotReady = true;
+        this.lastContact = 0;
         if (follow.cursor === undefined) {
           follow.cursor = value.cursor as number;
           const baseline = follow.cursor;
@@ -171,6 +199,16 @@ export class PanLifecycleObserver implements vscode.Disposable {
       console.warn("[dsh] PAN lifecycle delivery failed:", error instanceof Error ? error.message : String(error));
       follow.socket.close();
     });
+  }
+
+  private async post(endpoint: string, body: Record<string, unknown>): Promise<void> {
+    if (!this.active) throw new Error("PAN observer stopped");
+    const response = await this.fetchImpl(`https://pan.helios-web.xyz${endpoint}`, {
+      method: "POST", signal: AbortSignal.timeout(5000),
+      headers: {Authorization: `Bearer ${readToken(this.tokenFile().trim())}`, "Content-Type": "application/json"},
+      body: JSON.stringify(body)});
+    const result: unknown = await response.json();
+    if (!response.ok || !isRecord(result) || result.ok !== true) throw new Error(`PAN contact HTTP ${response.status}`);
   }
 
   private async deliver(sessionId: string, event: WireEvent): Promise<void> {

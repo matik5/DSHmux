@@ -57,6 +57,7 @@ test("extension-host observer sends live turn and replays after failure", async 
     listWorkspaceSessions: async () => ({items: [{sessionId: "session-1"}], archivedItems: []})};
   const sent = [];
   const fetchImpl = async (_url, options) => {
+    if (!String(_url).endsWith("/events")) return {ok:true, json:async()=>({ok:true})};
     sent.push(JSON.parse(options.body));
     if (sent.length === 1) throw new Error("offline");
     return {ok: true, json: async () => ({ok: true, silent: true})};
@@ -93,4 +94,30 @@ test("stopped observer drops queued lifecycle delivery", async () => {
   await follow.pending;
   assert.equal(requests, 0);
   assert.equal(updates, 0);
+});
+
+test('session contact is host readiness evidence, not model progress or transcript', async()=>{
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pan-contact-'));
+  const token=path.join(tmp,'token');fs.writeFileSync(token,'test-token',{mode:0o600});
+  const server=new WebSocketServer({host:'127.0.0.1',port:0});await new Promise(r=>server.once('listening',r));
+  server.on('connection',socket=>socket.once('message',bytes=>{
+    const frame=JSON.parse(bytes);socket.send(JSON.stringify({type:'item',streamId:frame.streamId,
+      value:{type:'snapshot',cursor:0,records:[]}}));
+  }));
+  const sent=[];
+  const manager={serverUrl:`http://127.0.0.1:${server.address().port}`,listWorkspaceSessions:async()=>({items:[{sessionId:'session-safe'}]})};
+  const observer=new PanLifecycleObserver(manager,{get:()=>undefined,update:async()=>{}},()=>token,
+    async(url,options)=>{sent.push([new URL(String(url)).pathname,JSON.parse(options.body)]);return{ok:true,status:201,json:async()=>({ok:true})};});
+  try{
+    observer.start('/private/SECRET-project');
+    await until(()=>observer.follows.get('session-safe')?.snapshotReady);
+    await until(()=>observer.polling===false);
+    observer.lastContact=0;await observer.poll();
+    const contexts=sent.filter(([route])=>route.endsWith('/contexts'));
+    const contacts=sent.filter(([route])=>route.endsWith('/contact'));
+    assert.equal(contexts.length,1);assert.equal(contexts[0][1].session_id,'session-safe');
+    assert.ok(contacts.some(([,body])=>body.sessions[0].harness_ready===true));
+    assert.doesNotMatch(JSON.stringify(sent),/SECRET|private|title|prompt|transcript/);
+    assert.ok(sent.every(([route])=>!route.endsWith('/events')));
+  }finally{observer.dispose();await new Promise(r=>server.close(r));fs.rmSync(tmp,{recursive:true,force:true});}
 });

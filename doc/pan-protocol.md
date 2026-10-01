@@ -179,15 +179,38 @@ A valid answer is mapped to the **original** question ID and original option lab
 }
 ```
 
-Text-only answers have `selected:[]`; `custom` is omitted for empty text. DSH HTTP success and JSON `{"result":{"ok":true}}` are required. Only then does DSHmux send `POST /api/v1/mailbox/responses/<question_id>/ack` with `{"response_id":"<answer ID>"}`. Successful ACK removes the pending entry and spool file. If ACK fails, the in-memory accepted-result flag lets the bridge retry ACK without resubmitting to DSH.
+Text-only answers have `selected:[]`; `custom` is omitted for empty text. DSH HTTP success and JSON `{"result":{"ok":true}}` are required. Only then does DSHmux send `POST /api/v1/mailbox/responses/<question_id>/ack` with `{"response_id":"<answer ID>"}`. A prepared metadata receipt is saved before the external RPC and marked accepted after success. After ACK, a response-bound delivered evidence receipt is sent to PAN. Only after both succeed are the durable receipt and question spool removed. Accepted receipts survive restart and retry identical ACK/evidence without resubmitting to DSH.
 
 ## Cancellation, retries and current limits
 
 - DSH `cancel` for a question answered elsewhere triggers `POST /api/v1/mailbox/questions/<request_id>/cancel` with `{}`. The spool is removed after successful cancellation. A cancellation emitted while this bridge is settling its own accepted answer is not treated as a competing desktop answer.
 - Failed question POSTs with an existing encrypted envelope are retried on the timer. Failures before an envelope exists delegate to DSH with `kind:next`. After the envelope exists, delivery keeps retrying; it does not automatically delegate on every outage.
-- Reconnection reopens `$events`; after its `ready` frame, a ten-second reconciliation window allows pending questions to replay. For spool IDs no longer pending, DSHmux calls `GET /api/v1/mailbox/questions/<request_id>`, cancels statuses `OPEN`/`ANSWERED`, then deletes the stale file.
-- The ACK-only flag and pending map are in memory, not a durable settlement transaction. Restart/reconnect recovery depends on the DSH replay and mailbox status; exactly-once delivery across crashes is not guaranteed. Expiration is sent to PAN, not enforced by a local expiry timer.
+- Reconnection reopens `$events`; after its `ready` frame, a ten-second reconciliation window allows pending questions to replay. Prepared/accepted receipt IDs are preserved. For other spool IDs no longer pending, DSHmux calls `GET /api/v1/mailbox/questions/<request_id>`, cancels statuses `OPEN`/`ANSWERED`, then deletes the stale file.
+- The invocation map is in memory; handover receipts are durable. A crash or lost external reply between prepared and accepted leaves an uncertain receipt. It is not automatically acknowledged, cancelled as an orphan, or resubmitted without an active invocation. Operator reconciliation may be required. This is not a distributed exactly-once guarantee. Expiration is sent to PAN, not enforced by a local expiry timer.
 - Disabling prevents further forwarding but does not erase remote records. The ordinary DSH UI remains the input path when disabled. In-flight requests cannot be recalled.
 - Automated tests cover a simulated DSH stream and an encrypted mailbox round trip, cancellation, unsupported-shape delegation, and optional lifecycle control. Live acceptance against the developing PAN counterpart remains unverified.
 
 Implementation references: [activation](../src/extension.ts), [optional controller](../src/panIntegration.ts), [quiet events](../src/panLifecycle.ts), [question bridge](../src/panQuestionBridge.ts).
+
+
+## 0.4.10: context, contact and handover evidence
+
+Server prerequisite: PAN migration0017/0018 and the additive contact/evidence endpoints. Upgrade VSIX then Developer: Reload Window; retain token/key paths, encrypted question spools and explicit panEnabled opt-in. Keep dshmux-delivery/*.json beside the key during reinstall/backup. These private files contain only IDs and prepared/accepted checkpoints, never decrypted replies.
+
+The observer registers a source-scoped workstream/session and the quiet event run alias through contexts-v1. The question bridge declares each question run under the same normalized session identity. A deterministic operation ID preserves exact replay. Neither path uploads cwd, project/chat title or transcript; optional names remain encrypted in the existing question envelope.
+
+Every60s while enabled, successful workspace-session polling plus a confirmed session/follow snapshot produce POST /api/v1/runtime/contact:
+
+```json
+{"version":1,"operation_id":"<fresh UUID>","observed_at":"<host ISO time>","sessions":[{"session_id":"<declared session>","harness_ready":true}]}
+```
+
+Batches contain at most20 sessions. The server accepts observations up to90s old and5s ahead, records its receive time, and expires freshness after180s. Old/replayed observations do not refresh the session. This reports harness availability, never model progress or question resolution.
+
+After local harness acceptance and PAN ACK, POST /api/v1/mailbox/responses/<question_id>/evidence sends the durable exact body:
+
+```json
+{"version":1,"operation_id":"<stable delivered UUID>","request_id":"<question request>","response_id":"<reply>","workstream_id":"<original workstream>","run_id":"<original run>","kind":"delivered"}
+```
+
+The operation UUID uses stableId(`delivered:<request_id>:<response_id>`). It is bound to all original IDs and the authenticated source. The server distinguishes stored answer, source ACK and harness acceptance. DSHmux does not emit kind=resumed: $events/result success proves acceptance, not a subsequent model step. A future adapter would need declared report_resume capability and response-specific host evidence; arbitrary heartbeats are insufficient.

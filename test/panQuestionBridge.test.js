@@ -58,6 +58,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
   let questionPosts = 0;
   const fetchImpl = async (url, options) => {
     const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/v1/contexts" || endpoint.endsWith("/evidence")) return jsonResponse({ok: true});
     if (endpoint === "/api/v1/mailbox/bootstrap") return jsonResponse({ok: true,
       source_id: "source-1", viewer_public_key: encode(viewer.publicKey), agent_public_key: null});
     if (endpoint === "/api/v1/mailbox/key") {
@@ -144,6 +145,7 @@ test("desktop resolution cancels the pending PAN question", async () => {
   let cancelled = false;
   const fetchImpl = async (url, options) => {
     const endpoint = new URL(String(url)).pathname;
+    if (endpoint === "/api/v1/contexts" || endpoint.endsWith("/evidence")) return jsonResponse({ok: true});
     if (endpoint === "/api/v1/mailbox/bootstrap") return jsonResponse({ok: true,
       source_id: "source-2", viewer_public_key: encode(viewer.publicKey), agent_public_key: null});
     if (endpoint === "/api/v1/mailbox/key") return jsonResponse({ok: true}, 201);
@@ -257,4 +259,41 @@ test("disabling while bootstrap is in flight creates no key and forwards no ques
     bridge.dispose();
     fs.rmSync(tmp, {recursive: true, force: true});
   }
+});
+
+test("accepted harness result retains exact ACK/evidence across offline restart", async () => {
+  await sodium.ready;
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pan-receipt-'));
+  const tokenFile=path.join(tmp,'token'), keyFile=path.join(tmp,'key');
+  const pair=sodium.crypto_box_keypair(), viewer=sodium.crypto_box_keypair();
+  fs.writeFileSync(tokenFile,'test-token',{mode:0o600}); fs.writeFileSync(keyFile,encode(pair.privateKey),{mode:0o600});
+  const request='45936f2c-3456-4d86-a101-d6f217b48ebc';
+  const receiptDir=path.join(tmp,'dshmux-delivery'), spoolDir=path.join(tmp,'dshmux-questions');
+  fs.mkdirSync(receiptDir,{mode:0o700});fs.mkdirSync(spoolDir,{mode:0o700});
+  const receipt={source_id:'source-1',question_id:'question-1',accepted:true,ack:{response_id:'reply-1'},
+    evidence:{version:1,operation_id:'stable-op',request_id:request,response_id:'reply-1',workstream_id:'ws',run_id:'run',kind:'delivered'}};
+  const file=path.join(receiptDir,request+'.json');fs.writeFileSync(file,JSON.stringify(receipt),{mode:0o600});
+  fs.writeFileSync(path.join(spoolDir,request+'.json'),'{}',{mode:0o600});
+  let fail=true;const sent=[];
+  const fetchImpl=async(url,options)=>{
+    const endpoint=new URL(String(url)).pathname;
+    if(endpoint.endsWith('/bootstrap'))return jsonResponse({ok:true,source_id:'source-1',viewer_public_key:encode(viewer.publicKey),agent_public_key:encode(pair.publicKey)});
+    sent.push([endpoint,options.body]);
+    if(endpoint.endsWith('/evidence')&&fail)throw new Error('lost evidence response');
+    return jsonResponse({ok:true});
+  };
+  const first=new PanQuestionBridge({},()=>tokenFile,()=>keyFile,fetchImpl);first.active=true;
+  await assert.rejects(first.drainReceipts(),/lost evidence/);first.dispose();
+  assert.ok(fs.existsSync(file));assert.ok(fs.existsSync(path.join(spoolDir,request+'.json')));
+  fail=false;
+  const second=new PanQuestionBridge({},()=>tokenFile,()=>keyFile,fetchImpl);second.active=true;
+  try{await second.drainReceipts();
+    assert.equal(fs.existsSync(file),false);assert.equal(fs.existsSync(path.join(spoolDir,request+'.json')),false);
+    assert.deepEqual(sent[0],sent[2]);assert.deepEqual(sent[1],sent[3]);
+    assert.ok(sent.every(([endpoint])=>!endpoint.includes('$events/result')));
+    fs.writeFileSync(file,JSON.stringify({...receipt,accepted:false}),{mode:0o600});
+    const before=sent.length;await second.drainReceipts();
+    assert.equal(sent.length,before,'uncertain acceptance must not emit ACK or delivery proof');
+    assert.ok(fs.existsSync(file),'uncertain journal must remain available for reconciliation');
+  }finally{second.dispose();fs.rmSync(tmp,{recursive:true,force:true});}
 });

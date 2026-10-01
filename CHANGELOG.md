@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.10] - 2026-10-02
+
+### Changed
+- PAN session contact reports harness readiness separately from model progress; requires PAN runtime/contact API and migration0017/0018.
+- Accepted phone-answer handovers keep durable ACK/evidence receipts across reconnect/restart. Uncertain external acceptance stays pending; it is not silently acknowledged or rerun.
+- Existing keys, tokens, encrypted question spools and explicit PAN opt-in are preserved. Reload the VS Code window after update.
+
 ## [Unreleased]
 
 ### Changed
