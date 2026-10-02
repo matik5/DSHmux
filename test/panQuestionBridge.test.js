@@ -68,6 +68,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     if (endpoint === "/api/v1/mailbox/questions" && options.method === "POST") {
       questionPosts++;
       posted = JSON.parse(options.body);
+      assert.equal(posted.expires_at, null);
       return jsonResponse({ok: true, question_id: "question-1", status: "OPEN"}, 201);
     }
     if (endpoint === "/api/v1/mailbox/responses") return jsonResponse({ok: true, responses: answer ? [answer] : []});
@@ -81,6 +82,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     throw new Error(`unexpected ${endpoint}`);
   };
   const manager = {serverUrl: `http://127.0.0.1:${port}`, authCookie: "test=cookie",
+    readQuestionExcerpt: async id => { assert.equal(id, "agent-1"); return "PRIVATE latest visible answer"; },
     describeQuestionSession: async id => {
       assert.equal(id, "agent-1");
       return {title: "Database migration", cwd: "/private/projects/Billing"};
@@ -94,6 +96,8 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     const plaintext = JSON.parse(sodium.to_string(sodium.crypto_box_open_easy(
       decode(posted.ciphertext), decode(posted.nonce), agentPublic, viewer.privateKey)));
     assert.equal(plaintext.prompt, "Which one?");
+    assert.equal(plaintext.excerpt, "PRIVATE latest visible answer");
+    assert.doesNotMatch(JSON.stringify(posted), /PRIVATE latest/);
     assert.deepEqual(plaintext.context, {chat_name: "Database migration", project_name: "Billing"});
     assert.equal(posted.context, undefined);
     assert.doesNotMatch(JSON.stringify(posted), /Database migration|Billing|private\/projects/);
@@ -296,4 +300,22 @@ test("accepted harness result retains exact ACK/evidence across offline restart"
     assert.equal(sent.length,before,'uncertain acceptance must not emit ACK or delivery proof');
     assert.ok(fs.existsSync(file),'uncertain journal must remain available for reconciliation');
   }finally{second.dispose();fs.rmSync(tmp,{recursive:true,force:true});}
+});
+
+test('disconnected invocation retains OPEN and ANSWERED spool without cancel or ACK', async () => {
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pan-persistent-'));
+  const token=path.join(tmp,'token'),key=path.join(tmp,'key');fs.writeFileSync(token,'fixture',{mode:0o600});
+  const calls=[];
+  const bridge=new PanQuestionBridge({},()=>token,()=>key,async(url,opts)=>{
+    calls.push([new URL(url).pathname,opts.method]);
+    return jsonResponse({ok:true,status:calls.length===1?'OPEN':'ANSWERED'});
+  });
+  bridge.active=true;
+  const id='d5144900-e338-4e87-886f-33d5a33c2a63',file=bridge.spoolPath(id);
+  fs.writeFileSync(file,JSON.stringify({request_id:id,expires_at:null,ciphertext:'exact'}),{mode:0o600});
+  const before=fs.readFileSync(file);
+  await bridge.reconcileSpool();await bridge.reconcileSpool();
+  assert.deepEqual(fs.readFileSync(file),before);assert.equal(calls.length,2);
+  assert(calls.every(([route,method])=>method==='GET'&&!route.endsWith('/cancel')));
+  bridge.dispose();fs.rmSync(tmp,{recursive:true});
 });

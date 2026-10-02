@@ -1,0 +1,24 @@
+{
+  "source": "/Users/mati/proj/DSHmux/.worktrees/DSHmux/turn-reply",
+  "commit": "c659aff",
+  "installed_version": "0.4.12",
+  "files": {
+    "doc/feature/17-pan-excerpts/plan.md": "45841a008865b04f46bd7e2f248e8383e297169c23e5c563beac781c1b79afcd",
+    "doc/feature/17-pan-excerpts/verification.md": "23249ac4cbf3e22022a4ce91fabca0bb0040ae3fafc91cba02e6fa21e67fd3fc",
+    "doc/feature/18-pan-turn-reply/plan.md": "78f1cdbc2e2b4c662662cfdfd5e1ce13ca7478f1cbb380774314e17517d44f0d",
+    "doc/feature/18-pan-turn-reply/verification.md": "27deab7724841da5457a44dd71e8b75dc20f99f08a297c5547d53b51c465f5ec",
+    "src/panCommands.ts": "32832768d8264ef1fddcf0059fc21151ba7c8e9eb7b8cbb621be841b92bd05b5",
+    "src/panExcerpt.ts": "73e91f89512dbeb0641a869b9ecdf0f684adf46450f29bc924eebca628d3bc23",
+    "test/panCommands.test.js": "5e85e2e897be10d6459ec118e7be6dd298aec5887dfd4f6429d295ec570a8e94",
+    "test/panExcerpt.test.js": "cc14124492f46869ec3bc35fb28d252370999e97a9839c30ecdbc013764cd389",
+    "CHANGELOG.md": "b0472d8488407f202d98b0c327d8f87980544908da3f5d5a772983f2362d84b4",
+    "README.md": "f5ae2f6c2d9db0e0526f2cfa820717c19ba4af32957d8cc842912d80ee104345",
+    "package-lock.json": "6a3a0eb6e33bc6496567074b71f4a848bcc9d2c7a0d13ace1ae2e5a1e25ca417",
+    "package.json": "4ffd3482d5c6b89ee6d5a3493dfe506f19d0d8e5ee92a25092cd2ee5d96b3605",
+    "src/extension.ts": "d44ab07eb7a8b887310707ad653959f760a22323cfad009bd5e9dd86b9c117e4",
+    "src/panQuestionBridge.ts": "a5ac44dff64d5d64fa583f2a7a04a3c8fa5fbd0101b2d46c42c38840697a7deb",
+    "src/serverManager.ts": "186dde8bbcb428465a62141bb92e38cbc9b4a1cbd7fff615c78fc3376d6e2ecc",
+    "test/chatViewLayout.test.js": "0f3b4677d9f8d86bd41c8a2f95c98dc163a894cfdc1c7511556433bacc6dccad",
+    "test/panQuestionBridge.test.js": "2baf7c6d9c3d3b535dfe9c9b1133d9115924f8afbd89d2c5b641ab78c86911a4"
+  }
+}

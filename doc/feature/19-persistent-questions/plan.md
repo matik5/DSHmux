@@ -1,0 +1,3 @@
+# Persistent PAN questions — Implementation Plan
+
+2026-10-02. Isolated source snapshot of installed0.4.12 turn-reply baseline (baseline.json); previous dirty worktree untouched. New0.4.13 release uses null expiry, preserves orphan OPEN/ANSWERED spool on disconnect, and still cleans explicit terminal status. PAN migration0021 prerequisite. Same exact invocation/result/ACK cryptographic binding. Original source snapshot retains previous turn-reply features; this task does not merge or discard their original source work. Tests: existing question/command/excerpt fixtures plus orphan spool and null deadline regression. Delivery: stable VSIX + installed home Mac; Reload Window required.
