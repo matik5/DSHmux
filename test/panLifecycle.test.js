@@ -54,10 +54,12 @@ test("extension-host observer sends live turn and replays after failure", async 
     values.set(key, value);
   }};
   const manager = {serverUrl: `http://127.0.0.1:${port}`, authCookie: undefined,
-    listWorkspaceSessions: async () => ({items: [{sessionId: "session-1"}], archivedItems: []})};
+    listWorkspaceSessions: async () => ({items: [{sessionId: "session-1", title: "Private named chat", cwd: "/workspace/MyProject"}], archivedItems: []})};
+  const sodium = require("libsodium-wrappers-sumo"); await sodium.ready;
+  const keys = sodium.crypto_box_keypair(); const encode = v => sodium.to_base64(v, sodium.base64_variants.URLSAFE_NO_PADDING);
   const sent = [];
   const fetchImpl = async (_url, options) => {
-    if (!String(_url).endsWith("/events")) return {ok:true, json:async()=>({ok:true})};
+    if (!String(_url).endsWith("/events")) return {ok:true, json:async()=>({ok:true, source_id:"source-fixture", viewer_public_key:encode(keys.publicKey)})};
     sent.push(JSON.parse(options.body));
     if (sent.length === 1) throw new Error("offline");
     return {ok: true, json: async () => ({ok: true, silent: true})};
@@ -73,6 +75,15 @@ test("extension-host observer sends live turn and replays after failure", async 
     await until(() => sent.length === 2);
     await until(() => values.get("pan.lifecycle.cursor.session-1") === 1);
     assert.deepEqual(sent[0], sent[1]);
+    assert.ok(sent[0].encrypted_detail);
+    assert.doesNotMatch(JSON.stringify(sent[0]), /Private named chat|MyProject/);
+    const detail = sent[0].encrypted_detail;
+    const opened = JSON.parse(sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(detail.ciphertext,
+      sodium.base64_variants.URLSAFE_NO_PADDING), keys.publicKey, keys.privateKey)));
+    assert.equal(opened.excerpt, "Vestlus: Private named chat\nProjekt: MyProject");
+    assert.equal(opened.run_id, sent[0].run_id);
+    assert.equal(opened.event_id, sent[0].event_id);
+    assert.equal(fs.readdirSync(path.join(tmp,"dshmux-turns")).length, 0);
     assert.equal(values.get("pan.lifecycle.cursor.session-1"), 1);
   } finally {
     console.warn = originalWarn;

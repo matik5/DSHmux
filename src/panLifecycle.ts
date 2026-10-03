@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type * as vscode from "vscode";
 import WebSocket from "ws";
+import sodium from "libsodium-wrappers-sumo";
+import * as path from "node:path";
 import type { DshServerManager } from "./serverManager.js";
 
 const POLL_MS = 5000;
@@ -72,6 +74,7 @@ export class PanLifecycleObserver implements vscode.Disposable {
   private polling = false;
   private active = false;
   private root = "";
+  private labels = new Map<string, string>();
   private lastContact = 0;
   private declared = new Set<string>();
 
@@ -109,6 +112,11 @@ export class PanLifecycleObserver implements vscode.Disposable {
     try {
       const sessions = await this.manager.listWorkspaceSessions(this.root);
       if (!this.active) return;
+      this.labels = new Map(sessions.items.map(item => {
+        const chat = item.title?.trim().slice(0, 200);
+        const project = item.cwd?.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop()?.slice(0, 200);
+        return [item.sessionId, [chat ? `Vestlus: ${chat}` : "Vestluse nimi puudub", project ? `Projekt: ${project}` : ""].filter(Boolean).join("\n")];
+      }));
       const ids = new Set(sessions.items.map(item => item.sessionId));
       for (const [id, state] of this.follows) {
         if (ids.has(id)) continue;
@@ -194,6 +202,7 @@ export class PanLifecycleObserver implements vscode.Disposable {
       if (event) await this.deliver(sessionId, event);
       follow.cursor = seq;
       await this.state.update(CURSOR_PREFIX + sessionId, seq);
+      if (event) fs.rmSync(path.join(path.dirname(this.tokenFile().trim()), "dshmux-turns", `${eventId(sessionId, seq)}.json`), {force: true});
     }).catch(error => {
       follow.failed = true;
       console.warn("[dsh] PAN lifecycle delivery failed:", error instanceof Error ? error.message : String(error));
@@ -215,15 +224,43 @@ export class PanLifecycleObserver implements vscode.Disposable {
     if (!this.active) return;
     const tokenFile = this.tokenFile().trim();
     const token = readToken(tokenFile);
+    const payload = quietTurnEvent(sessionId, event);
+    const directory = path.join(path.dirname(tokenFile), "dshmux-turns");
+    fs.mkdirSync(directory, {recursive: true, mode: 0o700});
+    const file = path.join(directory, `${payload.event_id}.json`);
+    let body: string;
+    if (fs.existsSync(file)) {
+      body = fs.readFileSync(file, "utf8");
+    } else {
+      const label = this.labels.get(sessionId);
+      if (label) {
+        const infoResponse = await this.fetchImpl(PAN_URL.replace("/events", "/mailbox/bootstrap"), {
+          headers: {Authorization: `Bearer ${token}`}, redirect: "error", signal: AbortSignal.timeout(1500)});
+        if (!infoResponse.ok) throw new Error(`PAN bootstrap HTTP ${infoResponse.status}`);
+        const info = await infoResponse.json() as {source_id: string; viewer_public_key: string};
+        await sodium.ready;
+        const bytes = sodium.from_string(JSON.stringify({version: 1, direction: "attention_excerpt",
+          source_id: info.source_id, event_id: payload.event_id, run_id: payload.run_id,
+          event_type: payload.event_type, excerpt: label}));
+        try {
+          payload.encrypted_detail = {version: 1, viewer_public_key: info.viewer_public_key,
+            ciphertext: sodium.to_base64(sodium.crypto_box_seal(bytes, sodium.from_base64(info.viewer_public_key,
+              sodium.base64_variants.URLSAFE_NO_PADDING)), sodium.base64_variants.URLSAFE_NO_PADDING)};
+        } finally { bytes.fill(0); }
+      }
+      body = JSON.stringify(payload);
+      fs.writeFileSync(file, body, {mode: 0o600, flag: "wx"});
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1500);
     try {
       const response = await this.fetchImpl(PAN_URL, {method: "POST", signal: controller.signal,
         headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"},
-        body: JSON.stringify(quietTurnEvent(sessionId, event))});
+        body});
       if (!response.ok) throw new Error(`PAN HTTP ${response.status}`);
       const result: unknown = await response.json();
       if (!isRecord(result) || result.ok !== true || result.silent !== true) throw new Error("PAN rejected quiet turn event");
+
     } finally {
       clearTimeout(timer);
     }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.14
+
+- Home PAN turn details include the exact chat/project name in a sealed viewer envelope.
+- Persist encrypted turn bodies before delivery; retries retain the same event identity and ciphertext.
+
+
 ## [0.4.12] - 2026-10-02
 
 ### Added
