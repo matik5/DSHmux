@@ -86,7 +86,7 @@ I4 code.
   (`a66e4702047846cdaa10c66c9d3df3951f5ea70d`) + the two patch commits from
   [doc/dsh-patches/README.md](../../dsh-patches/README.md) (JPEG attachment
   projection; pi-ai compaction wire marker). The local checkout at
-  `/Users/mati/proj/deepseek-harness` is on this branch.
+  The audited local DeepSeek Harness checkout is on this branch.
 
 ## Gap
 

@@ -112,6 +112,70 @@ test("chrome HTML has accessible dialogs and safely serializes user text", () =>
   assert.match(html, /aria-live="polite"/);
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /\\u003c\/script>/);
+  assert.doesNotMatch(html, /dshmux-dictation-toggle/);
+
+  const enabled = chatChromeHtml({
+    lang: "en",
+    currentTitle: "Session",
+    serverState: "ready",
+    initialSessionLoading: false,
+    dictationEnabled: true,
+    copy,
+  }, "", "");
+  assert.match(enabled, /id="dshmux-dictation-toggle"/);
+  assert.match(enabled, /id="dshmux-dictation-status" role="status" aria-live="polite"/);
+});
+
+test("dictation gesture helpers allow only trusted active-state actions", () => {
+  assert.equal(chrome.dictationClickRequest(false, "idle"), undefined);
+  assert.equal(chrome.dictationClickRequest(true, "idle"), "dshmux-dictation-start");
+  assert.equal(chrome.dictationClickRequest(true, "listening"), "dshmux-dictation-stop");
+  assert.equal(chrome.dictationClickRequest(true, "stopping"), undefined);
+  assert.equal(chrome.dictationCancelRequest(false, "Escape", "listening"), undefined);
+  assert.equal(chrome.dictationCancelRequest(true, "Enter", "listening"), undefined);
+  assert.equal(chrome.dictationCancelRequest(true, "Escape", "listening"), "dshmux-dictation-cancel");
+});
+
+test("composer insertion appends through one editing command without Send or raw DOM assignment", async () => {
+  const calls = [];
+  const selection = {
+    removeAllRanges() { calls.push("remove"); },
+    collapse(node, offset) { calls.push(["collapse", node, offset]); },
+  };
+  const editor = {
+    innerText: "existing text",
+    childNodes: [{ node: 1 }],
+    focus() { calls.push("focus"); },
+  };
+  const doc = {
+    querySelector(selector) {
+      calls.push(["query", selector]);
+      return editor;
+    },
+    getSelection() { return selection; },
+    execCommand(command, ui, value) {
+      calls.push(["exec", command, ui, value]);
+      editor.innerText += value;
+      return true;
+    },
+  };
+  const result = await chrome.insertComposerText(doc, " dictated request ", (callback) => callback());
+  assert.equal(result.ok, true);
+  assert.equal(editor.innerText, "existing text dictated request");
+  assert.deepEqual(calls.filter((call) => Array.isArray(call) && call[0] === "exec"), [
+    ["exec", "insertText", false, " dictated request"],
+  ]);
+  assert.equal(calls.some((call) => Array.isArray(call) && /send/i.test(String(call[1]))), false);
+});
+
+test("composer insertion fails closed when the exact editable DSH seam is absent", async () => {
+  let edited = false;
+  const result = await chrome.insertComposerText({
+    querySelector() { return null; },
+    execCommand() { edited = true; return true; },
+  }, "discard me", (callback) => callback());
+  assert.deepEqual(result, { ok: false, code: "composer-unavailable" });
+  assert.equal(edited, false);
 });
 
 test("compact chrome stays dependency-free and covers narrow/theme adaptations", () => {
@@ -127,6 +191,7 @@ test("compact chrome stays dependency-free and covers narrow/theme adaptations",
   assert.match(css, /\.dshmux-session-open\s*\{[^}]*min-height:\s*32px/s);
   assert.match(css, /grid-template-columns:\s*repeat\(3,/);
   assert.match(css, /\.dshmux-search-row\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(css, /#dshmux-dictation-toggle\[aria-pressed="true"\]/);
   assert.match(css, /data-dshmux-sidebar-occupant-hidden[^}]+visibility:\s*hidden/s);
   assert.doesNotMatch(css, /data-dshmux-sidebar-occupant-hidden[^}]+display:\s*none/s);
   assert.doesNotMatch(script, /require\s*\(|import\s+/);

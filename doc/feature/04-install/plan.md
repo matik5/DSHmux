@@ -95,7 +95,7 @@ Reuse (no edits): `resolveNodeExecutable`, `resolveDshVersion`, `resolveDshPath`
 
 **Files**: `test/dshInstallService.test.js` (new)
 
-- [ ] Clone plan: exact strings on darwin and win32; parent dir with spaces is quoted (`/Users/me/My Projects`); branch + repo constants present; 4 steps in order; `pnpm build` last.
+- [ ] Clone plan: exact strings on darwin and win32; a generic parent dir with spaces is quoted (`<parent-dir>/My Projects`); branch + repo constants present; 4 steps in order; `pnpm build` last.
 - [ ] npm/npx plans contain `@deepseek-ai/dsh@${TESTED_DSH_VERSION}` and never `latest`/`next`.
 - [ ] `checkExistingCheckout`: valid build; missing `apps/cli/lib/bin.js` (stale/unbuilt); `--version` fails (broken build); dirty repo flagged but still validated if build works; wrong branch → `onPatchedBranch === false`; non-git dir → `null`.
 - [ ] No test spawns a real process (probe stubs).

@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -13,7 +14,9 @@ import { t, langCode } from "./i18n.js";
 import {
   affectsDshmuxConfiguration,
   affectsAnySoundSetting,
+  affectsLocalDictationSetting,
   dshmuxConfiguration,
+  localDictationSettings,
   soundSettings,
 } from "./configuration.js";
 import { dshWebviewPortMappings } from "./webviewPortMapping.js";
@@ -30,6 +33,17 @@ import {
   type ChatChromeCopy,
   type ChatChromeInit,
 } from "./chatChrome.js";
+import {
+  LocalDictationController,
+  LocalDictationError,
+  preflightLocalDictation,
+  supportsLocalDictationTarget,
+  type LocalDictationEvent,
+} from "./localDictation.js";
+import {
+  LocalDictationModelError,
+  LocalDictationModelManager,
+} from "./localDictationModel.js";
 
 const DIST_DIR_NAME = "dsh-dist";
 const SESSIONS_POLL_MS = 5_000;
@@ -102,6 +116,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
   private pinnedSessionIds: string[];
   private doctorReport?: DoctorReport;
   private readonly chromeAssets: ChatChromeAssets;
+  private dictation?: LocalDictationController;
+  private readonly dictationModel: LocalDictationModelManager;
+  private modelSetup?: Promise<string>;
+  private dictationStartSeq = 0;
+  private dictationStarting = false;
+  private lastDictationMetrics?: Extract<LocalDictationEvent, { type: "metrics" }>;
+  private disposed = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -112,8 +133,12 @@ export class DshChatView implements vscode.WebviewViewProvider {
       context.workspaceState.get<unknown>(PINNED_SESSION_IDS_KEY)
     );
     this.chromeAssets = loadChatChromeAssets(context.extensionUri.fsPath);
+    this.dictationModel = new LocalDictationModelManager({ homePath: os.homedir() });
     manager.on("state", (info: ServerInfo) => {
-      if (info.state !== "ready") this.assembled = false;
+      if (info.state !== "ready") {
+        this.assembled = false;
+        void this.cancelLocalDictation();
+      }
       this.postStatus(info);
       this.syncPolling();
       if (info.state === "ready" && !this.assembled && this.view) void this.refresh();
@@ -132,8 +157,20 @@ export class DshChatView implements vscode.WebviewViewProvider {
           void this.view?.webview.postMessage({ type: "completion-sound", ...soundSettings() });
         }
         if (affectsDshmuxConfiguration(event, "frameFontScale")) void this.refresh();
+        if (affectsLocalDictationSetting(event)) {
+          void this.cancelLocalDictation();
+          if (this.modelTargetEnabled()) {
+            void this.ensureLocalDictationModel().catch((error) => this.showModelSetupError(error));
+          } else {
+            this.dictationModel.cancel();
+          }
+          if (this.manager.state === "ready") void this.refresh();
+        }
       })
     );
+    if (this.modelTargetEnabled()) {
+      void this.ensureLocalDictationModel().catch((error) => this.showModelSetupError(error));
+    }
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -159,6 +196,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
     });
     webviewView.onDidDispose(() => {
       this.refreshSeq += 1;
+      void this.cancelLocalDictation();
       this.clearPolling();
       this.view = undefined;
       this.bridge?.dispose();
@@ -185,6 +223,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
 
   loadSession(sessionId: string): void {
     if (sessionId && sessionId === this.currentSessionId && this.assembled) return;
+    void this.cancelLocalDictation();
     void this.view?.webview.postMessage({ type: "session-loading", loading: true });
     this.currentSessionId = sessionId || undefined;
     this.updateCurrentTitle();
@@ -203,6 +242,16 @@ export class DshChatView implements vscode.WebviewViewProvider {
 
   refreshMetadata(): void {
     this.postStatusNow();
+  }
+
+  /** Release prototype-native resources before extension deactivation. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.dictationStartSeq += 1;
+    this.dictationModel.dispose();
+    this.dictation?.dispose();
+    this.dictation = undefined;
   }
 
   async refreshDoctor(): Promise<DoctorReport | undefined> {
@@ -271,6 +320,13 @@ export class DshChatView implements vscode.WebviewViewProvider {
       updateLatestTemplate: t("upgrade.latestChip", { version: "{version}" }),
       updateNextTemplate: t("upgrade.nextChip", { version: "{version}" }),
       upgradePatched: t("upgrade.patchedChip", { version: TESTED_DSH_VERSION, branch: PATCHED_SOURCE_BRANCH }),
+      dictationStart: t("dictation.start"),
+      dictationStop: t("dictation.stop"),
+      dictationPreparing: t("dictation.preparing"),
+      dictationListening: t("dictation.listening"),
+      dictationStopping: t("dictation.stopping"),
+      dictationErrorTemplate: t("dictation.error", { code: "{code}" }),
+      dictationComposerUnavailable: t("dictation.composerUnavailable"),
     };
   }
 
@@ -295,6 +351,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
       doctorState: this.doctorReport?.state,
       ...this.availableUpdates(),
       initialSessionLoading,
+      dictationEnabled: this.dictationAvailable(),
       copy: this.chromeCopy(),
     };
   }
@@ -359,11 +416,21 @@ export class DshChatView implements vscode.WebviewViewProvider {
         return;
       case "active-session-changed":
         if (sessionId) {
+          void this.cancelLocalDictation();
           this.currentSessionId = sessionId;
           this.updateCurrentTitle();
           this.postSnapshot();
           if (!this.findSession(sessionId)) void this.pollSessions();
         }
+        return;
+      case "dshmux-dictation-start":
+        await this.startLocalDictation();
+        return;
+      case "dshmux-dictation-stop":
+        await this.stopLocalDictation();
+        return;
+      case "dshmux-dictation-cancel":
+        await this.cancelLocalDictation();
         return;
       case "open-in-editor":
         await vscode.commands.executeCommand("dshmux.openPanel");
@@ -421,6 +488,179 @@ export class DshChatView implements vscode.WebviewViewProvider {
     }
     void this.manager.start({ cwd: workspaceRoot() }).catch(() => {
       // The manager state drives the visible error.
+    });
+  }
+
+  private dictationAvailable(): boolean {
+    const settings = localDictationSettings();
+    return (
+      settings.enabled &&
+      !vscode.env.remoteName &&
+      supportsLocalDictationTarget(process.platform, process.arch) &&
+      this.manager.state === "ready" &&
+      this.manager.dshVersion === TESTED_DSH_VERSION
+    );
+  }
+
+  private modelTargetEnabled(): boolean {
+    return (
+      localDictationSettings().enabled &&
+      !vscode.env.remoteName &&
+      supportsLocalDictationTarget(process.platform, process.arch)
+    );
+  }
+
+  private ensureLocalDictationModel(): Promise<string> {
+    if (this.modelSetup) return this.modelSetup;
+    const operation = vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Preparing Whisper large-v3-turbo model",
+        cancellable: true,
+      },
+      async (progress, token) => {
+        let reported = 0;
+        const cancellation = token.onCancellationRequested(() => this.dictationModel.cancel());
+        try {
+          return await this.dictationModel.ensure((downloaded, total) => {
+            const percentage = Math.min(100, Math.floor(downloaded * 100 / total));
+            const increment = percentage - reported;
+            if (increment > 0) {
+              progress.report({ increment });
+              reported = percentage;
+            }
+          });
+        } finally {
+          cancellation.dispose();
+        }
+      }
+    );
+    const tracked = Promise.resolve(operation).finally(() => {
+      if (this.modelSetup === tracked) this.modelSetup = undefined;
+    });
+    this.modelSetup = tracked;
+    return tracked;
+  }
+
+  private showModelSetupError(error: unknown): void {
+    if (error instanceof LocalDictationModelError && error.cancelled) return;
+    void vscode.window.showErrorMessage(
+      error instanceof LocalDictationModelError
+        ? error.message
+        : "The local dictation model could not be prepared."
+    );
+  }
+
+  private async startLocalDictation(): Promise<void> {
+    if (!this.dictationAvailable() || this.dictationStarting || this.disposed) {
+      this.postDictationError(this.dictationStarting ? "busy" : "disabled");
+      return;
+    }
+    if (this.dictation && this.dictation.currentState !== "idle") {
+      this.postDictationError("busy");
+      return;
+    }
+    const seq = ++this.dictationStartSeq;
+    this.dictationStarting = true;
+    void this.view?.webview.postMessage({
+      type: "dshmux-dictation-state",
+      generation: null,
+      state: "preparing",
+    });
+    try {
+      const settings = localDictationSettings();
+      await this.ensureLocalDictationModel();
+      const options = await preflightLocalDictation(
+        {
+          platform: process.platform,
+          arch: process.arch,
+          remoteName: vscode.env.remoteName,
+          extensionPath: this.context.extensionUri.fsPath,
+          homePath: os.homedir(),
+        },
+        settings
+      );
+      if (seq !== this.dictationStartSeq || this.disposed) return;
+      if (!this.dictation) {
+        this.dictation = new LocalDictationController({
+          workerPath: path.join(this.context.extensionUri.fsPath, "out", "localDictationWorker.js"),
+          execPath: process.execPath,
+          onEvent: (event) => this.postDictationEvent(event),
+        });
+      }
+      await this.dictation.start(options);
+    } catch (error) {
+      if (seq !== this.dictationStartSeq || this.disposed) return;
+      if (error instanceof LocalDictationModelError) this.showModelSetupError(error);
+      this.postDictationError(
+        error instanceof LocalDictationModelError
+          ? "model-unavailable"
+          : error instanceof LocalDictationError
+            ? error.code
+            : "worker-failed"
+      );
+    } finally {
+      if (seq === this.dictationStartSeq) this.dictationStarting = false;
+    }
+  }
+
+  private async stopLocalDictation(): Promise<void> {
+    if (this.dictationStarting && !this.dictation) {
+      this.dictationStartSeq += 1;
+      this.dictationStarting = false;
+      void this.view?.webview.postMessage({
+        type: "dshmux-dictation-state",
+        generation: null,
+        state: "idle",
+      });
+      return;
+    }
+    await this.dictation?.stop();
+  }
+
+  private async cancelLocalDictation(): Promise<void> {
+    const wasStarting = this.dictationStarting;
+    this.dictationStartSeq += 1;
+    this.dictationStarting = false;
+    if (this.dictation) await this.dictation.cancel();
+    else if (wasStarting && !this.disposed) {
+      void this.view?.webview.postMessage({
+        type: "dshmux-dictation-state",
+        generation: null,
+        state: "idle",
+      });
+    }
+  }
+
+  private postDictationEvent(event: LocalDictationEvent): void {
+    if (this.disposed) return;
+    if (event.type === "metrics") {
+      this.lastDictationMetrics = event;
+      return;
+    }
+    if (event.type === "state") {
+      void this.view?.webview.postMessage({
+        type: "dshmux-dictation-state",
+        generation: event.generation,
+        state: event.state,
+        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+      });
+      return;
+    }
+    void this.view?.webview.postMessage({
+      type: "dshmux-dictation-transcript",
+      generation: event.generation,
+      phase: event.phase,
+      text: event.text,
+    });
+  }
+
+  private postDictationError(errorCode: string): void {
+    void this.view?.webview.postMessage({
+      type: "dshmux-dictation-state",
+      generation: null,
+      state: "error",
+      errorCode,
     });
   }
 
@@ -636,6 +876,7 @@ export class DshChatView implements vscode.WebviewViewProvider {
   }
 
   private async refresh(): Promise<void> {
+    await this.cancelLocalDictation();
     const url = this.manager.serverUrl;
     const targetView = this.view;
     if (!url || !targetView) return;

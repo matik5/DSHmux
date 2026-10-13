@@ -1,7 +1,7 @@
 {
   "name": "dshmux",
   "displayName": "DSHmux",
-  "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity \u2014 side-panel chat, editor-tab view, shared browser state, sounds, clipboard, and theme sync.",
+  "description": "Launch DeepSeek Harness and embed its Web UI inside VS Code & Antigravity — side-panel chat, editor-tab view, shared browser state, sounds, clipboard, and theme sync.",
   "version": "0.4.14",
   "publisher": "matik5",
   "license": "MIT",
@@ -41,7 +41,8 @@
     "node_modules/libsodium-wrappers-sumo/**",
     "node_modules/libsodium-sumo/**",
     "CHANGELOG.md",
-    "CHANGELOG.zh.md"
+    "CHANGELOG.zh.md",
+    "runtime/**"
   ],
   "contributes": {
     "commands": [
@@ -71,75 +72,122 @@
         "category": "DSHmux"
       }
     ],
-    "configuration": {
-      "title": "DSHmux",
-      "properties": {
-        "dshmux.dshPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "%setting.dshPath.description%"
-        },
-        "dshmux.panTokenFile": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "%setting.panTokenFile.description%"
-        },
-        "dshmux.panMailboxKeyFile": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "%setting.panMailboxKeyFile.description%"
-        },
-        "dshmux.themeSync": {
-          "type": "string",
-          "enum": [
-            "follow",
-            "off"
-          ],
-          "default": "follow",
-          "description": "%setting.themeSync.description%"
-        },
-        "dshmux.completionSound": {
-          "type": "boolean",
-          "default": true,
-          "order": 30,
-          "description": "%setting.completionSound.description%"
-        },
-        "dshmux.soundStart": {
-          "type": "boolean",
-          "default": true,
-          "order": 40,
-          "description": "%setting.soundStart.description%"
-        },
-        "dshmux.soundDone": {
-          "type": "boolean",
-          "default": true,
-          "order": 50,
-          "description": "%setting.soundDone.description%"
-        },
-        "dshmux.soundAsk": {
-          "type": "boolean",
-          "default": true,
-          "order": 60,
-          "description": "%setting.soundAsk.description%"
-        },
-        "dshmux.frameFontScale": {
-          "type": "number",
-          "default": 0.9,
-          "minimum": 0.5,
-          "maximum": 1.5,
-          "description": "%setting.frameFontScale.description%"
-        },
-        "dshmux.panEnabled": {
-          "type": "boolean",
-          "default": false,
-          "scope": "machine-overridable",
-          "description": "%setting.panEnabled.description%"
+    "configuration": [
+      {
+        "title": "DSHmux",
+        "order": 10,
+        "properties": {
+          "dshmux.dshPath": {
+            "type": "string",
+            "default": "",
+            "scope": "machine-overridable",
+            "description": "%setting.dshPath.description%"
+          },
+          "dshmux.themeSync": {
+            "type": "string",
+            "enum": [
+              "follow",
+              "off"
+            ],
+            "default": "follow",
+            "description": "%setting.themeSync.description%"
+          },
+          "dshmux.frameFontScale": {
+            "type": "number",
+            "default": 0.9,
+            "minimum": 0.5,
+            "maximum": 1.5,
+            "description": "%setting.frameFontScale.description%"
+          },
+          "dshmux.panTokenFile": {
+            "type": "string",
+            "default": "",
+            "scope": "machine-overridable",
+            "description": "%setting.panTokenFile.description%"
+          },
+          "dshmux.panMailboxKeyFile": {
+            "type": "string",
+            "default": "",
+            "scope": "machine-overridable",
+            "description": "%setting.panMailboxKeyFile.description%"
+          },
+          "dshmux.panEnabled": {
+            "type": "boolean",
+            "default": false,
+            "scope": "machine-overridable",
+            "description": "%setting.panEnabled.description%"
+          }
+        }
+      },
+      {
+        "title": "%configuration.feedbackSounds.title%",
+        "order": 20,
+        "properties": {
+          "dshmux.completionSound": {
+            "type": "boolean",
+            "default": true,
+            "order": 10,
+            "description": "%setting.completionSound.description%"
+          },
+          "dshmux.soundStart": {
+            "type": "boolean",
+            "default": true,
+            "order": 20,
+            "description": "%setting.soundStart.description%"
+          },
+          "dshmux.soundDone": {
+            "type": "boolean",
+            "default": true,
+            "order": 30,
+            "description": "%setting.soundDone.description%"
+          },
+          "dshmux.soundAsk": {
+            "type": "boolean",
+            "default": true,
+            "order": 40,
+            "description": "%setting.soundAsk.description%"
+          }
+        }
+      },
+      {
+        "title": "%configuration.experimental.title%",
+        "order": 30,
+        "properties": {
+          "dshmux.experimental.localDictation.enabled": {
+            "type": "boolean",
+            "default": false,
+            "scope": "machine",
+            "order": 100,
+            "description": "%setting.localDictation.enabled.description%"
+          },
+          "dshmux.experimental.localDictation.language": {
+            "type": "string",
+            "enum": [
+              "en-US",
+              "et-EE"
+            ],
+            "default": "en-US",
+            "scope": "machine",
+            "order": 110,
+            "description": "%setting.localDictation.language.description%"
+          },
+          "dshmux.experimental.localDictation.hostPath": {
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "order": 120,
+            "description": "%setting.localDictation.hostPath.description%"
+          },
+          "dshmux.experimental.localDictation.audioDevice": {
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "order": 130,
+            "description": "%setting.localDictation.audioDevice.description%"
+          }
         }
       }
-    },
+    ],
     "viewsContainers": {
       "activitybar": [
         {

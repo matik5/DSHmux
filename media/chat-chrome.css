@@ -78,6 +78,37 @@ body {
   font: inherit;
 }
 
+#dshmux-dictation {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 26px;
+  max-width: 48%;
+}
+
+#dshmux-dictation-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#dshmux-dictation-status:not(:empty) {
+  margin-right: 4px;
+}
+
+#dshmux-dictation-status[data-state="error"] {
+  color: var(--vscode-errorForeground);
+}
+
+#dshmux-dictation-toggle[aria-pressed="true"] {
+  color: var(--vscode-statusBarItem-errorForeground, var(--vscode-foreground));
+  background: var(--vscode-statusBarItem-errorBackground, var(--vscode-toolbar-hoverBackground));
+}
+
 #dshmux-header-actions {
   display: flex;
   flex: 0 0 auto;

@@ -4,6 +4,7 @@ node_modules/
 
 # Build output
 out/
+native/dictation-host/build-*/
 
 # Extension packages
 *.vsix

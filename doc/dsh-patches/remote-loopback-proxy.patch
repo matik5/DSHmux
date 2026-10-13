@@ -1,5 +1,5 @@
 From 3557288a923aac3d7bb8150f79bbfaeb59e1525b Mon Sep 17 00:00:00 2001
-From: matik <matik@windowslive.com>
+From: DSHmux maintainers <noreply@users.noreply.github.com>
 Date: Fri, 28 Aug 2026 12:28:31 +0300
 Subject: [PATCH] feat: implement loopback port mapping for DSH plugins in
  remote environments; update changelog and tests
@@ -241,4 +241,3 @@ index 0000000000000000000000000000000000000000..c5f9acdd12e459eef88c420b6988ee6d
 +});
 -- 
 2.50.1 (Apple Git-155)
-
