@@ -44,9 +44,9 @@ Files: versionCheck.ts, dshInstallService.ts, i18nStrings.ts, install/version te
 Completion: pinned revision equals remote patch branch, tested runtime0.2.0-rc.2, package0.4.15 excludes PAN.
 
 ### T4 — Record results and publish task branch
-Status: ⏳
+Status: ✅
 Files: this plan/verification.md. Completion: checks/gaps recorded; DSHmux branch pushed; no uncommitted task work.
 
 ## Progress audit
 
-The five PAN adapters/helpers, their tests, three settings, crypto dependency and PAN-only manager APIs are removed. Normal chat/sessionPanels and existing user state remain untouched. Historical protocol is retired under doc/archive. Harness JPEG patch is published at dbe724e7dbe44ed5551c2f674f12b85b86558548, exactly one patch commit over the selected upstream tag. DSHmux pins that revision and declares0.2.0-rc.2 tested after real RPC/webview checks. Tests/package pass; branch publication remains T4.
+The five PAN adapters/helpers, their tests, three settings, crypto dependency and PAN-only manager APIs are removed. Normal chat/sessionPanels and existing user state remain untouched. Historical protocol is retired under doc/archive. Harness JPEG patch is published at dbe724e7dbe44ed5551c2f674f12b85b86558548, exactly one patch commit over the selected upstream tag. DSHmux pins that revision and declares0.2.0-rc.2 tested after real RPC/webview checks. Tests/package pass; the DSHmux task branch is published and its remote ref matches the feature commit. The verified task branch is also integrated to main under the user’s earlier explicit main-integration instruction in this session.

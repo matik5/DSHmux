@@ -7,7 +7,7 @@
 - R2/T2: Harness branch matik/dsh-patches-0.2.0-rc.2 is based on upstream639ed015397290b3745d163aafe02ffee4aa3f84, patch dbe724e7dbe44ed5551c2f674f12b85b86558548. Real encoder tests cover JPEG/no-alpha variants over white, under-budget PNG/JPEG passthrough, durable alpha preservation and cache separation via request-image-v7. LocalAttachmentService.readForRequest calls readRequestImageFile; source public exports/signatures remain unchanged. Fork remote SHA confirmed equal to the pin.
 - R3/T3: versionCheck and source installation constants, Doctor paths, explicit upgrade and localized guidance now select0.2.0-rc.2. Source branch/revision tests cover the exact fork and upstream tag. DSHmux0.4.15 manifest and lock agree. Real DshServerManager start/ensureWorkspaceSessionResilient/listWorkspaceSessions/searchSessions plus assembleDocument were exercised against built new patched Harness; cookie-authenticated RPC and all68 boot plugin URLs passed. Dictation uses the same tested-version constant; upstream composer retains the data-composer-input selector. Native microphone inference was not rerun.
 - R4: Primary worktrees/branches preserved, user state untouched. No remote/pibox build or installation performed. Historical PAN records remain for audit, not in the VSIX.
-- T4: Code, evidence and package ready; publication is recorded in close-out below.
+- T4: DSHmux task branch published at1255848 and its remote ref verified. Close-out documentation is committed afterward; main integration follows the user’s earlier explicit instruction in this session.
 
 ## Checks and results
 Harness:
@@ -32,4 +32,4 @@ No unmet implemented criteria. Real external model-provider requests, interactiv
 Removed PAN from shipped DSHmux, ported our JPEG image compatibility patch to DSH0.2.0-rc.2, published the Harness branch and pinned DSHmux to its exact revision. Built and checked DSHmux0.4.15 against the real new runtime.
 
 ## Outstanding work
-- T4: publish DSHmux task branch and verify its remote ref.
+No outstanding tasks.
