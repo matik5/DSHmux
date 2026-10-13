@@ -81,6 +81,7 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     throw new Error(`unexpected ${endpoint}`);
   };
   const manager = {serverUrl: `http://127.0.0.1:${port}`, authCookie: "test=cookie",
+    readQuestionExcerpt: async id => { assert.equal(id, "agent-1"); return "PRIVATE latest visible answer"; },
     describeQuestionSession: async id => {
       assert.equal(id, "agent-1");
       return {title: "Database migration", cwd: "/private/projects/Billing"};
@@ -94,6 +95,8 @@ test("one DSH question reaches PAN encrypted and phone answer resumes the same a
     const plaintext = JSON.parse(sodium.to_string(sodium.crypto_box_open_easy(
       decode(posted.ciphertext), decode(posted.nonce), agentPublic, viewer.privateKey)));
     assert.equal(plaintext.prompt, "Which one?");
+    assert.equal(plaintext.excerpt, "PRIVATE latest visible answer");
+    assert.doesNotMatch(JSON.stringify(posted), /PRIVATE latest/);
     assert.deepEqual(plaintext.context, {chat_name: "Database migration", project_name: "Billing"});
     assert.equal(posted.context, undefined);
     assert.doesNotMatch(JSON.stringify(posted), /Database migration|Billing|private\/projects/);

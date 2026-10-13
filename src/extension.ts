@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
       () => dshmuxConfiguration("panTokenFile", "")),
     () => new PanQuestionBridge(panManager,
       () => dshmuxConfiguration("panTokenFile", ""),
-      () => dshmuxConfiguration("panMailboxKeyFile", ""))
+      () => dshmuxConfiguration("panMailboxKeyFile", ""), fetch, workspaceRoot)
   );
   const syncPan = (): void => pan.sync(
     dshmuxConfiguration("panEnabled", false), panManager.state === "ready", workspaceRoot()

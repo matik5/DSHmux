@@ -1,3 +1,5 @@
+import {PanCommandReceiver} from "./panCommands.js";
+import { tailExcerpt } from "./panExcerpt.js";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -64,7 +66,7 @@ function wireQuestion(value: unknown): Invocation | undefined {
   return value as Invocation;
 }
 
-export function questionPayload(frame: Invocation, sourceId: string, display?: DisplayContext): { requestId: string; plaintext: RecordValue;
+export function questionPayload(frame: Invocation, sourceId: string, display?: DisplayContext, excerpt?: string): { requestId: string; plaintext: RecordValue;
   workstreamId: string; runId: string } {
   const q = frame.request.questions[0]!;
   const workstreamId = ID.test(frame.agentId) ? frame.agentId : `agent.${stableId(frame.agentId)}`;
@@ -80,6 +82,7 @@ export function questionPayload(frame: Invocation, sourceId: string, display?: D
     version: 1, direction: "agent_to_viewer", source_id: sourceId, request_id: requestId,
     workstream_id: workstreamId, run_id: runId, title, prompt, choices, allow_message: true,
     ...(display && Object.keys(display).length ? {context: display} : {}),
+    ...(excerpt?.trim() ? {excerpt: tailExcerpt(excerpt)} : {}),
   }};
 }
 
@@ -95,16 +98,22 @@ export class PanQuestionBridge implements vscode.Disposable {
   private pending = new Map<string, Pending>();
   private context?: Context;
   private receiptRetryAt = 0;
+  private commands?: PanCommandReceiver;
 
   constructor(private readonly manager: DshServerManager,
               private readonly tokenFile: () => string,
               private readonly keyFile: () => string,
-              private readonly fetchImpl: typeof fetch = fetch) {}
+              private readonly fetchImpl: typeof fetch = fetch,
+              private readonly workspaceRoot: () => string = () => "") {}
 
   start(): void {
     if (!this.manager.serverUrl || !this.tokenFile().trim() || !this.keyFile().trim()) return;
     this.stop();
     this.active = true;
+    this.commands = new PanCommandReceiver(this.manager, this.workspaceRoot,
+      () => path.join(path.dirname(this.keyFile().trim()), "dshmux-commands"),
+      () => this.cryptoContext(), (method, endpoint, body) => this.pan(method, endpoint, body),
+      id => ID.test(id) ? id : `agent.${stableId(id)}`, () => this.active);
     void this.tick();
     this.timer = setInterval(() => { void this.tick(); }, POLL_MS);
   }
@@ -119,6 +128,7 @@ export class PanQuestionBridge implements vscode.Disposable {
     this.clientId = undefined;
     this.reconcileAfter = 0;
     this.context = undefined;
+    this.commands = undefined;
     this.pending.clear();
   }
 
@@ -184,6 +194,7 @@ export class PanQuestionBridge implements vscode.Disposable {
         }
       }
       if (this.clientId && this.pending.size) await this.pollAnswers();
+      if (this.clientId) await this.commands?.tick();
     } catch (error) {
       console.warn("[dsh] PAN question bridge:", error instanceof Error ? error.message : String(error));
     } finally { this.busy = false; }
@@ -265,8 +276,8 @@ export class PanQuestionBridge implements vscode.Disposable {
     }
   }
 
-  private encryptedBody(frame: Invocation, context: Context, display?: DisplayContext): {body: RecordValue; requestId: string} {
-    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id, display);
+  private encryptedBody(frame: Invocation, context: Context, display?: DisplayContext, excerpt?: string): {body: RecordValue; requestId: string} {
+    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id, display, excerpt);
     const file = this.spoolPath(requestId);
     if (fs.existsSync(file)) return {body: JSON.parse(privateFile(file)) as RecordValue, requestId};
     const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
@@ -290,9 +301,15 @@ export class PanQuestionBridge implements vscode.Disposable {
     try {
       const context = await this.cryptoContext();
       if (!this.active) return;
-      const display = fs.existsSync(this.spoolPath(pending.requestId)) ? undefined : await this.displayContext(frame);
+      const saved = fs.existsSync(this.spoolPath(pending.requestId));
+      const display = saved ? undefined : await this.displayContext(frame);
+      let excerpt: string | undefined;
+      if (!saved) {
+        try { excerpt = await this.manager.readQuestionExcerpt?.(frame.agentId); }
+        catch { /* Optional text must never block delivery or select another session. */ }
+      }
       if (!this.active) return;
-      const {body} = this.encryptedBody(frame, context, display);
+      const {body} = this.encryptedBody(frame, context, display, excerpt);
       pending.body = body;
       await this.postQuestion(pending);
       if (!pending.cancelled) await this.pollAnswers();

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.12] - 2026-10-02
+
+### Added
+- Encrypted PAN follow-up commands for exact existing workspace sessions, using stable command UUIDs as harness request IDs. Requires PAN migration0020.
+- Private durable receipts and exclusive claims; lost ACK retries do not send the prompt again. Expired commands fail closed and uncertain delivery is reported without blind replay.
+
+### Changed
+- Preserved0.4.11 encrypted excerpts, questions, quiet lifecycle and existing keys/tokens. Reload the VS Code window after installing.
+
 ## [0.4.10] - 2026-10-02
 
 ### Changed

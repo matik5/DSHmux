@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { normalizePath } from "./workspaceTracker.js";
 import { shouldPassNoOpen } from "./versionCheck.js";
+import { readSessionExcerpt } from "./panExcerpt.js";
 import { repairProfileLinkCasing } from "./profileLinkRepair.js";
 
 /**
@@ -1127,6 +1128,13 @@ export class DshServerManager extends EventEmitter {
     return { items, archivedItems };
   }
 
+  /** Queue a user instruction in an exact existing Session; stable requestId is deduplicated by DSH. */
+  async sendSessionPrompt(sessionId: string, requestId: string, text: string): Promise<{accepted: boolean}> {
+    const result = await this.api("session.prompt", {sessionId, requestId, mode: "queue",
+      content: [{type: "text", text}], clientTimeZone: "Europe/Tallinn"});
+    return {accepted: result?.accepted === true};
+  }
+
   /** Read metadata for the exact asking Agent/Session, regardless of active chat. */
   async describeQuestionSession(sessionId: string): Promise<{ title?: string; cwd?: string } | undefined> {
     const list = await this.api("session.list", {});
@@ -1135,6 +1143,10 @@ export class DshServerManager extends EventEmitter {
     const title = session.projections?.values?.title;
     return {title: typeof title === "string" ? title : undefined,
       cwd: typeof session.cwd === "string" ? session.cwd : undefined};
+  }
+
+  async readQuestionExcerpt(sessionId: string): Promise<string> {
+    return readSessionExcerpt(this.serverUrl, this.authCookie, sessionId);
   }
 
   /** Search visible DSH session message content without activating a session. */
