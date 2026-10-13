@@ -20,13 +20,19 @@ Commit each pending task in its original worktree with exact staging paths. Merg
 | R3 | T3 close/push | Tests, main remote equality, unrelated-file hashes |
 
 ### T1 — Preserve commits and integrate
-Status: ⏳
+Status: ✅
 Commit web-search docs, excerpts, turn-reply and pibox records; merge with voice and Arcade. Completion: all task branch tips are ancestors of integration; compile/tests preserve all integrated call paths.
 
 ### T2 — Remove redundant worktrees
-Status: ⏳
+Status: ✅
 Move voice tmp repo to a non-worktree archive; remove only clean merged worktrees without force. Completion: no unique work discarded, primary worktree remains.
 
 ### T3 — Verify and publish main
-Status: ⏳
+Status: ✅
 Full scoped test suite, package-content checks and final ancestry/status audit, record verification, merge integration to main and push. Completion: origin/main matches local main and original unrelated files preserved.
+
+## Integration audit
+
+All eight branch tips are ancestors of main. PAN excerpts and turn-reply implementation was already present in later main commits; their merges preserve current code and now retain branch history too. Voice and Arcade add their previously missing implementation. Conflict resolution retains target-view/panel race guards, patched-upgrade labels, singleton VS Code API reuse, current release0.4.14 and all PAN settings. The grouped-configuration contract has one conflicting test consumer (`test/panIntegration.test.js:20`), adapted to find the setting across groups; `test/chatViewLayout.test.js` already handles groups. Runtime readers use VS Code configuration APIs and remain compatible.
+
+Full suite:335 passed,2 skipped,0 failed; compile and package pass. All eight original worktrees removed after clean-status/ancestry checks. Auxiliary checkout and generated VSIX files archived outside the repository. Primary AGENTS.md and existing untracked chat-history/install drafts have identical before/after hashes. Main was pushed and matched origin/main at b28d908; final close-out documentation is committed and pushed afterward.
