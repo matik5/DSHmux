@@ -19,3 +19,6 @@ spike/
 # Logs / editor
 *.log
 .vscode/.cache/
+
+# Task worktrees
+.worktrees/

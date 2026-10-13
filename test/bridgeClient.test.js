@@ -779,4 +779,3 @@ test("reuses the chrome VS Code API singleton", () => {
   h.window.fetch(WEBVIEW_ORIGIN + "/api/session.list", { method: "POST", body: "{}" });
   assert.equal(posted[0].type, "http");
 });
-

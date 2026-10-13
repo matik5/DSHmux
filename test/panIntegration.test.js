@@ -17,7 +17,9 @@ function fixture() {
 }
 
 test("PAN is disabled by default and disabled/stopped windows create no adapters", () => {
-  const setting = require("../package.json").contributes.configuration.properties["dshmux.panEnabled"];
+  const configuration = require("../package.json").contributes.configuration;
+  const sections = Array.isArray(configuration) ? configuration : [configuration];
+  const setting = sections.find(section => section.properties["dshmux.panEnabled"]).properties["dshmux.panEnabled"];
   assert.equal(setting.default, false);
   const {calls, pan} = fixture();
   pan.sync(setting.default, true, "/project");
