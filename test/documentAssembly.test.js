@@ -268,6 +268,43 @@ test("assembleDocument omits the preset script when none is provided", async (t)
   assert.ok(!html.includes('dsh.sessions.current'));
 });
 
+test("assembleDocument injects Mux Trail config and script before bridge and DSH module", async (t) => {
+  const server = await serveDist(t);
+  const dist = tmpdir(t);
+  const strings = {
+    open: "Play Mux Trail",
+    close: "Close",
+    description: "Safe <signal>",
+    score: "Score {score}",
+    instructions: "Arrows",
+    ready: "Ready",
+    gameOver: "Lost",
+    won: "Won",
+    restart: "Again",
+  };
+  const { html } = await assembleDocument({
+    serverBase: server.url,
+    distRootPath: dist,
+    asWebviewUri,
+    bridgeClientJs: "/* bridge-marker */",
+    muxTrailJs: "/* mux-trail-marker */",
+    muxTrailStrings: strings,
+    visibleSessionId: "session-<visible>",
+    cspSource: "x",
+  });
+
+  const configPos = html.indexOf("window.__DSH_BRIDGE__");
+  const gamePos = html.indexOf("/* mux-trail-marker */");
+  const bridgePos = html.indexOf("/* bridge-marker */");
+  const modulePos = html.indexOf('type="module"');
+  assert.ok(configPos !== -1 && configPos < gamePos);
+  assert.ok(gamePos < bridgePos, "game controller must exist before bridge lifecycle callbacks");
+  assert.ok(bridgePos < modulePos, "both DSHmux scripts must run before the upstream module");
+  assert.ok(html.includes('"visibleSessionId":"session-\\u003cvisible>"'));
+  assert.ok(html.includes('"description":"Safe \\u003csignal>"'));
+  assert.ok(!html.includes("session-<visible>"), "boot JSON must not allow a literal < into inline script data");
+});
+
 test("assembleDocument injects an explicit frame font scale", async (t) => {
   const server = await serveDist(t);
   const dist = tmpdir(t);

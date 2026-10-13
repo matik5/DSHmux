@@ -19,7 +19,7 @@ const SCRIPT = require("node:fs").readFileSync(
 );
 
 /** Install browser globals, run the bridge script, return a probe handle. */
-function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
+function loadBridge(bridgeInit, { deferDocumentBody = false, initialVsCodeState, vscodeApi } = {}) {
   const posted = [];
   const nativeFetchCalls = [];
   const listeners = {};
@@ -28,6 +28,9 @@ function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
   const themeProperties = new Map();
   const themeAttributes = new Set();
   let acquireCount = 0;
+  const muxTrailCalls = [];
+  let muxTrailStorage;
+  let vscodeState = initialVsCodeState;
 
   const window = {
     fetch: (input, init) => {
@@ -53,6 +56,11 @@ function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
     },
   };
   if (vscodeApi) window.__DSHMUX_VSCODE_API__ = vscodeApi;
+  window.__DSH_MUX_TRAIL__ = {
+    attachStorage(value) { muxTrailStorage = value; },
+    beginWait(value) { muxTrailCalls.push(["beginWait", value]); },
+    endWait(value) { muxTrailCalls.push(["endWait", value]); },
+  };
   const themeBody = {
     style: { setProperty: (name, value) => themeProperties.set(name, value) },
     toggleAttribute(name, force) {
@@ -66,8 +74,12 @@ function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
     addEventListener: (type, fn) => { documentListeners[type] = fn; },
   };
   const acquireVsCodeApi = () => {
-    acquireCount += 1;
-    return { postMessage: (msg) => posted.push(msg) };
+    acquireCount++;
+    return ({
+    postMessage: (msg) => posted.push(msg),
+    getState: () => vscodeState,
+    setState: (value) => { vscodeState = value; },
+    });
   };
   const location = { href: WEBVIEW_ORIGIN + "/", origin: WEBVIEW_ORIGIN };
   // Node ≥21 exposes a read-only global navigator; the bridge only adds a
@@ -94,16 +106,21 @@ function loadBridge(bridgeInit, { deferDocumentBody = false, vscodeApi } = {}) {
   );
   run(window, location, navigator, document, acquireVsCodeApi, URL, Headers, Response, DOMException);
 
-  return { posted, nativeFetchCalls, window, listeners, listenerOptions, document, documentListeners, themeBody, themeProperties, themeAttributes, acquireCount };
+  return {
+    posted, nativeFetchCalls, window, listeners, listenerOptions, document,
+    documentListeners, themeBody, themeProperties, themeAttributes, muxTrailCalls, acquireCount,
+    get muxTrailStorage() { return muxTrailStorage; },
+    get vscodeState() { return vscodeState; },
+  };
 }
 
-test("reuses the chrome VS Code API singleton", () => {
-  const posted = [];
-  const vscodeApi = { postMessage: (message) => posted.push(message) };
-  const h = loadBridge(undefined, { vscodeApi });
-  assert.equal(h.acquireCount, 0);
-  h.window.fetch(WEBVIEW_ORIGIN + "/api/session.list", { method: "POST", body: "{}" });
-  assert.equal(posted[0].type, "http");
+test("Mux Trail storage adapter preserves unrelated VS Code webview state", () => {
+  const saved = { version: 1, maxScore: 4, rounds: {} };
+  const h = loadBridge({}, { initialVsCodeState: { upstream: "kept", dshmuxMuxTrail: saved } });
+  assert.deepEqual(h.muxTrailStorage.load(), saved);
+  const next = { version: 1, maxScore: 9, rounds: {} };
+  h.muxTrailStorage.save(next);
+  assert.deepEqual(h.vscodeState, { upstream: "kept", dshmuxMuxTrail: next });
 });
 
 test("fetch with a URL object relays the correct path (regression: /undefined)", async () => {
@@ -297,10 +314,119 @@ function fireApproval(h, id, sessionId) {
 
 // DSH >= 0.1.2 multiplexed stream: one downlink frame is
 // { type:'item', streamId, value } and the sound-worthy meaning lives in value.
-function fireItem(h, id, value) {
-  const frame = JSON.stringify({ type: "item", streamId: "st1", value });
+function fireItem(h, id, value, streamId = "st1") {
+  const frame = JSON.stringify({ type: "item", streamId, value });
   h.listeners.message.forEach((fn) => fn({ data: { type: "ws-frame", id, data: frame } }));
 }
+
+// ---------------------------------------------------------------- Mux Trail lifecycle
+
+test("Mux Trail: legacy lifecycle is scoped to the visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s-visible" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/events.mux");
+  const id = h.posted[0].id;
+
+  fireStatus(h, id, "s-background", true);
+  fireEvent(h, id, "s-background", { type: "turn/start" });
+  assert.deepEqual(h.muxTrailCalls, []);
+
+  fireStatus(h, id, "s-visible", true);
+  fireQuestion(h, id, "s-visible");
+  fireEvent(h, id, "s-visible", { type: "turn/start" });
+  fireApproval(h, id, "s-visible");
+  fireStatus(h, id, "s-visible", false);
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s-visible"],
+    ["endWait", "question"],
+    ["beginWait", "s-visible"],
+    ["endWait", "approval"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: remote follow open maps stream id without changing ws-send", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: {} });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  const openFrame = JSON.stringify({
+    type: "open",
+    streamId: "follow-visible",
+    endpoint: "session/follow",
+    payload: { args: { sessionId: "s-visible" } },
+  });
+
+  ws.send(openFrame);
+  assert.deepEqual(h.posted[1], { type: "ws-send", id, data: openFrame });
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "not-visible");
+  assert.deepEqual(h.muxTrailCalls, []);
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "follow-visible");
+  fireItem(h, id, { type: "event", event: { type: "turn/end" } }, "follow-visible");
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s-visible"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: switching or cancelling the visible follow stream dismisses it", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: {} });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  ws.send(JSON.stringify({ type: "open", streamId: "f1", endpoint: "session/follow", payload: { args: { sessionId: "s1" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  ws.send(JSON.stringify({ type: "open", streamId: "f2", endpoint: "session/follow", payload: { args: { sessionId: "s2" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f2");
+  ws.send(JSON.stringify({ type: "cancel", streamId: "f2" }));
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s2", true] });
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "session-change"],
+    ["beginWait", "s2"],
+    ["endWait", "session-change"],
+  ]);
+});
+
+test("Mux Trail: a background follow stream cannot replace a host-pinned visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  ws.send(JSON.stringify({ type: "open", streamId: "f1", endpoint: "session/follow", payload: { args: { sessionId: "s1" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "f1");
+  ws.send(JSON.stringify({ type: "open", streamId: "background", endpoint: "session/follow", payload: { args: { sessionId: "s2" } } }));
+  fireItem(h, id, { type: "event", event: { type: "turn/start" } }, "background");
+  fireItem(h, id, { type: "event", event: { type: "turn/end" } }, "f1");
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: remote global status and user requests honor visible session", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  const ws = new h.window.WebSocket(WEBVIEW_ORIGIN + "/api/remote.mux");
+  const id = h.posted[0].id;
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s2", true] });
+  fireItem(h, id, { type: "waterfall", event: "user-questions/request", agentId: "s2" });
+  assert.deepEqual(h.muxTrailCalls, []);
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s1", true] });
+  fireItem(h, id, { type: "waterfall", event: "approval/request", agentId: "s1" });
+  fireItem(h, id, { type: "emit", event: "api-session/status", args: ["s1", false] });
+  assert.deepEqual(h.muxTrailCalls, [
+    ["beginWait", "s1"],
+    ["endWait", "approval"],
+    ["endWait", "complete"],
+  ]);
+});
+
+test("Mux Trail: non-ready server status dismisses waiting UI", () => {
+  const h = loadBridge({ serverBase: "http://x", muxTrail: { visibleSessionId: "s1" } });
+  h.listeners.message.forEach((fn) => fn({ data: { type: "server-status", state: "stopped" } }));
+  h.listeners.message.forEach((fn) => fn({ data: { type: "session-loading", loading: true } }));
+  assert.deepEqual(h.muxTrailCalls, [
+    ["endWait", "server-stopped"],
+    ["endWait", "session-loading"],
+  ]);
+});
 
 test("completion: running true->false edge plays the chime", () => {
   const h = loadBridge({ serverBase: "http://x", completionSound: true });
@@ -644,3 +770,13 @@ test("completion-sound message carries the full sound state and toggles live", (
   fireItem(h, id, { type: "emit", event: "api-session/status", args: ["a2", false] });
   assert.equal(calls.oscillators, 4, "done plays again after re-enable");
 });
+
+test("reuses the chrome VS Code API singleton", () => {
+  const posted = [];
+  const vscodeApi = { postMessage: (message) => posted.push(message) };
+  const h = loadBridge(undefined, { vscodeApi });
+  assert.equal(h.acquireCount, 0);
+  h.window.fetch(WEBVIEW_ORIGIN + "/api/session.list", { method: "POST", body: "{}" });
+  assert.equal(posted[0].type, "http");
+});
+

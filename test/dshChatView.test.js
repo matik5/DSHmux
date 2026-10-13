@@ -369,6 +369,9 @@ test("loadSession reassembles with preset and compact loading chrome", async () 
   assert.equal(assembleCalls.length, 1);
   assert.equal(assembleCalls[0].sessionPreset, JSON.stringify({ sessionId: "sess-42" }));
   assert.equal(assembleCalls[0].frameFontScale, 0.9);
+  assert.equal(assembleCalls[0].visibleSessionId, "sess-42");
+  assert.match(assembleCalls[0].muxTrailJs, /Mux Trail/);
+  assert.equal(assembleCalls[0].muxTrailStrings.open, "Play while DSH works");
   assert.match(assembleCalls[0].chromeHtml, /id="dshmux-chat-header"/);
   assert.match(assembleCalls[0].chromeHtml, /role="dialog"/);
   assert.match(assembleCalls[0].chromeHtml, /"initialSessionLoading":true/);
