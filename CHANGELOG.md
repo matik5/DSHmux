@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.15] - 2026-10-13
+
+### Changed
+- Doctor and the explicit source upgrade target revision-pinned patched DSH 0.2.0-rc.2. Provider-facing image variants retain our JPEG compatibility patch.
+
+### Removed
+- PAN lifecycle reporting, encrypted questions, follow-up commands, settings and crypto runtime dependencies. Existing local PAN state and credential files are left untouched.
+
 ## 0.4.14
 
 - Home PAN turn details include the exact chat/project name in a sealed viewer envelope.

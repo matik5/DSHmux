@@ -266,7 +266,7 @@ function makeManager(overrides = {}) {
   const manager = {
     state: overrides.state ?? "ready",
     serverUrl: overrides.serverUrl ?? "http://127.0.0.1:1",
-    dshVersion: overrides.dshVersion ?? "0.1.7-rc.1",
+    dshVersion: overrides.dshVersion ?? "0.2.0-rc.2",
     dshBinPath: "/usr/local/bin/dsh",
     authCookie: "dsh_session=test",
     startCalls: 0,
@@ -741,7 +741,7 @@ test("invalid messages are ignored and approved overflow routes stay discoverabl
     type: "status-detail",
     state: "ready",
     extensionVersion: "0.4.9",
-    dshVersion: "0.1.7-rc.1",
+    dshVersion: "0.2.0-rc.2",
   });
 });
 

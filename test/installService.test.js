@@ -14,8 +14,8 @@ const globalStorageDir = process.platform === "win32"
 const alternateParent = process.platform === "win32" ? "D:\\My Projects" : "/My Projects";
 const managedStorageDir = path.join(workspaceDir, ".dshmux");
 const homeStorageDir = path.join(os.homedir(), ".dshmux");
-const managedCheckoutDir = path.join(homeStorageDir, "deepseek-harness-0.1.7-rc.1");
-const alternateCheckoutDir = path.join(alternateParent, "deepseek-harness-0.1.7-rc.1");
+const managedCheckoutDir = path.join(homeStorageDir, "deepseek-harness-0.2.0-rc.2");
+const alternateCheckoutDir = path.join(alternateParent, "deepseek-harness-0.2.0-rc.2");
 const sourceBinFor = (checkoutDir) => path.join(checkoutDir, "apps", "cli", "lib", "bin.js");
 
 let modalAnswer;
@@ -151,7 +151,7 @@ function runtime(overrides = {}) {
       },
       validate: (spec) => {
         calls.validate.push(spec);
-        return { valid: true, version: "0.1.7-rc.1" };
+        return { valid: true, version: "0.2.0-rc.2" };
       },
       ...overrides,
     },
@@ -183,7 +183,7 @@ test("managed install cancellation at confirmation makes no changes", async () =
   const rt = runtime();
   assert.equal(await svc.runManagedInstall(context, rt.value), false);
   assert.equal(messages.length, 1);
-  assert.match(messages[0], /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.1\.7-rc\.1/);
+  assert.match(messages[0], /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.2\.0-rc\.2/);
   assert.ok(messages[0].includes(homeStorageDir), "modal shows the user-level default destination");
   assert.deepEqual(informationCalls[0].items, [
     "Install globally",
@@ -219,7 +219,7 @@ test("managed install runs exact pinned non-global npm spec and verifies it", as
   assert.equal(spec.command, "npm");
   assert.deepEqual(spec.args, [
     "install", "--prefix", spec.cwd, "--no-save", "--no-audit", "--no-fund",
-    "@deepseek-ai/dsh@0.1.7-rc.1",
+    "@deepseek-ai/dsh@0.2.0-rc.2",
   ]);
   assert.ok(!spec.args.includes("-g"));
   assert.deepEqual(rt.calls.validate, [spec]);
@@ -261,11 +261,11 @@ test("patched source is offered as a project checkout under .dshmux", async () =
   assert.equal(await svc.runManagedInstall(context, rt.value), true);
 
   assert.equal(informationCalls.filter((call) => call.options?.modal).length, 1);
-  assert.match(informationCalls[0].message, /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.1\.7-rc\.1/);
+  assert.match(informationCalls[0].message, /matik5\/deepseek-harness\.git#matik\/dsh-patches-0\.2\.0-rc\.2/);
   assert.ok(informationCalls[0].message.includes(managedCheckoutDir));
   assert.equal(rt.calls.run[0].cwd, managedCheckoutDir);
   assert.equal(rt.calls.run[0].source.repo, "https://github.com/matik5/deepseek-harness.git");
-  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.1.7-rc.1");
+  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.2.0-rc.2");
   assert.equal(
     workspaceValues.get("dsh.sourceCheckoutBin"),
     sourceBinFor(managedCheckoutDir)
@@ -279,8 +279,8 @@ test("patched upgrade offers only the pinned fork and a destination change", asy
 
   assert.equal(await svc.runManagedInstall(context, rt.value, true), true);
   assert.deepEqual(informationCalls[0].items, ["Install to shown location", "Change…"]);
-  assert.match(informationCalls[0].message, /matik\/dsh-patches-0\.1\.7-rc\.1/);
-  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.1.7-rc.1");
+  assert.match(informationCalls[0].message, /matik\/dsh-patches-0\.2\.0-rc\.2/);
+  assert.equal(rt.calls.run[0].source.ref, "matik/dsh-patches-0.2.0-rc.2");
   assert.equal(workspaceValues.get("dsh.sourceCheckoutBin"), sourceBinFor(managedCheckoutDir));
   assert.deepEqual(configUpdates, [{
     key: "dshPath", value: sourceBinFor(managedCheckoutDir), target: fakeVscode.ConfigurationTarget.Global,
@@ -321,7 +321,7 @@ test("global choice runs the pinned npm global install and does not persist a pr
 
   assert.deepEqual(rt.calls.run[0].args, [
     "install", "--global", "--no-audit", "--no-fund",
-    "@deepseek-ai/dsh@0.1.7-rc.1",
+    "@deepseek-ai/dsh@0.2.0-rc.2",
   ]);
   assert.equal(rt.calls.run[0].scope, "global");
   assert.deepEqual(rt.calls.mkdir, []);
@@ -333,7 +333,7 @@ test("remembered source checkout precedes default, project, and legacy managed i
   const source = sourceBinFor(path.join(path.dirname(workspaceDir), "deepseek-harness"));
   workspaceValues.set("dsh.sourceCheckoutBin", source);
   const dshBinIn = (root) => path.join(
-    root, "managed-dsh", "0.1.7-rc.1", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"
+    root, "managed-dsh", "0.2.0-rc.2", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"
   );
   const bins = svc.managedBinsForContext(context);
   assert.deepEqual(bins, [
@@ -478,7 +478,7 @@ test("successful npm with wrong or missing CLI fails verification and can retry"
   const rt = runtime({
     validate: () => ++attempt === 1
       ? { valid: false, version: "0.1.5-rc.1" }
-      : { valid: true, version: "0.1.7-rc.1" },
+      : { valid: true, version: "0.2.0-rc.2" },
   });
   assert.equal(await svc.runManagedInstall(context, rt.value), false);
   assert.equal(await svc.runManagedInstall(context, rt.value), true);
@@ -646,7 +646,7 @@ test("generic upgrade UI is suppressed for a version-pinned managed DSH", () => 
     ["dsh.nextVersion", "0.1.6-rc.1"],
   ]);
   const upgradeContext = { workspaceState: { get: (key) => values.get(key) } };
-  const managed = "C:\\Code Storage\\managed-dsh\\0.1.7-rc.1\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
-  assert.equal(service.upgradeInfo(upgradeContext, "0.1.7-rc.1", managed), undefined);
+  const managed = "C:\\Code Storage\\managed-dsh\\0.2.0-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
+  assert.equal(service.upgradeInfo(upgradeContext, "0.2.0-rc.2", managed), undefined);
   assert.ok(service.upgradeInfo(upgradeContext, "0.1.5-rc.2", "C:\\Users\\me\\AppData\\Roaming\\npm\\dsh.cmd"));
 });

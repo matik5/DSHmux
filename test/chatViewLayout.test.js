@@ -87,8 +87,8 @@ test("chat webview retains context and packaged media includes chrome assets", (
     /registerWebviewViewProvider\(DshChatView\.viewType, chatView, \{[\s\S]*?retainContextWhenHidden: true/
   );
   assert.ok(pkg.files.includes("media/**"));
-  assert.deepEqual(pkg.dependencies, {"libsodium-wrappers-sumo": "^0.8.4", ws: "^8.21.3"},
-    "only the WebSocket and PAN mailbox crypto runtimes are packaged");
+  assert.deepEqual(pkg.dependencies, {ws: "^8.21.3"},
+    "only the WebSocket runtime is packaged");
   assert.match(extensionSource, /panels\.open\([\s\S]*?JSON\.stringify\(\{ sessionId \}\)/);
 });
 
@@ -135,8 +135,8 @@ test("settings place feedback sounds immediately above experimental dictation", 
   assert.match(nls["setting.localDictation.enabled.description"], /1\.6 GB/);
 });
 
-test("feature release manifests agree on version 0.4.14", () => {
-  assert.equal(pkg.version, "0.4.14");
-  assert.equal(lock.version, "0.4.14");
-  assert.equal(lock.packages?.[""]?.version, "0.4.14");
+test("feature release manifests agree on version 0.4.15", () => {
+  assert.equal(pkg.version, "0.4.15");
+  assert.equal(lock.version, "0.4.15");
+  assert.equal(lock.packages?.[""]?.version, "0.4.15");
 });

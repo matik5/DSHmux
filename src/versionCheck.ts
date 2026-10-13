@@ -7,7 +7,7 @@
  * only after the launcher, session RPCs, and embedded client are verified
  * against that build.
  */
-export const TESTED_DSH_VERSION = "0.1.7-rc.1";
+export const TESTED_DSH_VERSION = "0.2.0-rc.2";
 
 export type DshCompatibility = "tested" | "older" | "newer" | "unknown";
 

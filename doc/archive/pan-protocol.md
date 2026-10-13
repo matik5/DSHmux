@@ -1,4 +1,6 @@
-# Optional PAN integration: DSHmux client protocol
+# Retired PAN integration: historical client protocol
+
+PAN support was removed in DSHmux 0.4.15. This document records the former implementation and is not a supported interface.
 
 This describes the experimental **DSHmux adapter**, as implemented in `src/panLifecycle.ts` and `src/panQuestionBridge.ts`. It records the requests DSHmux sends and the responses it accepts. The PAN counterpart is still under development; this is a provisional client contract, not a PAN service, deployment, or viewer implementation guide.
 
@@ -190,7 +192,7 @@ Text-only answers have `selected:[]`; `custom` is omitted for empty text. DSH HT
 - Disabling prevents further forwarding but does not erase remote records. The ordinary DSH UI remains the input path when disabled. In-flight requests cannot be recalled.
 - Automated tests cover a simulated DSH stream and an encrypted mailbox round trip, cancellation, unsupported-shape delegation, and optional lifecycle control. Live acceptance against the developing PAN counterpart remains unverified.
 
-Implementation references: [activation](../src/extension.ts), [optional controller](../src/panIntegration.ts), [quiet events](../src/panLifecycle.ts), [question bridge](../src/panQuestionBridge.ts).
+The former implementation is retained in Git history.
 
 
 ## 0.4.10: context, contact and handover evidence

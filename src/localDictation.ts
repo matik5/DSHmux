@@ -2,8 +2,9 @@ import { ChildProcess, ForkOptions, fork as nodeFork } from "node:child_process"
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { managedModelPath } from "./localDictationModel.js";
+import { TESTED_DSH_VERSION } from "./versionCheck.js";
 
-export const LOCAL_DICTATION_DSH_VERSION = "0.1.5-rc.2";
+export const LOCAL_DICTATION_DSH_VERSION = TESTED_DSH_VERSION;
 
 export type LocalDictationLanguage = "en-US" | "et-EE";
 export type LocalDictationState =

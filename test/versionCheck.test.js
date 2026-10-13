@@ -16,9 +16,10 @@ import {
 } from "../out/versionCheck.js";
 
 test("dshCompatibility pins this DSHmux release to the verified DSH build", () => {
-  assert.equal(TESTED_DSH_VERSION, "0.1.7-rc.1");
-  assert.equal(dshCompatibility("0.1.7-rc.1"), "tested");
-  assert.equal(dshCompatibility(" 0.1.7-rc.1 "), "tested");
+  assert.equal(TESTED_DSH_VERSION, "0.2.0-rc.2");
+  assert.equal(dshCompatibility("0.2.0-rc.2"), "tested");
+  assert.equal(dshCompatibility(" 0.2.0-rc.2 "), "tested");
+  assert.equal(dshCompatibility("0.1.7-rc.1"), "older");
   assert.equal(dshCompatibility("0.1.5-rc.1"), "older");
   assert.equal(dshCompatibility("0.1.5-alpha.2"), "older");
   assert.equal(dshCompatibility("0.1.4"), "older");

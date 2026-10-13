@@ -40,7 +40,7 @@
 ## Requirements
 
 - Node.js 22.19+ within the 22.x line, or Node.js 24+. Node is required because DeepSeek Harness is a Node.js CLI and server.
-- DeepSeek Harness can be installed automatically with **DSHmux: Doctor**. It installs the pinned [`matik/dsh-patches-0.1.7-rc.1`](https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.1.7-rc.1) source build on the workspace host (including Remote SSH, WSL, and containers). The Doctor also offers the official npm package.
+- DeepSeek Harness can be installed automatically with **DSHmux: Doctor**. It installs the pinned [`matik/dsh-patches-0.2.0-rc.2`](https://github.com/matik5/deepseek-harness/tree/matik/dsh-patches-0.2.0-rc.2) source build on the workspace host (including Remote SSH, WSL, and containers). The Doctor also offers the official npm package.
 - VS Code ≥ 1.90 (the extension also works in Antigravity via Open VSX)
 
 ## Install
@@ -68,21 +68,6 @@ To make DSH use your project as its default workspace, open that folder in the w
 | `dshmux.soundAsk` | `true` | Play a sound when the harness asks for your input, such as a question or approval prompt (requires the master switch). |
 | `dshmux.frameFontScale` | `0.9` | Zoom for the embedded DSH UI content (1 = default size); lower values make the interface more compact. Range 0.5–1.5. |
 
-## Optional PAN integration (experimental)
-
-PAN is **off by default** and is not required for normal DSH chat. Set `dshmux.panEnabled` to `true` to enable quiet turn-end reporting and encrypted forwarding of supported single questions/answers. Existing token/key paths alone do not enable it. Turn it off at any time without restarting DSH.
-
-| Setting | Default | Purpose |
-|---|---|---|
-| `dshmux.panEnabled` | `false` | Explicit opt-in for both PAN flows. |
-| `dshmux.panTokenFile` | empty | Absolute path to a private local bearer-token file on the extension host; required for either flow. |
-| `dshmux.panMailboxKeyFile` | empty | Absolute path to a private mailbox key on the extension host; required for questions/answers. Leave empty for quiet events only. |
-
-Version0.4.12 requires PAN migration0020 and the encrypted control API for new phone commands. Existing question answers retain the migration0017/0018 runtime-contact/evidence flow. Reload the VS Code window after installing. Existing private keys and reply queues are retained; harness acceptance is shown separately from model progress.
-
-The PAN **Vasta** composer can queue a new encrypted instruction to the exact existing DSH session in an open workspace. It does not start a missing session, match chat titles, or send to the focused chat. Commands expire after one hour in the PWA. Private command receipts retain only IDs and delivery state; an uncertain send is never blindly repeated. Accepted means the harness queued the instruction, not that the model finished. Ordinary turn-end reporting remains quiet. The existing research controller can keep its pinned0.4.11 bridge because the new workspace receiver is optional.
-
-See [DSHmux PAN client protocol](doc/pan-protocol.md) for configuration, sent/received message formats, encryption, answer validation, ACK, cancellation and retry limits. The PAN counterpart is still under development; this documents the current DSHmux adapter only.
 
 ## Development
 

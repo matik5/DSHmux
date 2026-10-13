@@ -14,11 +14,8 @@ import { DshChatView } from "./dshChatView.js";
 import { registerThemeSync } from "./themeSync.js";
 import { normalizePath, shouldAutoRestart } from "./workspaceTracker.js";
 import { checkForUpdates } from "./versionCheckService.js";
-import { affectsDshmuxConfiguration, configuredDshBin, dshmuxConfiguration } from "./configuration.js";
+import { configuredDshBin } from "./configuration.js";
 import { TESTED_DSH_VERSION } from "./versionCheck.js";
-import { PanLifecycleObserver } from "./panLifecycle.js";
-import { PanQuestionBridge } from "./panQuestionBridge.js";
-import { PanIntegration } from "./panIntegration.js";
 
 const WAS_RUNNING_KEY = "dsh.wasRunning";
 const PANELS_KEY = "dsh.panels";
@@ -38,25 +35,6 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   manager.on("log", (msg: string) => console.log("[dsh]", msg));
   manager.on("stderr", (msg: string) => console.log("[dsh]", msg));
-  const panManager = manager;
-  const pan = new PanIntegration(
-    () => new PanLifecycleObserver(panManager, context.workspaceState,
-      () => dshmuxConfiguration("panTokenFile", "")),
-    () => new PanQuestionBridge(panManager,
-      () => dshmuxConfiguration("panTokenFile", ""),
-      () => dshmuxConfiguration("panMailboxKeyFile", ""), fetch, workspaceRoot)
-  );
-  const syncPan = (): void => pan.sync(
-    dshmuxConfiguration("panEnabled", false), panManager.state === "ready", workspaceRoot()
-  );
-  context.subscriptions.push(pan);
-  manager.on("state", syncPan);
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
-    if (["panEnabled", "panTokenFile", "panMailboxKeyFile"].some(key => affectsDshmuxConfiguration(event, key))) {
-      syncPan();
-    }
-  }));
-
   const theme = registerThemeSync(
     context,
     () => manager?.serverUrl,
@@ -144,7 +122,6 @@ export function activate(context: vscode.ExtensionContext): void {
       if (normalizePath(newRoot) !== normalizePath(trackedRoot)) {
         trackedRoot = newRoot;
         panels.closeAll();
-        syncPan();
       }
     })
   );
