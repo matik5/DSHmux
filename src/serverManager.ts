@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { normalizePath } from "./workspaceTracker.js";
 import { shouldPassNoOpen } from "./versionCheck.js";
+import { readSessionExcerpt } from "./panExcerpt.js";
 import { repairProfileLinkCasing } from "./profileLinkRepair.js";
 
 /**
@@ -1135,6 +1136,10 @@ export class DshServerManager extends EventEmitter {
     const title = session.projections?.values?.title;
     return {title: typeof title === "string" ? title : undefined,
       cwd: typeof session.cwd === "string" ? session.cwd : undefined};
+  }
+
+  async readQuestionExcerpt(sessionId: string): Promise<string> {
+    return readSessionExcerpt(this.serverUrl, this.authCookie, sessionId);
   }
 
   /** Search visible DSH session message content without activating a session. */

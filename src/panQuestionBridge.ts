@@ -1,3 +1,4 @@
+import { tailExcerpt } from "./panExcerpt.js";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -64,7 +65,7 @@ function wireQuestion(value: unknown): Invocation | undefined {
   return value as Invocation;
 }
 
-export function questionPayload(frame: Invocation, sourceId: string, display?: DisplayContext): { requestId: string; plaintext: RecordValue;
+export function questionPayload(frame: Invocation, sourceId: string, display?: DisplayContext, excerpt?: string): { requestId: string; plaintext: RecordValue;
   workstreamId: string; runId: string } {
   const q = frame.request.questions[0]!;
   const workstreamId = ID.test(frame.agentId) ? frame.agentId : `agent.${stableId(frame.agentId)}`;
@@ -80,6 +81,7 @@ export function questionPayload(frame: Invocation, sourceId: string, display?: D
     version: 1, direction: "agent_to_viewer", source_id: sourceId, request_id: requestId,
     workstream_id: workstreamId, run_id: runId, title, prompt, choices, allow_message: true,
     ...(display && Object.keys(display).length ? {context: display} : {}),
+    ...(excerpt?.trim() ? {excerpt: tailExcerpt(excerpt)} : {}),
   }};
 }
 
@@ -265,8 +267,8 @@ export class PanQuestionBridge implements vscode.Disposable {
     }
   }
 
-  private encryptedBody(frame: Invocation, context: Context, display?: DisplayContext): {body: RecordValue; requestId: string} {
-    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id, display);
+  private encryptedBody(frame: Invocation, context: Context, display?: DisplayContext, excerpt?: string): {body: RecordValue; requestId: string} {
+    const {requestId, plaintext, workstreamId, runId} = questionPayload(frame, context.source_id, display, excerpt);
     const file = this.spoolPath(requestId);
     if (fs.existsSync(file)) return {body: JSON.parse(privateFile(file)) as RecordValue, requestId};
     const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
@@ -290,9 +292,15 @@ export class PanQuestionBridge implements vscode.Disposable {
     try {
       const context = await this.cryptoContext();
       if (!this.active) return;
-      const display = fs.existsSync(this.spoolPath(pending.requestId)) ? undefined : await this.displayContext(frame);
+      const saved = fs.existsSync(this.spoolPath(pending.requestId));
+      const display = saved ? undefined : await this.displayContext(frame);
+      let excerpt: string | undefined;
+      if (!saved) {
+        try { excerpt = await this.manager.readQuestionExcerpt?.(frame.agentId); }
+        catch { /* Optional text must never block delivery or select another session. */ }
+      }
       if (!this.active) return;
-      const {body} = this.encryptedBody(frame, context, display);
+      const {body} = this.encryptedBody(frame, context, display, excerpt);
       pending.body = body;
       await this.postQuestion(pending);
       if (!pending.cancelled) await this.pollAnswers();
